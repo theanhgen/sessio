@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sessio — resume your Claude Code sessions from the terminal</title>
+<meta name="description" content="A fast, dependency-free terminal browser to find and resume your past Claude Code sessions. Project tabs, full-text search, live refresh, resume-in-place.">
+<meta property="og:title" content="sessio">
+<meta property="og:description" content="Find and resume your past Claude Code sessions from the terminal.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#121519; --panel2:#171b21; --line:#242a31;
+    --fg:#e6e9ee; --dim:#8a93a0; --dimmer:#5c6470;
+    --cyan:#4ec9d4; --green:#4ec96a; --orange:#e88a2b; --yellow:#e2c15a;
+    --accent:#4ec9d4; --radius:14px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+    line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    background-image:radial-gradient(1200px 600px at 50% -10%,rgba(78,201,212,.06),transparent 70%);
+  }
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px}
+  code,kbd,.mono{font-family:var(--mono)}
+
+  /* nav */
+  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+  .brand{font-family:var(--mono);font-weight:600;font-size:18px;letter-spacing:.02em}
+  .brand .dot{color:var(--green)}
+  .nav-links{display:flex;gap:22px;font-size:14px}
+  .nav-links a{color:var(--dim)}
+  .nav-links a:hover{color:var(--fg);text-decoration:none}
+
+  /* hero */
+  header{padding:56px 0 40px;text-align:center}
+  .kicker{font-family:var(--mono);font-size:13px;color:var(--dimmer);letter-spacing:.14em;text-transform:uppercase}
+  h1{font-size:clamp(40px,8vw,72px);line-height:1;margin:14px 0 0;font-weight:700;letter-spacing:-.02em}
+  h1 .u{color:var(--cyan)}
+  .tagline{font-size:clamp(18px,3.5vw,24px);color:var(--dim);margin:18px auto 0;max-width:620px}
+  .latin{font-family:var(--mono);font-size:13px;color:var(--dimmer);margin-top:14px}
+  .latin em{color:var(--dim);font-style:normal}
+
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:30px}
+  .install{display:inline-flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:15px}
+  .install .p{color:var(--dimmer)}
+  .install button{all:unset;cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:12px;
+    border:1px solid var(--line);border-radius:6px;padding:3px 8px;transition:.15s}
+  .install button:hover{color:var(--fg);border-color:var(--dimmer)}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:10px;font-size:15px;
+    border:1px solid var(--line);color:var(--fg);background:var(--panel);transition:.15s}
+  .btn:hover{border-color:var(--dimmer);text-decoration:none;transform:translateY(-1px)}
+  .btn.primary{background:var(--cyan);color:#03211f;border-color:var(--cyan);font-weight:600}
+  .btn.primary:hover{background:#63d6e0}
+
+  /* terminal mock */
+  .term{margin:44px auto 0;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.02) inset;text-align:left}
+  .term-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
+  .term-bar .b{width:11px;height:11px;border-radius:50%;background:#3a4048}
+  .term-bar .t{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--dimmer)}
+  .term pre{margin:0;padding:18px 18px 20px;font-family:var(--mono);font-size:12.5px;line-height:1.5;
+    overflow-x:auto;color:var(--fg);tab-size:2}
+  .c-dim{color:var(--dimmer)} .c-cyan{color:var(--cyan)} .c-green{color:var(--green)}
+  .c-orange{color:var(--orange)} .c-yellow{color:var(--yellow)} .c-mut{color:var(--dim)}
+  .sel{background:var(--cyan);color:#03211f}
+  .b{font-weight:700}
+
+  /* sections */
+  section{padding:52px 0}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer);
+    margin:0 0 26px;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 20px 22px}
+  .card h3{margin:0 0 6px;font-size:16px}
+  .card h3 .i{color:var(--cyan);font-family:var(--mono);margin-right:8px}
+  .card p{margin:0;color:var(--dim);font-size:14.5px}
+
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+  th{color:var(--dimmer);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;
+    padding:1px 7px;font-size:12.5px;color:var(--fg)}
+  td.k{white-space:nowrap}
+
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--orange);
+    border-radius:10px;padding:16px 18px;color:var(--dim);font-size:14.5px}
+  .note b{color:var(--fg)}
+
+  footer{border-top:1px solid var(--line);margin-top:40px;padding:30px 0 60px;color:var(--dimmer);font-size:13.5px;
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  footer a{color:var(--dim)}
+  .disc{max-width:560px}
+  @media(max-width:560px){.nav-links{gap:16px}.install{font-size:13px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <div class="brand">sessio<span class="dot">●</span></div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#keys">Keys</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/theanhgen/sessio">GitHub</a>
+    </div>
+  </nav>
+
+  <header>
+    <div class="kicker">Claude Code · terminal</div>
+    <h1><span class="u">sessio</span></h1>
+    <p class="tagline">Find and resume your past Claude Code sessions — the right one, in the right directory — without hunting through <code>claude&nbsp;--resume</code>.</p>
+    <p class="latin">Latin · <em>sessiō</em> — a sitting, a session. The root the English word grew from.</p>
+
+    <div class="cta">
+      <span class="install"><span class="p">$</span><span id="cmd">npm i -g sessio</span>
+        <button onclick="copyCmd()" id="copy">copy</button></span>
+      <a class="btn primary" href="https://www.npmjs.com/package/sessio">View on npm</a>
+      <a class="btn" href="https://github.com/theanhgen/sessio">Star on GitHub</a>
+    </div>
+
+    <div class="term" aria-label="sessio terminal preview">
+      <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">sessions</span></div>
+<pre>
+<span class="c-dim">←→ project · ↑↓ move · type · ^f search-in-text · ⇥ expand-reply · ↵ resume · esc quit · </span><span class="c-cyan">live</span>
+<span class="sel"> All </span> <span class="c-dim"> bitbybit  sessio  nere  melnik  locus </span>
+<span class="c-cyan">›</span> <span class="c-dim">▏</span>
+<span class="c-green">●</span><span class="sel"> ship sessio to npm                    bitbybit    12K  2m </span>
+<span class="c-orange">●</span> <span class="b">fix melnik invoice rounding</span>          <span class="c-dim">melnik      8K  4h</span>
+<span class="c-orange">●</span> refactor session scan cache          <span class="c-dim">sessio     21K  9h</span>
+  parse compact summaries              <span class="c-dim">sessio     16K  1d</span>
+<span class="c-dim"> ↓ 291 more — press ↓ to reveal</span>
+<span class="c-dim">──────────────────────────────────────────────────────────</span>
+<span class="c-cyan">ship sessio to npm</span>  <span class="c-yellow">named</span>
+<span class="c-dim">bitbybit · 2m ago · 14 prompts · 12K · main</span>
+<span class="c-dim">reply · 5 Jul 19:31 [2m]</span>
+<span class="c-dim">│</span> Both gates cleared: <span class="b">auth works</span> (npm whoami), and the
+<span class="c-dim">│</span> handle is fixed across package.json, LICENSE, README.
+<span class="c-dim">│</span> Ready to <span class="c-cyan">npm publish</span>. <span class="c-dim">… ⇥ for full</span>
+</pre>
+    </div>
+  </header>
+
+  <section id="features">
+    <h2>What it does</h2>
+    <div class="grid">
+      <div class="card"><h3><span class="i">⇥</span>Project tabs</h3><p>Sessions grouped by working directory. <kbd>←</kbd><kbd>→</kbd> to switch, or see them <span class="mono">All</span> at once.</p></div>
+      <div class="card"><h3><span class="i">/</span>Type to filter</h3><p>Instantly narrows by title, project, or first prompt as you type — no mode to enter.</p></div>
+      <div class="card"><h3><span class="i">^f</span>Full-text search</h3><p>Greps the entire transcript body for a term across <em>every</em> session on disk, via ripgrep.</p></div>
+      <div class="card"><h3><span class="i">●</span>Live &amp; recent</h3><p>Refreshes every 2s. A running session floats up with a <span class="c-green">green</span> dot; recent ones stay <span class="c-orange">orange</span>.</p></div>
+      <div class="card"><h3><span class="i">¶</span>Rendered preview</h3><p>Title, branch, prompt count, the compact summary, first/last prompt, and Claude's last reply as markdown.</p></div>
+      <div class="card"><h3><span class="i">↵</span>Resume in place</h3><p>Runs <span class="mono">claude --resume</span> in that session's original directory — you land exactly where you left off.</p></div>
+    </div>
+  </section>
+
+  <section id="keys">
+    <h2>Keys</h2>
+    <table>
+      <tr><th>Key</th><th>Action</th></tr>
+      <tr><td class="k"><kbd>←</kbd> <kbd>→</kbd></td><td>Switch project tab</td></tr>
+      <tr><td class="k"><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move selection (<kbd>↓</kbd> reveals more)</td></tr>
+      <tr><td class="k">type</td><td>Filter by name / project / first prompt</td></tr>
+      <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across all transcripts</td></tr>
+      <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Expand / collapse the reply preview</td></tr>
+      <tr><td class="k"><kbd>↵</kbd></td><td>Resume the selected session in its directory</td></tr>
+      <tr><td class="k"><kbd>esc</kbd></td><td>Clear content search, then quit</td></tr>
+    </table>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <div class="term" style="margin-top:0">
+      <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">zsh</span></div>
+<pre><span class="c-dim"># install globally (adds the `sessions` command)</span>
+<span class="c-green">$</span> npm install -g sessio
+
+<span class="c-dim"># run it</span>
+<span class="c-green">$</span> sessions
+
+<span class="c-dim"># optional: full-text search needs ripgrep</span>
+<span class="c-green">$</span> brew install ripgrep   <span class="c-dim"># or: apt install ripgrep</span></pre>
+    </div>
+    <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Requires <b style="color:var(--fg)">Node.js ≥ 16</b> and <b style="color:var(--fg)">Claude Code</b> (the <span class="mono">claude</span> binary on your PATH). macOS and Linux.</p>
+  </section>
+
+  <section style="padding-top:0">
+    <div class="note"><b>Note:</b> sessio reads Claude Code's transcript files at <span class="mono">~/.claude/projects/**/*.jsonl</span>. That format is undocumented and internal to Claude Code — it may change without notice. sessio parses defensively and degrades gracefully, but this project is not affiliated with or endorsed by Anthropic.</div>
+  </section>
+
+  <footer>
+    <div class="disc">MIT © 2026 theanhgen · not affiliated with Anthropic</div>
+    <div><a href="https://www.npmjs.com/package/sessio">npm</a> · <a href="https://github.com/theanhgen/sessio">GitHub</a> · <a href="https://github.com/theanhgen/sessio/issues">Issues</a></div>
+  </footer>
+</div>
+
+<script>
+  function copyCmd(){
+    navigator.clipboard.writeText('npm i -g sessio').then(function(){
+      var b=document.getElementById('copy');b.textContent='copied';
+      setTimeout(function(){b.textContent='copy'},1400);
+    });
+  }
+</script>
+</body>
+</html>

@@ -2,6 +2,8 @@
 
 **Find and resume your past [Claude Code](https://claude.com/claude-code) sessions from the terminal.**
 
+🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
+
 `sessio` is a fast, dependency-free TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. Project tabs, type-to-filter, full-text search, a live-updating list, and a preview of where each session left off.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
