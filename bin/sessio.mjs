@@ -19,7 +19,7 @@ const RG = (() => {
   return null;
 })();
 
-const proj = (d) => d.replace(/^-(?:Users|home|root)-[^-]*-?/, '').split('-').slice(-2).join('/');
+const proj = (d) => d.replace(/^-Users-[^-]+-/, '').split('-').slice(-2).join('/');
 const ago = (ms) => {
   const s = (Date.now() - ms) / 1000;
   if (s < 3600) return Math.max(1, Math.round(s / 60)) + 'm';
@@ -33,7 +33,29 @@ const ts = (iso) => { if (!iso) return ' '.repeat(12); const d = new Date(iso), 
 // one full pass over a transcript: cwd, first/last typed prompt, prompt count,
 // custom title (user-set) and ai title (auto). Gated string.includes keeps giant
 // tool-result lines from being JSON-parsed.
-function scan(file) {
+// light head read for the LIST: first typed prompt, cwd, branch, and any early title.
+// stops after ~400 lines once first+cwd are known, so giant transcripts aren't fully read.
+function head(file) {
+  return new Promise((res) => {
+    const rl = readline.createInterface({ input: fs.createReadStream(file) });
+    let n = 0, first = null, firstTs = null, cwd = null, branch = null, custom = null, ai = null;
+    rl.on('line', (l) => {
+      n++;
+      if (l.includes('-title"')) { try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = o.customTitle; else if (o.type === 'ai-title' && o.aiTitle) ai = ai || o.aiTitle; } catch {} }
+      else if (l.includes('"promptSource":"typed"')) {
+        try { const o = JSON.parse(l); if (o.type === 'user' && o.message) { const c = o.message.content; if (typeof c === 'string' && c.trim() && !c.startsWith('<')) { if (!first) { first = c.trim(); firstTs = o.timestamp || null; } if (!cwd && o.cwd) cwd = o.cwd; if (!branch && o.gitBranch) branch = o.gitBranch; } } } catch {}
+      }
+      else if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = o.cwd; } catch {} }
+      if (n >= 400 && first && cwd) rl.close();
+    });
+    const done = () => res({ first, firstTs, cwd, branch, custom, ai });
+    rl.on('close', done); rl.on('error', done);
+  });
+}
+
+// full read for the DETAIL panel of the highlighted session only (lazy): last prompt,
+// prompt count, compact summary, last assistant reply, and any late-set title.
+function detail(file) {
   return new Promise((res) => {
     const rl = readline.createInterface({ input: fs.createReadStream(file) });
     let cwd = null, first = null, last = null, firstTs = null, lastTs = null, count = 0, custom = null, ai = null, branch = null, summary = null, summaryTs = null, reply = null, replyTs = null;
@@ -82,9 +104,47 @@ function scan(file) {
       }
       if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = o.cwd; } catch {} }
     });
-    const done = () => res({ cwd, first, last, firstTs, lastTs, count, custom, ai, branch, summary, summaryTs, reply, replyTs });
+    const done = () => res({ cwd, first, last, firstTs, lastTs, count, custom, ai, branch, summary, summaryTs, reply, replyTs, _loaded: true });
     rl.on('close', done); rl.on('error', done);
   });
+}
+
+// cheap tail read (last ~64KB) to tell whether a session is "open": who spoke last,
+// and — if Claude — whether it ended on a question / proposal you didn't answer.
+const CTA = /\?\s*["')\]]*\s*$|\b(want me to|should i|shall i|do you want|let me know|ready to|next step|proceed\b|which (one|of)|confirm)\b/i;
+function tail(file) {
+  return new Promise((res) => {
+    fs.stat(file, (e, st) => {
+      if (e) return res({});
+      const rl = readline.createInterface({ input: fs.createReadStream(file, { start: Math.max(0, st.size - 65536) }) });
+      let reply = null, replyTs = null, userTs = null; // last assistant text vs last typed user prompt
+      rl.on('line', (l) => {
+        if (l.includes('"type":"assistant"') && l.includes('"type":"text"')) {
+          try { const o = JSON.parse(l); if (o.type === 'assistant' && Array.isArray(o.message?.content)) { const t = o.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n'); if (t.trim()) { reply = t.trim(); replyTs = o.timestamp || replyTs; } } } catch {}
+        } else if (l.includes('"promptSource":"typed"')) {
+          try { const o = JSON.parse(l); if (o.type === 'user' && typeof o.message?.content === 'string' && o.message.content.trim() && !o.message.content.startsWith('<')) userTs = o.timestamp || userTs; } catch {}
+        }
+      });
+      const done = () => {
+        const T = (x) => x ? new Date(x).getTime() : 0;
+        let open = false, why = '';
+        if (userTs && T(userTs) > T(replyTs)) { open = true; why = 'your prompt got no reply'; }
+        else if (reply && CTA.test(reply.slice(-400))) { open = true; why = 'Claude asked / proposed next'; }
+        res({ open, why });
+      };
+      rl.on('close', done); rl.on('error', done);
+    });
+  });
+}
+
+const gitCache = new Map(); // cwd -> {dirty, at}; re-check at most every 20s
+function gitDirty(cwd) {
+  const c = gitCache.get(cwd);
+  if (c && Date.now() - c.at < 20000) return c.dirty;
+  let dirty = false;
+  try { const r = spawnSync('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', timeout: 2000 }); dirty = r.status === 0 && r.stdout.trim().length > 0; } catch {}
+  gitCache.set(cwd, { dirty, at: Date.now() });
+  return dirty;
 }
 
 function wrap(text, width, maxLines) {
@@ -101,7 +161,8 @@ function wrap(text, width, maxLines) {
   return lines.length ? lines : [''];
 }
 
-const cache = new Map(); // id -> {mtime, ...scan()}; skip re-reading unchanged files on refresh
+const hCache = new Map(); // id -> {mtime, ...head()}   list metadata (fast)
+const dCache = new Map(); // id -> {mtime, ...detail()} preview metadata (lazy, per highlight)
 async function load() {
   const rows = [];
   for (const d of fs.readdirSync(ROOT)) {
@@ -115,31 +176,42 @@ async function load() {
     }
   }
   rows.sort((a, b) => b.mtime - a.mtime);
-  const slice = rows.slice(0, CAP);
-  for (const r of slice) {
-    const c = cache.get(r.id);
-    const info = (c && c.mtime === r.mtime) ? c : { mtime: r.mtime, ...(await scan(r.file)) };
-    cache.set(r.id, info);
+  const items = [];
+  for (const r of rows.slice(0, CAP)) {
+    const c = hCache.get(r.id);
+    const info = (c && c.mtime === r.mtime) ? c : { mtime: r.mtime, ...(await head(r.file)), ...(await tail(r.file)) };
+    hCache.set(r.id, info);
     Object.assign(r, info);
-    r.first = r.first || '(no prompt)';
+    if (!r.first) continue; // skip empty (0-prompt) sessions
     r.title = r.custom || r.ai || null;
     r.name = r.title || r.first;
+    // "Claude proposed next" is weak (most replies offer next steps) — only count it when
+    // recent (last 3 days); unanswered prompts and git-WIP count at any age.
+    if (r.open && r.why === 'Claude proposed next' && Date.now() - r.mtime > 3 * 86400000) r.open = false;
+    if (r.open) r.openWhy = r.why;
+    const d = dCache.get(r.id); // fold in detail if it's already been read for this session
+    if (d && d.mtime === r.mtime) Object.assign(r, d);
+    items.push(r);
+    if (items.length >= CAP) break;
+  }
+  // git WIP: flag the most-recent session in each project whose folder has uncommitted changes
+  const seenCwd = new Set();
+  for (const r of items) {
+    if (!r.cwd || seenCwd.has(r.cwd)) continue;
+    seenCwd.add(r.cwd);
+    if (gitDirty(r.cwd)) { r.open = true; r.openWhy = r.openWhy || 'uncommitted changes'; }
   }
   // one canonical label per project dir: prefer a sibling's real cwd basename (hyphens
   // intact); fall back to the dash-decoded name only if no session in the dir has a cwd.
   const dirLabel = new Map();
-  for (const r of slice) if (r.cwd && !dirLabel.has(r.dir)) dirLabel.set(r.dir, path.basename(r.cwd));
-  for (const r of slice) {
+  for (const r of items) if (r.cwd && !dirLabel.has(r.dir)) dirLabel.set(r.dir, path.basename(r.cwd));
+  for (const r of items) {
     r.project = dirLabel.get(r.dir) || proj(r.dir);
     r.hay = (r.project + ' ' + r.name + ' ' + r.first).toLowerCase();
   }
-  return slice;
+  return items;
 }
 
-if (!fs.existsSync(ROOT)) {
-  console.error(`No Claude sessions found at ${ROOT}\nRun Claude Code at least once, or check that ~/.claude/projects exists.`);
-  process.exit(1);
-}
 process.stdout.write('loading…\r');
 let items = await load();
 if (!items.length) { console.log('No sessions found.'); process.exit(0); }
@@ -216,13 +288,31 @@ function mdLines(text, width) {
 }
 let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = rows before "show more"; expand = full reply
 let deep = null; // {query, ids:Set} when a content search is active
-let projects = ['All', ...new Set(items.map((i) => i.project))];
+const OPEN_TAB = '⏸ open';
+const tabsFor = (its) => ['All', ...(its.some((i) => i.open) ? [OPEN_TAB] : []), ...new Set(its.map((i) => i.project))];
+let projects = tabsFor(items);
 const view = () => {
-  let l = pIdx === 0 ? items : items.filter((i) => i.project === projects[pIdx]);
+  const p = projects[pIdx];
+  let l = p === 'All' ? items : p === OPEN_TAB ? items.filter((i) => i.open) : items.filter((i) => i.project === p);
   if (deep) l = l.filter((i) => deep.ids.has(i.id));      // content match wins
   else if (q) l = l.filter((i) => i.hay.includes(q.toLowerCase())); // fast name/first filter
   return l;
 };
+
+// lazily full-read the highlighted session for its preview (count/last/reply/summary/title)
+function ensureDetail() {
+  const it = view()[cur];
+  if (!it || it._loaded) return;
+  const c = dCache.get(it.id);
+  if (c && c.mtime === it.mtime) { Object.assign(it, c); it.name = (it.custom || it.ai) || it.name; return; }
+  detail(it.file).then((d) => {
+    const rec = { mtime: it.mtime, ...d };
+    dCache.set(it.id, rec);
+    Object.assign(it, d);
+    if (it.custom || it.ai) { it.title = it.custom || it.ai; it.name = it.title; }
+    draw();
+  });
+}
 
 // content search: grep every transcript body for the term, keep matching session ids.
 // only the CAP most-recent sessions stay in the list, but rg searches all of them on disk.
@@ -253,7 +343,9 @@ function preview(it, width, replyMax = 6) {
   const kind = it.custom ? `${YE}named${R}` : it.ai ? `${D}auto-named${R}` : `${D}unnamed${R}`;
   const lines = [rule];
   lines.push(`${CY}${it.name}${R}  ${kind}`);
-  lines.push(`${D}${it.project} · ${ago(it.mtime)} ago · ${it.count} prompt${it.count === 1 ? '' : 's'} · ${sizeFmt(it.size)}${it.branch ? ' · ' + it.branch : ''}${R}`);
+  const prompts = it._loaded ? ` · ${it.count} prompt${it.count === 1 ? '' : 's'}` : ''; // count needs the lazy read
+  lines.push(`${D}${it.project} · ${ago(it.mtime)} ago${prompts} · ${sizeFmt(it.size)}${it.branch ? ' · ' + it.branch : ''}${R}`);
+  if (it.open) lines.push(`${YE}▸ pick up${R}${D} · ${it.openWhy || 'unfinished'}${R}`);
   if (deep) lines.push(`${YE}✓ contains "${deep.query}"${R}`);
   const rel = (iso) => iso ? ` [${ago(new Date(iso).getTime())}]` : '';
   const quote = (l) => `${D}│${R} ${l}`; // blockquote gutter marks rendered-markdown blocks apart from plain prompts
@@ -263,6 +355,7 @@ function preview(it, width, replyMax = 6) {
   }
   lines.push(`${D}first · ${ts(it.firstTs).trim()}${rel(it.firstTs)}${R}`);
   wrap(it.first, w, 2).forEach((l) => lines.push(l));
+  if (!it._loaded) lines.push(`${D}…${R}`); // detail (last/reply/summary) still loading
   if (it.count > 1) {
     lines.push(`${D}last · ${ts(it.lastTs).trim()}${rel(it.lastTs)}${R}`);
     wrap(it.last, w, 2).forEach((l) => lines.push(l));
@@ -313,11 +406,13 @@ function draw() {
   slice.forEach((it, i) => {
     const on = off + i === cur;
     const nm = it.name.slice(0, 50).padEnd(50);
-    const meta = (pIdx === 0 ? it.project.slice(0, 16).padEnd(16) + ' ' : '') + sizeFmt(it.size).padStart(5) + ' ' + ago(it.mtime).padStart(3);
-    const age = Date.now() - it.mtime; // leading column, outside the bar: green<5m, orange<24h
+    const showProj = projects[pIdx] === 'All' || projects[pIdx] === OPEN_TAB;
+    const meta = (showProj ? it.project.slice(0, 16).padEnd(16) + ' ' : '') + sizeFmt(it.size).padStart(5) + ' ' + ago(it.mtime).padStart(3);
+    const age = Date.now() - it.mtime; // col0 recency dot: green<5m, orange<24h
     const dot = age < ACTIVE_MS ? `${G}●${R}` : age < RECENT_MS ? `${O}●${R}` : ' ';
-    if (on) { const bar = ` ${nm}  ${meta} `.slice(0, cols - 1).padEnd(cols - 1); s += `${dot}${INV}${bar}${R}\n`; }
-    else s += `${dot} ${nm}  ${D}${meta}${R}\n`;
+    const om = it.open ? `${YE}▸${R}` : ' '; // col1 open marker: pick up where you left off
+    if (on) { const bar = `${nm}  ${meta} `.slice(0, cols - 2).padEnd(cols - 2); s += `${dot}${om}${INV}${bar}${R}\n`; }
+    else s += `${dot}${om}${nm}  ${D}${meta}${R}\n`;
   });
   const below = list.length - (off + win);
   if (below > 0) s += `${D} ↓ ${below} more — press ↓ to reveal${R}\n`; // attached to the list
@@ -330,6 +425,7 @@ if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdin.resume();
 out.write(HIDE);
 draw();
+ensureDetail();
 
 // live refresh: rescan every 2s, preserving filter, active tab, highlighted row.
 let refreshing = false;
@@ -340,13 +436,14 @@ const timer = setInterval(async () => {
     const selId = view()[cur]?.id;
     const activeName = projects[pIdx];
     items = await load();
-    projects = ['All', ...new Set(items.map((i) => i.project))];
+    projects = tabsFor(items);
     const np = projects.indexOf(activeName);
     pIdx = np >= 0 ? np : 0;
     const v = view();
     const ni = selId ? v.findIndex((i) => i.id === selId) : -1;
     cur = ni >= 0 ? ni : Math.min(cur, Math.max(0, v.length - 1));
     draw();
+    ensureDetail();
   } finally { refreshing = false; }
 }, 2000);
 timer.unref?.();
@@ -360,18 +457,18 @@ process.stdin.on('keypress', (str, key) => {
   const list = view();
   if (key.ctrl && key.name === 'c') { clearInterval(timer); out.write(CLR); process.exit(0); }
   else if (key.name === 'escape') {
-    if (deep) { deep = null; cur = 0; off = 0; limit = 12; draw(); } // first esc clears content search
+    if (deep) { deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
     else { clearInterval(timer); out.write(CLR); process.exit(0); }  // second esc quits
   }
   else if (key.ctrl && key.name === 'f') {                     // run content search on current query
-    if (RG && q) { out.write(`${CY}searching…${R}\r`); deep = contentSearch(q); cur = 0; off = 0; limit = 12; draw(); }
+    if (RG && q) { out.write(`${CY}searching…${R}\r`); deep = contentSearch(q); cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   }
   else if (key.name === 'tab' || (key.ctrl && key.name === 'e')) { expand = !expand; draw(); } // expand/collapse the reply
-  else if (key.name === 'up') { cur = Math.max(0, cur - 1); draw(); }
-  else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += 12; } draw(); } // reveal more
-  else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = 12; draw(); }
-  else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = 12; draw(); }
-  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; cur = 0; off = 0; limit = 12; draw(); }
+  else if (key.name === 'up') { cur = Math.max(0, cur - 1); draw(); ensureDetail(); }
+  else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += 12; } draw(); ensureDetail(); } // reveal more
+  else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'return') {
     const p = list[cur]; if (!p) return;
     clearInterval(timer);
@@ -389,5 +486,5 @@ process.stdin.on('keypress', (str, key) => {
       process.exit(1);
     }
   }
-  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; cur = 0; off = 0; limit = 12; draw(); }
+  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
 });

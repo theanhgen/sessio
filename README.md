@@ -31,6 +31,7 @@ sessions
 ## What it does
 
 - **Project tabs** — sessions grouped by their working directory; `←`/`→` to switch, or `All`.
+- **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, or the folder has uncommitted git changes). Open sessions are marked with an amber `▸` in any view.
 - **Type to filter** — instantly narrows by title, project, or first prompt.
 - **`^f` full-text search** — greps the full transcript body for a term, across *all* sessions on disk.
 - **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h).
