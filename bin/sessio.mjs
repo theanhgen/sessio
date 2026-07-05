@@ -285,6 +285,17 @@ function mdLines(text, width) {
   const cells = (s) => s.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
   for (let i = 0; i < raw.length; i++) {
     let line = raw[i].replace(/\s+$/, '');
+    if (/^\s*```/.test(line)) { // fenced code: render verbatim (no inlineMd, so ** / ` inside code aren't mangled)
+      let j = i + 1;
+      while (j < raw.length && !/^\s*```/.test(raw[j])) {
+        let code = raw[j].replace(/\t/g, '  ').replace(/\s+$/, '');
+        if (!code) res.push('');
+        else while (code.length) { res.push(`${D}${code.slice(0, width)}${R}`); code = code.slice(width); } // hard-wrap wide lines
+        j++;
+      }
+      i = j; // skip the closing ``` (or run to end if unterminated)
+      continue;
+    }
     if (isRow(line) && i + 1 < raw.length && isSep(raw[i + 1])) { // markdown table
       const block = [cells(line)];
       let j = i + 2;
