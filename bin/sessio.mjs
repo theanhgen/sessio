@@ -318,6 +318,7 @@ function mdLines(text, width) {
 let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = rows before "show more"; expand = full reply
 let deep = null; // {query, ids:Set} when a content search is active
 let searchGen = 0; // bumped on every query change / search; stale async rg results are dropped
+let help = false;  // full-screen keybinding overlay (toggled by ?)
 const OPEN_TAB = '⏸ open';
 const ARCHIVED_TAB = '🗄 archived';
 // tabs are built from live (non-archived) sessions; the archived tab appears only while
@@ -419,7 +420,26 @@ function preview(it, width, replyMax = 6) {
   return lines;
 }
 
+function drawHelp() {
+  const rows = [
+    `${B}sessio${R} ${D}— keys${R}`, '',
+    `${CY}← →${R}    switch project tab`,
+    `${CY}↑ ↓${R}    move selection ${D}(↓ reveals more)${R}`,
+    `${CY}type${R}   fuzzy-filter by name / project / first prompt`,
+    ...(RG ? [`${CY}^f${R}     full-text search across all transcripts on disk`] : []),
+    `${CY}^a${R}     archive / unarchive the selected session`,
+    `${CY}⇥ ^e${R}   expand / collapse the reply preview`,
+    `${CY}↵${R}      resume the selected session in its directory`,
+    `${CY}?${R}      toggle this help`,
+    `${CY}esc${R}    clear search, then quit`,
+    `${CY}^c${R}     quit`,
+    '', `${D}press any key to close${R}`,
+  ];
+  out.write(CLR + rows.join('\n') + '\n');
+}
+
 function draw() {
+  if (help) return drawHelp();
   const list = view();
   if (cur >= list.length) cur = Math.max(0, list.length - 1);
   const tabs = tabBar();
@@ -448,7 +468,7 @@ function draw() {
   const hint = RG ? `^f search-in-text · ` : '';
   const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
   const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · esc quit · ${CY}live${D}${R}\n`;
+  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · ? help · esc quit · ${CY}live${D}${R}\n`;
   s += tabs.join('\n') + '\n';
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
   s += `${prompt} ${q}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
@@ -508,6 +528,8 @@ process.on('SIGINT', () => { clearInterval(timer); restore(); out.write(CLR); pr
 process.stdin.on('keypress', (str, key) => {
   const list = view();
   if (key.ctrl && key.name === 'c') { clearInterval(timer); out.write(CLR); process.exit(0); }
+  else if (help) { help = false; draw(); }        // any key closes the help overlay (^c handled above)
+  else if (str === '?') { help = true; draw(); }  // open help (before the type-to-filter catch-all)
   else if (key.name === 'escape') {
     if (deep) { deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
     else { clearInterval(timer); out.write(CLR); process.exit(0); }  // second esc quits
