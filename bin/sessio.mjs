@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn, execFile } from 'node:child_process';
 
 const ROOT = path.join(os.homedir(), '.claude', 'projects');
 const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back into recent work
@@ -146,14 +146,23 @@ function tail(file) {
   });
 }
 
-const gitCache = new Map(); // cwd -> {dirty, at}; re-check at most every 20s
+const gitCache = new Map();    // cwd -> {dirty, at}; re-check at most every 20s
+const gitInflight = new Set(); // cwds with a background `git status` in progress (dedup)
+// non-blocking: kick off `git status` in the background, update the cache when it returns.
+// the running load() picks up the fresh value on a later tick — no synchronous stall.
+function gitRefresh(cwd) {
+  if (gitInflight.has(cwd)) return;
+  gitInflight.add(cwd);
+  execFile('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', timeout: 2000, maxBuffer: 1 << 20 }, (err, stdout) => {
+    gitInflight.delete(cwd);
+    gitCache.set(cwd, { dirty: !err && stdout.trim().length > 0, at: Date.now() });
+  });
+}
+// return the best-known dirtiness immediately; refresh in the background when stale/unknown.
 function gitDirty(cwd) {
   const c = gitCache.get(cwd);
-  if (c && Date.now() - c.at < 20000) return c.dirty;
-  let dirty = false;
-  try { const r = spawnSync('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', timeout: 2000 }); dirty = r.status === 0 && r.stdout.trim().length > 0; } catch {}
-  gitCache.set(cwd, { dirty, at: Date.now() });
-  return dirty;
+  if (!c || Date.now() - c.at >= 20000) gitRefresh(cwd);
+  return c ? c.dirty : false; // unknown until the first background check resolves
 }
 
 function wrap(text, width, maxLines) {
@@ -297,6 +306,7 @@ function mdLines(text, width) {
 }
 let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = rows before "show more"; expand = full reply
 let deep = null; // {query, ids:Set} when a content search is active
+let searchGen = 0; // bumped on every query change / search; stale async rg results are dropped
 const OPEN_TAB = '⏸ open';
 const ARCHIVED_TAB = '🗄 archived';
 // tabs are built from live (non-archived) sessions; the archived tab appears only while
@@ -337,11 +347,18 @@ function ensureDetail() {
 
 // content search: grep every transcript body for the term, keep matching session ids.
 // only the CAP most-recent sessions stay in the list, but rg searches all of them on disk.
+// async so the live UI never freezes while rg scans; streams stdout (no maxBuffer cap).
 function contentSearch(term) {
-  if (!term || !RG) return null;
-  const r = spawnSync(RG, ['-l', '-i', '-F', '--glob', '*.jsonl', '--', term, ROOT], { maxBuffer: 64 * 1024 * 1024 });
-  const ids = new Set((r.stdout || '').toString().split('\n').filter(Boolean).map((f) => path.basename(f, '.jsonl')));
-  return { query: term, ids };
+  return new Promise((resolve) => {
+    if (!term || !RG) return resolve(null);
+    let buf = '';
+    let child;
+    try { child = spawn(RG, ['-l', '-i', '-F', '--glob', '*.jsonl', '--', term, ROOT]); }
+    catch { return resolve(null); }
+    child.stdout.on('data', (d) => { buf += d; });
+    child.on('error', () => resolve(null));
+    child.on('close', () => resolve({ query: term, ids: new Set(buf.split('\n').filter(Boolean).map((f) => path.basename(f, '.jsonl'))) }));
+  });
 }
 
 function tabBar() {
@@ -480,11 +497,18 @@ process.stdin.on('keypress', (str, key) => {
   const list = view();
   if (key.ctrl && key.name === 'c') { clearInterval(timer); out.write(CLR); process.exit(0); }
   else if (key.name === 'escape') {
-    if (deep) { deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
+    if (deep) { deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
     else { clearInterval(timer); out.write(CLR); process.exit(0); }  // second esc quits
   }
-  else if (key.ctrl && key.name === 'f') {                     // run content search on current query
-    if (RG && q) { out.write(`${CY}searching…${R}\r`); deep = contentSearch(q); cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.ctrl && key.name === 'f') {                     // run content search on current query (async)
+    if (RG && q) {
+      const gen = ++searchGen, term = q;
+      out.write(`${CY}searching…${R}\r`);
+      contentSearch(term).then((res) => {
+        if (gen !== searchGen) return; // a newer query/search superseded this one
+        deep = res; cur = 0; off = 0; limit = 12; draw(); ensureDetail();
+      });
+    }
   }
   else if (key.ctrl && key.name === 'a') {                     // archive/unarchive: sessio-local hide only
     const p = list[cur]; if (!p) return;
@@ -502,7 +526,7 @@ process.stdin.on('keypress', (str, key) => {
   else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += 12; } draw(); ensureDetail(); } // reveal more
   else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
-  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'return') {
     const p = list[cur]; if (!p) return;
     clearInterval(timer);
@@ -520,5 +544,5 @@ process.stdin.on('keypress', (str, key) => {
       process.exit(1);
     }
   }
-  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
 });
