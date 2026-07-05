@@ -9,7 +9,7 @@
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
 ```
-←→ project · ↑↓ move · type to filter · ^f search-in-text · ⇥ expand-reply · ↵ resume · esc quit · live
+←→ project · ↑↓ move · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ↵ resume · esc quit · live
 ```
 
 ## Install
@@ -34,6 +34,7 @@ sessions
 - **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, or the folder has uncommitted git changes). Open sessions are marked with an amber `▸` in any view.
 - **Type to filter** — instantly narrows by title, project, or first prompt.
 - **`^f` full-text search** — greps the full transcript body for a term, across *all* sessions on disk.
+- **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
 - **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h).
 - **Preview** — for the highlighted session: title, project, prompt count, git branch, the compact summary, first/last typed prompt, and Claude's last reply rendered as markdown. `⇥` expands the reply.
 - **`↵` resume** — runs `claude --resume <id>` in that session's original working directory.
@@ -46,6 +47,7 @@ sessions
 | `↑` / `↓` | move selection (`↓` reveals more) |
 | type | filter by name / project / first prompt |
 | `^f` | full-text search the current query across all transcripts |
+| `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `⇥` / `^e` | expand / collapse the reply preview |
 | `↵` | resume the selected session in its directory |
 | `esc` | clear content search, then quit |
