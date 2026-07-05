@@ -382,6 +382,7 @@ let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = r
 let deep = null; // {query, ids:Set} when a content search is active
 let searchGen = 0; // bumped on every query change / search; stale async rg results are dropped
 let help = false;  // full-screen keybinding overlay (toggled by ?)
+let flash = '';    // transient one-line notice (e.g. "opened in a new window"); any key dismisses it
 const OPEN_TAB = '⏸ open';
 const ARCHIVED_TAB = '🗄 archived';
 // tabs are built from live (non-archived) sessions; the archived tab appears only while
@@ -512,7 +513,7 @@ function drawHelp() {
     ...(RG ? [`${CY}^f${R}     full-text search across all transcripts on disk`] : []),
     `${CY}^a${R}     archive / unarchive the selected session`,
     `${CY}⇥ ^e${R}   expand / collapse the reply preview`,
-    `${CY}↵${R}      resume the selected session in its directory`,
+    `${CY}↵${R}      resume ${D}(Ghostty: opens a new window, sessio stays open; else in place)${R}`,
     `${CY}?${R}      toggle this help`,
     `${CY}esc${R}    clear search, then quit`,
     `${CY}^c${R}     quit`,
@@ -551,7 +552,7 @@ function draw() {
   const hint = RG ? `^f search-in-text · ` : '';
   const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
   const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · ? help · esc quit · ${CY}live${D}${R}\n`;
+  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · ? help · esc quit · ${CY}live${D}${R}${flash ? `  ${G}${flash}${R}` : ''}\n`;
   s += tabs.join('\n') + '\n';
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
   s += `${prompt} ${q}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
@@ -572,6 +573,17 @@ function draw() {
   if (below > 0) s += `${D} ↓ ${below} more — press ↓ to reveal${R}\n`; // attached to the list
   s += prev.join('\n') + '\n';                                          // then the session details
   out.write(s);
+}
+
+// Ghostty has no way to target a sibling pane, but its CLI can open a NEW window running a
+// command in the running instance. Returns true if the launch was accepted, false to fall back.
+const inGhostty = () => !!(process.env.GHOSTTY_RESOURCES_DIR || process.env.TERM_PROGRAM === 'ghostty');
+function ghosttyLaunch(cwd, id) {
+  const args = ['+new-window', `--working-directory=${cwd}`, '-e', 'claude', '--resume', id];
+  for (const bin of ['ghostty', '/Applications/Ghostty.app/Contents/MacOS/ghostty']) {
+    try { const r = spawnSync(bin, args, { stdio: 'ignore' }); if (!r.error) return r.status === 0 || r.status == null; } catch {}
+  }
+  return false; // ghostty CLI not found / failed → caller resumes in place
 }
 
 readline.emitKeypressEvents(process.stdin);
@@ -610,6 +622,7 @@ process.on('SIGINT', () => { clearInterval(timer); restore(); out.write(CLR); pr
 
 process.stdin.on('keypress', (str, key) => {
   const list = view();
+  if (flash) flash = ''; // any key dismisses the transient launch notice (re-set below if this key is another resume)
   if (key.ctrl && key.name === 'c') { clearInterval(timer); out.write(CLR); process.exit(0); }
   else if (help) { help = false; draw(); }        // any key closes the help overlay (^c handled above)
   else if (str === '?') { help = true; draw(); }  // open help (before the type-to-filter catch-all)
@@ -646,6 +659,13 @@ process.stdin.on('keypress', (str, key) => {
   else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'return') {
     const p = list[cur]; if (!p) return;
+    // Ghostty: open the session in a NEW window and keep sessio running as a launcher.
+    if (inGhostty() && p.cwd && ghosttyLaunch(p.cwd, p.id)) {
+      flash = `↗ opened "${(p.name || '').slice(0, 40)}" in a new window`;
+      draw();
+      return; // sessio stays open — pick another session to launch
+    }
+    // otherwise hand this terminal over to claude in place (default / fallback)
     clearInterval(timer);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     out.write(CLR + SHOW); // restore cursor before handing the terminal to claude
