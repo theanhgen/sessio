@@ -27,13 +27,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lansium/sessio.git"
+    "url": "git+https://github.com/theanhgen/sessio.git"
   },
-  "homepage": "https://github.com/lansium/sessio#readme",
+  "homepage": "https://github.com/theanhgen/sessio#readme",
   "bugs": {
-    "url": "https://github.com/lansium/sessio/issues"
+    "url": "https://github.com/theanhgen/sessio/issues"
   },
-  "author": "lansium <vyvoj@strat3x.com>",
+  "author": "theanhgen <vyvoj@strat3x.com>",
   "license": "MIT",
   "os": [
     "darwin",

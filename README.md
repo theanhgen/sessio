@@ -84,4 +84,4 @@ Edit the paths in both files first if your setup differs. On Linux, run the scri
 
 ## License
 
-MIT © 2026 lansium
+MIT © 2026 theanhgen
