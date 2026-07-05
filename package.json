@@ -1,0 +1,42 @@
+{
+  "name": "sessio",
+  "version": "0.1.0",
+  "description": "Interactive terminal browser to find and resume past Claude Code sessions.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "cli",
+    "tui",
+    "sessions",
+    "resume",
+    "terminal"
+  ],
+  "type": "module",
+  "bin": {
+    "sessions": "bin/sessio.mjs",
+    "sessio": "bin/sessio.mjs"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lansium/sessio.git"
+  },
+  "homepage": "https://github.com/lansium/sessio#readme",
+  "bugs": {
+    "url": "https://github.com/lansium/sessio/issues"
+  },
+  "author": "lansium <vyvoj@strat3x.com>",
+  "license": "MIT",
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}

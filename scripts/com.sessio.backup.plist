@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent template for scripts/backup-sessions.sh (macOS).
+
+  1. Edit the ProgramArguments path below to point at your copy of backup-sessions.sh.
+  2. cp this file to ~/Library/LaunchAgents/com.sessio.backup.plist
+  3. launchctl load ~/Library/LaunchAgents/com.sessio.backup.plist
+
+  Runs at login (RunAtLoad) and daily at 13:00 (StartCalendarInterval).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sessio.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/REPLACE/WITH/ABSOLUTE/PATH/TO/scripts/backup-sessions.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>13</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.sessio.backup.err</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.sessio.backup.out</string>
+</dict>
+</plist>
