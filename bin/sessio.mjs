@@ -11,6 +11,15 @@ import { spawnSync } from 'node:child_process';
 const ROOT = path.join(os.homedir(), '.claude', 'projects');
 const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back into recent work
 
+// archive is a sessio-local hide list only: ids live in ~/.claude/.sessio/archived.json.
+// the transcript files are never touched, so `claude --resume` still works and Claude's own
+// cleanupPeriodDays still applies — this declutters the list, it does not preserve sessions.
+const SESSIO_DIR = path.join(os.homedir(), '.claude', '.sessio');
+const ARCHIVE_FILE = path.join(SESSIO_DIR, 'archived.json');
+const loadArchived = () => { try { return new Set(JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8'))); } catch { return new Set(); } };
+const saveArchived = (set) => { try { fs.mkdirSync(SESSIO_DIR, { recursive: true }); fs.writeFileSync(ARCHIVE_FILE, JSON.stringify([...set])); } catch {} };
+let archived = loadArchived();
+
 // locate ripgrep for full-content search (ctrl-f); null -> feature disabled gracefully
 const RG = (() => {
   for (const p of ['rg', '/opt/homebrew/bin/rg', '/usr/local/bin/rg', '/usr/bin/rg']) {
@@ -289,11 +298,23 @@ function mdLines(text, width) {
 let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = rows before "show more"; expand = full reply
 let deep = null; // {query, ids:Set} when a content search is active
 const OPEN_TAB = '⏸ open';
-const tabsFor = (its) => ['All', ...(its.some((i) => i.open) ? [OPEN_TAB] : []), ...new Set(its.map((i) => i.project))];
+const ARCHIVED_TAB = '🗄 archived';
+// tabs are built from live (non-archived) sessions; the archived tab appears only while
+// something is archived, and always sits last.
+const tabsFor = (its) => {
+  const live = its.filter((i) => !archived.has(i.id));
+  return ['All', ...(live.some((i) => i.open) ? [OPEN_TAB] : []), ...new Set(live.map((i) => i.project)),
+    ...(its.some((i) => archived.has(i.id)) ? [ARCHIVED_TAB] : [])];
+};
 let projects = tabsFor(items);
 const view = () => {
   const p = projects[pIdx];
-  let l = p === 'All' ? items : p === OPEN_TAB ? items.filter((i) => i.open) : items.filter((i) => i.project === p);
+  let l;
+  if (p === ARCHIVED_TAB) l = items.filter((i) => archived.has(i.id));      // archived tab: only archived
+  else {
+    l = p === 'All' ? items : p === OPEN_TAB ? items.filter((i) => i.open) : items.filter((i) => i.project === p);
+    l = l.filter((i) => !archived.has(i.id));                              // every other tab: hide archived
+  }
   if (deep) l = l.filter((i) => deep.ids.has(i.id));      // content match wins
   else if (q) l = l.filter((i) => i.hay.includes(q.toLowerCase())); // fast name/first filter
   return l;
@@ -346,6 +367,7 @@ function preview(it, width, replyMax = 6) {
   const prompts = it._loaded ? ` · ${it.count} prompt${it.count === 1 ? '' : 's'}` : ''; // count needs the lazy read
   lines.push(`${D}${it.project} · ${ago(it.mtime)} ago${prompts} · ${sizeFmt(it.size)}${it.branch ? ' · ' + it.branch : ''}${R}`);
   if (it.open) lines.push(`${YE}▸ pick up${R}${D} · ${it.openWhy || 'unfinished'}${R}`);
+  if (archived.has(it.id)) lines.push(`${D}🗄 archived · hidden from other tabs · ^a to unarchive${R}`);
   if (deep) lines.push(`${YE}✓ contains "${deep.query}"${R}`);
   const rel = (iso) => iso ? ` [${ago(new Date(iso).getTime())}]` : '';
   const quote = (l) => `${D}│${R} ${l}`; // blockquote gutter marks rendered-markdown blocks apart from plain prompts
@@ -396,8 +418,9 @@ function draw() {
   if (cur >= off + win) off = cur - win + 1;
   if (off < 0) off = 0;
   const hint = RG ? `^f search-in-text · ` : '';
+  const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
   const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${exp}↵ resume · esc quit · ${CY}live${D}${R}\n`;
+  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · esc quit · ${CY}live${D}${R}\n`;
   s += tabs.join('\n') + '\n';
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
   s += `${prompt} ${q}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
@@ -462,6 +485,17 @@ process.stdin.on('keypress', (str, key) => {
   }
   else if (key.ctrl && key.name === 'f') {                     // run content search on current query
     if (RG && q) { out.write(`${CY}searching…${R}\r`); deep = contentSearch(q); cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  }
+  else if (key.ctrl && key.name === 'a') {                     // archive/unarchive: sessio-local hide only
+    const p = list[cur]; if (!p) return;
+    if (archived.has(p.id)) archived.delete(p.id); else archived.add(p.id);
+    saveArchived(archived);
+    const activeName = projects[pIdx];
+    projects = tabsFor(items);                                // archived tab / emptied project tabs may appear/disappear
+    const np = projects.indexOf(activeName);
+    pIdx = np >= 0 ? np : 0;                                   // fall back to All if the current tab vanished
+    cur = Math.min(cur, Math.max(0, view().length - 1)); off = 0;
+    draw(); ensureDetail();
   }
   else if (key.name === 'tab' || (key.ctrl && key.name === 'e')) { expand = !expand; draw(); } // expand/collapse the reply
   else if (key.name === 'up') { cur = Math.max(0, cur - 1); draw(); ensureDetail(); }
