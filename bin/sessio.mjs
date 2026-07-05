@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
-import { spawnSync } from 'node:child_process';
+import https from 'node:https';
+import { fileURLToPath } from 'node:url';
+import { spawnSync, spawn, execFile } from 'node:child_process';
 
 const ROOT = path.join(os.homedir(), '.claude', 'projects');
 const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back into recent work
@@ -146,14 +148,23 @@ function tail(file) {
   });
 }
 
-const gitCache = new Map(); // cwd -> {dirty, at}; re-check at most every 20s
+const gitCache = new Map();    // cwd -> {dirty, at}; re-check at most every 20s
+const gitInflight = new Set(); // cwds with a background `git status` in progress (dedup)
+// non-blocking: kick off `git status` in the background, update the cache when it returns.
+// the running load() picks up the fresh value on a later tick — no synchronous stall.
+function gitRefresh(cwd) {
+  if (gitInflight.has(cwd)) return;
+  gitInflight.add(cwd);
+  execFile('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', timeout: 2000, maxBuffer: 1 << 20 }, (err, stdout) => {
+    gitInflight.delete(cwd);
+    gitCache.set(cwd, { dirty: !err && stdout.trim().length > 0, at: Date.now() });
+  });
+}
+// return the best-known dirtiness immediately; refresh in the background when stale/unknown.
 function gitDirty(cwd) {
   const c = gitCache.get(cwd);
-  if (c && Date.now() - c.at < 20000) return c.dirty;
-  let dirty = false;
-  try { const r = spawnSync('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', timeout: 2000 }); dirty = r.status === 0 && r.stdout.trim().length > 0; } catch {}
-  gitCache.set(cwd, { dirty, at: Date.now() });
-  return dirty;
+  if (!c || Date.now() - c.at >= 20000) gitRefresh(cwd);
+  return c ? c.dirty : false; // unknown until the first background check resolves
 }
 
 function wrap(text, width, maxLines) {
@@ -221,6 +232,55 @@ async function load() {
   return items;
 }
 
+// --- fully-automatic update (opt out with NO_UPDATE_NOTIFIER / SESSIO_NO_UPDATE) ---
+// on startup: check npm for a newer version and, if writable, update in place and re-exec the
+// new binary. bounded timeouts + a permission pre-check mean it can never hang or prompt for
+// sudo — on any obstacle it prints the manual command and launches the current version.
+const PKG_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const readVersion = (root) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return null; } };
+const isNewer = (a, b) => { const pa = a.split('.').map(Number), pb = b.split('.').map(Number); for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y; } return false; };
+const writable = (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch { return false; } };
+function latestVersion(name, timeoutMs) {
+  return new Promise((resolve) => {
+    // full packument (abbreviated form) — the /<name>/latest endpoint returns empty on npm, so
+    // read dist-tags.latest from the package doc instead.
+    const req = https.get(`https://registry.npmjs.org/${name}`, { timeout: timeoutMs, headers: { accept: 'application/vnd.npm.install-v1+json' } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { try { const o = JSON.parse(d); resolve((o['dist-tags'] && o['dist-tags'].latest) || null); } catch { resolve(null); } });
+    });
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+async function maybeAutoUpdate() {
+  if (process.env.NO_UPDATE_NOTIFIER || process.env.SESSIO_NO_UPDATE) return;
+  const pkg = readVersion(PKG_ROOT);
+  if (!pkg || !pkg.name || !pkg.version) return;
+  const cur = pkg.version;
+  const latest = await latestVersion(pkg.name, 2000);         // bounded: slow/offline network never delays launch
+  if (!latest || !isNewer(latest, cur)) return;
+  // re-exec into the freshly-installed code; SESSIO_NO_UPDATE guards the child against a re-check loop.
+  const relaunch = () => { const r = spawnSync(process.argv[0], [process.argv[1], ...process.argv.slice(2)], { stdio: 'inherit', env: { ...process.env, SESSIO_NO_UPDATE: '1' } }); process.exit(r.status ?? 0); };
+  const advanced = () => { const v = readVersion(PKG_ROOT); return v && isNewer(v.version, cur); }; // did THIS install actually move?
+  const isGit = fs.existsSync(path.join(PKG_ROOT, '.git'));
+  if (isGit) {
+    process.stdout.write(`updating sessio ${cur} → ${latest} (git pull)…\n`);
+    const r = spawnSync('git', ['-C', PKG_ROOT, 'pull', '--ff-only'], { stdio: 'ignore', timeout: 60000 });
+    if (r.status === 0 && advanced()) return relaunch();
+    process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: git -C ${PKG_ROOT} pull\n`);
+    return;
+  }
+  if (!writable(PKG_ROOT)) { // a global install owned by root — don't trigger a sudo prompt/hang
+    process.stdout.write(`sessio ${latest} available (you have ${cur}) — run: sudo npm i -g ${pkg.name}\n`);
+    return;
+  }
+  process.stdout.write(`updating sessio ${cur} → ${latest}…\n`);
+  const r = spawnSync('npm', ['i', '-g', `${pkg.name}@latest`], { stdio: 'ignore', timeout: 120000 });
+  if (r.status === 0 && advanced()) return relaunch();
+  process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: npm i -g ${pkg.name}\n`);
+}
+try { await maybeAutoUpdate(); } catch {} // never let an update problem block the app
+
 process.stdout.write('loading…\r');
 let items = await load();
 if (!items.length) { console.log('No sessions found.'); process.exit(0); }
@@ -276,6 +336,17 @@ function mdLines(text, width) {
   const cells = (s) => s.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
   for (let i = 0; i < raw.length; i++) {
     let line = raw[i].replace(/\s+$/, '');
+    if (/^\s*```/.test(line)) { // fenced code: render verbatim (no inlineMd, so ** / ` inside code aren't mangled)
+      let j = i + 1;
+      while (j < raw.length && !/^\s*```/.test(raw[j])) {
+        let code = raw[j].replace(/\t/g, '  ').replace(/\s+$/, '');
+        if (!code) res.push('');
+        else while (code.length) { res.push(`${D}${code.slice(0, width)}${R}`); code = code.slice(width); } // hard-wrap wide lines
+        j++;
+      }
+      i = j; // skip the closing ``` (or run to end if unterminated)
+      continue;
+    }
     if (isRow(line) && i + 1 < raw.length && isSep(raw[i + 1])) { // markdown table
       const block = [cells(line)];
       let j = i + 2;
@@ -297,6 +368,8 @@ function mdLines(text, width) {
 }
 let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = rows before "show more"; expand = full reply
 let deep = null; // {query, ids:Set} when a content search is active
+let searchGen = 0; // bumped on every query change / search; stale async rg results are dropped
+let help = false;  // full-screen keybinding overlay (toggled by ?)
 const OPEN_TAB = '⏸ open';
 const ARCHIVED_TAB = '🗄 archived';
 // tabs are built from live (non-archived) sessions; the archived tab appears only while
@@ -307,6 +380,25 @@ const tabsFor = (its) => {
     ...(its.some((i) => archived.has(i.id)) ? [ARCHIVED_TAB] : [])];
 };
 let projects = tabsFor(items);
+// subsequence fuzzy match + score: a contiguous substring always outranks a scattered match;
+// within each, earlier position and word-boundary / streak hits score higher. Returns -1 when
+// the needle isn't a subsequence of hay (hay is already lowercased; needle is lowercased here).
+function fuzzyScore(hay, needleRaw) {
+  const needle = needleRaw.toLowerCase();
+  if (!needle) return 0;
+  const idx = hay.indexOf(needle);
+  if (idx >= 0) return 10000 - idx;                          // substring: strong, rank by earliness
+  let i = 0, score = 0, streak = 0, prev = -2;
+  for (let c = 0; c < hay.length && i < needle.length; c++) {
+    if (hay[c] === needle[i]) {
+      streak = c === prev + 1 ? streak + 1 : 0;
+      score += 1 + streak;
+      if (c === 0 || /[\s/_.\-]/.test(hay[c - 1])) score += 3; // word-boundary bonus
+      prev = c; i++;
+    }
+  }
+  return i === needle.length ? score : -1;                    // -1 => not a subsequence, filtered out
+}
 const view = () => {
   const p = projects[pIdx];
   let l;
@@ -316,7 +408,8 @@ const view = () => {
     l = l.filter((i) => !archived.has(i.id));                              // every other tab: hide archived
   }
   if (deep) l = l.filter((i) => deep.ids.has(i.id));      // content match wins
-  else if (q) l = l.filter((i) => i.hay.includes(q.toLowerCase())); // fast name/first filter
+  else if (q) l = l.map((it) => [it, fuzzyScore(it.hay, q)]) // fuzzy filter, ranked (recency tiebreak)
+    .filter((e) => e[1] >= 0).sort((a, b) => b[1] - a[1] || b[0].mtime - a[0].mtime).map((e) => e[0]);
   return l;
 };
 
@@ -337,11 +430,18 @@ function ensureDetail() {
 
 // content search: grep every transcript body for the term, keep matching session ids.
 // only the CAP most-recent sessions stay in the list, but rg searches all of them on disk.
+// async so the live UI never freezes while rg scans; streams stdout (no maxBuffer cap).
 function contentSearch(term) {
-  if (!term || !RG) return null;
-  const r = spawnSync(RG, ['-l', '-i', '-F', '--glob', '*.jsonl', '--', term, ROOT], { maxBuffer: 64 * 1024 * 1024 });
-  const ids = new Set((r.stdout || '').toString().split('\n').filter(Boolean).map((f) => path.basename(f, '.jsonl')));
-  return { query: term, ids };
+  return new Promise((resolve) => {
+    if (!term || !RG) return resolve(null);
+    let buf = '';
+    let child;
+    try { child = spawn(RG, ['-l', '-i', '-F', '--glob', '*.jsonl', '--', term, ROOT]); }
+    catch { return resolve(null); }
+    child.stdout.on('data', (d) => { buf += d; });
+    child.on('error', () => resolve(null));
+    child.on('close', () => resolve({ query: term, ids: new Set(buf.split('\n').filter(Boolean).map((f) => path.basename(f, '.jsonl'))) }));
+  });
 }
 
 function tabBar() {
@@ -391,7 +491,26 @@ function preview(it, width, replyMax = 6) {
   return lines;
 }
 
+function drawHelp() {
+  const rows = [
+    `${B}sessio${R} ${D}— keys${R}`, '',
+    `${CY}← →${R}    switch project tab`,
+    `${CY}↑ ↓${R}    move selection ${D}(↓ reveals more)${R}`,
+    `${CY}type${R}   fuzzy-filter by name / project / first prompt`,
+    ...(RG ? [`${CY}^f${R}     full-text search across all transcripts on disk`] : []),
+    `${CY}^a${R}     archive / unarchive the selected session`,
+    `${CY}⇥ ^e${R}   expand / collapse the reply preview`,
+    `${CY}↵${R}      resume the selected session in its directory`,
+    `${CY}?${R}      toggle this help`,
+    `${CY}esc${R}    clear search, then quit`,
+    `${CY}^c${R}     quit`,
+    '', `${D}press any key to close${R}`,
+  ];
+  out.write(CLR + rows.join('\n') + '\n');
+}
+
 function draw() {
+  if (help) return drawHelp();
   const list = view();
   if (cur >= list.length) cur = Math.max(0, list.length - 1);
   const tabs = tabBar();
@@ -420,7 +539,7 @@ function draw() {
   const hint = RG ? `^f search-in-text · ` : '';
   const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
   const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · esc quit · ${CY}live${D}${R}\n`;
+  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · ? help · esc quit · ${CY}live${D}${R}\n`;
   s += tabs.join('\n') + '\n';
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
   s += `${prompt} ${q}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
@@ -449,6 +568,7 @@ process.stdin.resume();
 out.write(HIDE);
 draw();
 ensureDetail();
+out.on('resize', () => draw()); // reflow immediately on terminal resize, not on the next keypress/tick
 
 // live refresh: rescan every 2s, preserving filter, active tab, highlighted row.
 let refreshing = false;
@@ -479,12 +599,21 @@ process.on('SIGINT', () => { clearInterval(timer); restore(); out.write(CLR); pr
 process.stdin.on('keypress', (str, key) => {
   const list = view();
   if (key.ctrl && key.name === 'c') { clearInterval(timer); out.write(CLR); process.exit(0); }
+  else if (help) { help = false; draw(); }        // any key closes the help overlay (^c handled above)
+  else if (str === '?') { help = true; draw(); }  // open help (before the type-to-filter catch-all)
   else if (key.name === 'escape') {
-    if (deep) { deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
+    if (deep) { deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
     else { clearInterval(timer); out.write(CLR); process.exit(0); }  // second esc quits
   }
-  else if (key.ctrl && key.name === 'f') {                     // run content search on current query
-    if (RG && q) { out.write(`${CY}searching…${R}\r`); deep = contentSearch(q); cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.ctrl && key.name === 'f') {                     // run content search on current query (async)
+    if (RG && q) {
+      const gen = ++searchGen, term = q;
+      out.write(`${CY}searching…${R}\r`);
+      contentSearch(term).then((res) => {
+        if (gen !== searchGen) return; // a newer query/search superseded this one
+        deep = res; cur = 0; off = 0; limit = 12; draw(); ensureDetail();
+      });
+    }
   }
   else if (key.ctrl && key.name === 'a') {                     // archive/unarchive: sessio-local hide only
     const p = list[cur]; if (!p) return;
@@ -502,7 +631,7 @@ process.stdin.on('keypress', (str, key) => {
   else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += 12; } draw(); ensureDetail(); } // reveal more
   else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
-  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'return') {
     const p = list[cur]; if (!p) return;
     clearInterval(timer);
@@ -520,5 +649,5 @@ process.stdin.on('keypress', (str, key) => {
       process.exit(1);
     }
   }
-  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
 });
