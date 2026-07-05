@@ -129,20 +129,20 @@
       <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">sessions</span></div>
 <pre>
 <span class="c-dim">←→ project · ↑↓ move · type · ^f search-in-text · ⇥ expand-reply · ↵ resume · esc quit · </span><span class="c-cyan">live</span>
-<span class="sel"> All </span> <span class="c-dim"> bitbybit  sessio  nere  melnik  locus </span>
+<span class="sel"> All </span> <span class="c-dim"> web-app  api  cli-tool  docs  mobile </span>
 <span class="c-cyan">›</span> <span class="c-dim">▏</span>
-<span class="c-green">●</span><span class="sel"> ship sessio to npm                    bitbybit    12K  2m </span>
-<span class="c-orange">●</span> <span class="b">fix melnik invoice rounding</span>          <span class="c-dim">melnik      8K  4h</span>
-<span class="c-orange">●</span> refactor session scan cache          <span class="c-dim">sessio     21K  9h</span>
-  parse compact summaries              <span class="c-dim">sessio     16K  1d</span>
+<span class="c-green">●</span><span class="sel"> add rate limiting to auth routes      api         14K  2m </span>
+<span class="c-orange">●</span> <span class="b">fix login redirect loop</span>              <span class="c-dim">web-app      9K  3h</span>
+<span class="c-orange">●</span> refactor cache layer                 <span class="c-dim">api         22K  8h</span>
+  write onboarding docs                <span class="c-dim">docs        11K  1d</span>
 <span class="c-dim"> ↓ 291 more — press ↓ to reveal</span>
 <span class="c-dim">──────────────────────────────────────────────────────────</span>
-<span class="c-cyan">ship sessio to npm</span>  <span class="c-yellow">named</span>
-<span class="c-dim">bitbybit · 2m ago · 14 prompts · 12K · main</span>
-<span class="c-dim">reply · 5 Jul 19:31 [2m]</span>
-<span class="c-dim">│</span> Both gates cleared: <span class="b">auth works</span> (npm whoami), and the
-<span class="c-dim">│</span> handle is fixed across package.json, LICENSE, README.
-<span class="c-dim">│</span> Ready to <span class="c-cyan">npm publish</span>. <span class="c-dim">… ⇥ for full</span>
+<span class="c-cyan">add rate limiting to auth routes</span>  <span class="c-yellow">named</span>
+<span class="c-dim">api · 2m ago · 14 prompts · 14K · main</span>
+<span class="c-dim">reply · [2m]</span>
+<span class="c-dim">│</span> Added a token-bucket limiter on the login and signup
+<span class="c-dim">│</span> routes; over-limit requests now return <span class="b">429</span> with a
+<span class="c-dim">│</span> Retry-After header. Tests pass. <span class="c-dim">… ⇥ for full</span>
 </pre>
     </div>
   </header>
