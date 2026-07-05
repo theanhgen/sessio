@@ -573,17 +573,22 @@ function draw() {
   if (below > 0) s += `${D} ↓ ${below} more — press ↓ to reveal${R}\n`; // attached to the list
   s += prev.join('\n') + '\n';                                          // then the session details
   out.write(s);
+  flash = ''; // shown for this frame only; the next redraw (keypress or 2s tick) repaints without it
 }
 
 // Ghostty has no way to target a sibling pane, but its CLI can open a NEW window running a
 // command in the running instance. Returns true if the launch was accepted, false to fall back.
 const inGhostty = () => !!(process.env.GHOSTTY_RESOURCES_DIR || process.env.TERM_PROGRAM === 'ghostty');
 function ghosttyLaunch(cwd, id) {
-  const args = ['+new-window', `--working-directory=${cwd}`, '-e', 'claude', '--resume', id];
+  // Run through a login shell: a GUI-launched Ghostty can have a minimal PATH, and `-e claude`
+  // would exec directly and fail to find claude/node. Homebrew et al. append to the login
+  // profile (~/.zprofile), which `-l` sources. timeout bounds any hang so the TUI can't freeze.
+  const shell = process.env.SHELL || '/bin/zsh';
+  const args = ['+new-window', `--working-directory=${cwd}`, '-e', shell, '-l', '-c', `claude --resume ${id}`];
   for (const bin of ['ghostty', '/Applications/Ghostty.app/Contents/MacOS/ghostty']) {
-    try { const r = spawnSync(bin, args, { stdio: 'ignore' }); if (!r.error) return r.status === 0 || r.status == null; } catch {}
+    try { const r = spawnSync(bin, args, { stdio: 'ignore', timeout: 5000 }); if (!r.error && !r.signal) return r.status === 0 || r.status == null; } catch {}
   }
-  return false; // ghostty CLI not found / failed → caller resumes in place
+  return false; // ghostty CLI not found / timed out / failed → caller resumes in place
 }
 
 readline.emitKeypressEvents(process.stdin);
@@ -622,7 +627,6 @@ process.on('SIGINT', () => { clearInterval(timer); restore(); out.write(CLR); pr
 
 process.stdin.on('keypress', (str, key) => {
   const list = view();
-  if (flash) flash = ''; // any key dismisses the transient launch notice (re-set below if this key is another resume)
   if (key.ctrl && key.name === 'c') { clearInterval(timer); out.write(CLR); process.exit(0); }
   else if (help) { help = false; draw(); }        // any key closes the help overlay (^c handled above)
   else if (str === '?') { help = true; draw(); }  // open help (before the type-to-filter catch-all)
