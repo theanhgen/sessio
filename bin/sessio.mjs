@@ -329,6 +329,25 @@ const tabsFor = (its) => {
     ...(its.some((i) => archived.has(i.id)) ? [ARCHIVED_TAB] : [])];
 };
 let projects = tabsFor(items);
+// subsequence fuzzy match + score: a contiguous substring always outranks a scattered match;
+// within each, earlier position and word-boundary / streak hits score higher. Returns -1 when
+// the needle isn't a subsequence of hay (hay is already lowercased; needle is lowercased here).
+function fuzzyScore(hay, needleRaw) {
+  const needle = needleRaw.toLowerCase();
+  if (!needle) return 0;
+  const idx = hay.indexOf(needle);
+  if (idx >= 0) return 10000 - idx;                          // substring: strong, rank by earliness
+  let i = 0, score = 0, streak = 0, prev = -2;
+  for (let c = 0; c < hay.length && i < needle.length; c++) {
+    if (hay[c] === needle[i]) {
+      streak = c === prev + 1 ? streak + 1 : 0;
+      score += 1 + streak;
+      if (c === 0 || /[\s/_.\-]/.test(hay[c - 1])) score += 3; // word-boundary bonus
+      prev = c; i++;
+    }
+  }
+  return i === needle.length ? score : -1;                    // -1 => not a subsequence, filtered out
+}
 const view = () => {
   const p = projects[pIdx];
   let l;
@@ -338,7 +357,8 @@ const view = () => {
     l = l.filter((i) => !archived.has(i.id));                              // every other tab: hide archived
   }
   if (deep) l = l.filter((i) => deep.ids.has(i.id));      // content match wins
-  else if (q) l = l.filter((i) => i.hay.includes(q.toLowerCase())); // fast name/first filter
+  else if (q) l = l.map((it) => [it, fuzzyScore(it.hay, q)]) // fuzzy filter, ranked (recency tiebreak)
+    .filter((e) => e[1] >= 0).sort((a, b) => b[1] - a[1] || b[0].mtime - a[0].mtime).map((e) => e[0]);
   return l;
 };
 
