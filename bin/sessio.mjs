@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
+import https from 'node:https';
+import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn, execFile } from 'node:child_process';
 
 const ROOT = path.join(os.homedir(), '.claude', 'projects');
@@ -229,6 +231,55 @@ async function load() {
   }
   return items;
 }
+
+// --- fully-automatic update (opt out with NO_UPDATE_NOTIFIER / SESSIO_NO_UPDATE) ---
+// on startup: check npm for a newer version and, if writable, update in place and re-exec the
+// new binary. bounded timeouts + a permission pre-check mean it can never hang or prompt for
+// sudo — on any obstacle it prints the manual command and launches the current version.
+const PKG_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const readVersion = (root) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return null; } };
+const isNewer = (a, b) => { const pa = a.split('.').map(Number), pb = b.split('.').map(Number); for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y; } return false; };
+const writable = (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch { return false; } };
+function latestVersion(name, timeoutMs) {
+  return new Promise((resolve) => {
+    // full packument (abbreviated form) — the /<name>/latest endpoint returns empty on npm, so
+    // read dist-tags.latest from the package doc instead.
+    const req = https.get(`https://registry.npmjs.org/${name}`, { timeout: timeoutMs, headers: { accept: 'application/vnd.npm.install-v1+json' } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { try { const o = JSON.parse(d); resolve((o['dist-tags'] && o['dist-tags'].latest) || null); } catch { resolve(null); } });
+    });
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+async function maybeAutoUpdate() {
+  if (process.env.NO_UPDATE_NOTIFIER || process.env.SESSIO_NO_UPDATE) return;
+  const pkg = readVersion(PKG_ROOT);
+  if (!pkg || !pkg.name || !pkg.version) return;
+  const cur = pkg.version;
+  const latest = await latestVersion(pkg.name, 2000);         // bounded: slow/offline network never delays launch
+  if (!latest || !isNewer(latest, cur)) return;
+  // re-exec into the freshly-installed code; SESSIO_NO_UPDATE guards the child against a re-check loop.
+  const relaunch = () => { const r = spawnSync(process.argv[0], [process.argv[1], ...process.argv.slice(2)], { stdio: 'inherit', env: { ...process.env, SESSIO_NO_UPDATE: '1' } }); process.exit(r.status ?? 0); };
+  const advanced = () => { const v = readVersion(PKG_ROOT); return v && isNewer(v.version, cur); }; // did THIS install actually move?
+  const isGit = fs.existsSync(path.join(PKG_ROOT, '.git'));
+  if (isGit) {
+    process.stdout.write(`updating sessio ${cur} → ${latest} (git pull)…\n`);
+    const r = spawnSync('git', ['-C', PKG_ROOT, 'pull', '--ff-only'], { stdio: 'ignore', timeout: 60000 });
+    if (r.status === 0 && advanced()) return relaunch();
+    process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: git -C ${PKG_ROOT} pull\n`);
+    return;
+  }
+  if (!writable(PKG_ROOT)) { // a global install owned by root — don't trigger a sudo prompt/hang
+    process.stdout.write(`sessio ${latest} available (you have ${cur}) — run: sudo npm i -g ${pkg.name}\n`);
+    return;
+  }
+  process.stdout.write(`updating sessio ${cur} → ${latest}…\n`);
+  const r = spawnSync('npm', ['i', '-g', `${pkg.name}@latest`], { stdio: 'ignore', timeout: 120000 });
+  if (r.status === 0 && advanced()) return relaunch();
+  process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: npm i -g ${pkg.name}\n`);
+}
+try { await maybeAutoUpdate(); } catch {} // never let an update problem block the app
 
 process.stdout.write('loading…\r');
 let items = await load();
