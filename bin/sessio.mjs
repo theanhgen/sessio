@@ -477,6 +477,7 @@ process.stdin.resume();
 out.write(HIDE);
 draw();
 ensureDetail();
+out.on('resize', () => draw()); // reflow immediately on terminal resize, not on the next keypress/tick
 
 // live refresh: rescan every 2s, preserving filter, active tab, highlighted row.
 let refreshing = false;
