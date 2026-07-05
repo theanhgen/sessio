@@ -154,7 +154,9 @@ const gitInflight = new Set(); // cwds with a background `git status` in progres
 // the running load() picks up the fresh value on a later tick — no synchronous stall.
 function gitRefresh(cwd) {
   if (gitInflight.has(cwd)) return;
+  if (!fs.existsSync(cwd)) { gitCache.set(cwd, { dirty: false, at: Date.now() }); return; } // dir gone: cache clean, don't spawn
   gitInflight.add(cwd);
+  // NB: `git status` (not a bare `.git` check) so sessions started in a repo subdir are still detected.
   execFile('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8', timeout: 2000, maxBuffer: 1 << 20 }, (err, stdout) => {
     gitInflight.delete(cwd);
     gitCache.set(cwd, { dirty: !err && stdout.trim().length > 0, at: Date.now() });
@@ -163,7 +165,7 @@ function gitRefresh(cwd) {
 // return the best-known dirtiness immediately; refresh in the background when stale/unknown.
 function gitDirty(cwd) {
   const c = gitCache.get(cwd);
-  if (!c || Date.now() - c.at >= 20000) gitRefresh(cwd);
+  if (!c || Date.now() - c.at >= 30000) gitRefresh(cwd); // recheck at most every 30s (WIP doesn't change fast)
   return c ? c.dirty : false; // unknown until the first background check resolves
 }
 
@@ -246,6 +248,7 @@ function latestVersion(name, timeoutMs) {
     // read dist-tags.latest from the package doc instead.
     const req = https.get(`https://registry.npmjs.org/${name}`, { timeout: timeoutMs, headers: { accept: 'application/vnd.npm.install-v1+json' } }, (res) => {
       if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      res.on('error', () => resolve(null)); // a mid-transfer connection drop would otherwise throw uncaught
       let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { try { const o = JSON.parse(d); resolve((o['dist-tags'] && o['dist-tags'].latest) || null); } catch { resolve(null); } });
     });
     req.on('timeout', () => { req.destroy(); resolve(null); });
@@ -268,6 +271,14 @@ async function maybeAutoUpdate() {
     const r = spawnSync('git', ['-C', PKG_ROOT, 'pull', '--ff-only'], { stdio: 'ignore', timeout: 60000 });
     if (r.status === 0 && advanced()) return relaunch();
     process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: git -C ${PKG_ROOT} pull\n`);
+    return;
+  }
+  // only auto-install globally when THIS running copy IS the global install. An npx run or a
+  // project-local node_modules copy would otherwise `npm i -g` on every launch (updating the
+  // global copy, never its own version) — a redundant reinstall + startup stall each time.
+  const gRoot = (() => { try { return spawnSync('npm', ['root', '-g'], { encoding: 'utf8', timeout: 5000 }).stdout.trim(); } catch { return ''; } })();
+  if (!gRoot || !path.resolve(PKG_ROOT).startsWith(path.resolve(gRoot))) {
+    process.stdout.write(`sessio ${latest} available (you have ${cur}) — run: npm i -g ${pkg.name}\n`);
     return;
   }
   if (!writable(PKG_ROOT)) { // a global install owned by root — don't trigger a sudo prompt/hang
@@ -329,6 +340,7 @@ function renderTable(rows, width) { // rows[0] = header, rest = data (separator 
   return out;
 }
 function mdLines(text, width) {
+  width = Math.max(1, width | 0); // guard: a 1-2 col terminal can pass width<=0; the code hard-wrap below would loop forever
   const res = [];
   const raw = String(text).split('\n');
   const isRow = (s) => /^\s*\|.*\|\s*$/.test(s);
