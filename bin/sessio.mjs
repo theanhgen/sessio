@@ -18,6 +18,9 @@ const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back i
 // cleanupPeriodDays still applies — this declutters the list, it does not preserve sessions.
 const SESSIO_DIR = path.join(os.homedir(), '.claude', '.sessio');
 const ARCHIVE_FILE = path.join(SESSIO_DIR, 'archived.json');
+// persistent list-metadata cache: id -> {mtime, ...head, ...tail}. Keyed by mtime so a
+// changed transcript is re-read; survives across launches so a cold start is near-instant.
+const HCACHE_FILE = path.join(SESSIO_DIR, 'list-cache.json');
 const loadArchived = () => { try { return new Set(JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8'))); } catch { return new Set(); } };
 const saveArchived = (set) => { try { fs.mkdirSync(SESSIO_DIR, { recursive: true }); fs.writeFileSync(ARCHIVE_FILE, JSON.stringify([...set])); } catch {} };
 let archived = loadArchived();
@@ -183,8 +186,29 @@ function wrap(text, width, maxLines) {
   return lines.length ? lines : [''];
 }
 
-const hCache = new Map(); // id -> {mtime, ...head()}   list metadata (fast)
+// run fn over items with bounded concurrency — parallel enough to be fast, capped so a big
+// scan can't exhaust file descriptors (macOS defaults to a 256 fd limit).
+async function mapLimit(items, limit, fn) {
+  let i = 0;
+  const worker = async () => { while (i < items.length) { const idx = i++; await fn(items[idx], idx); } };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+// list metadata cache, seeded from disk so repeat launches skip re-parsing unchanged transcripts.
+const hCache = (() => {
+  try { return new Map(Object.entries(JSON.parse(fs.readFileSync(HCACHE_FILE, 'utf8')))); } catch { return new Map(); }
+})();
 const dCache = new Map(); // id -> {mtime, ...detail()} preview metadata (lazy, per highlight)
+let hCacheDirty = false;   // only rewrite the disk cache when a miss actually changed it
+// persist the cache, pruning to the ids we still track (drops deleted/aged-out sessions). async + best-effort.
+function saveHCache(ids) {
+  if (!hCacheDirty) return;
+  hCacheDirty = false;
+  const obj = {};
+  for (const id of ids) { const v = hCache.get(id); if (v) obj[id] = v; }
+  try { fs.mkdirSync(SESSIO_DIR, { recursive: true }); } catch {}
+  fs.writeFile(HCACHE_FILE, JSON.stringify(obj), () => {});
+}
 async function load() {
   const rows = [];
   for (const d of fs.readdirSync(ROOT)) {
@@ -198,12 +222,19 @@ async function load() {
     }
   }
   rows.sort((a, b) => b.mtime - a.mtime);
-  const items = [];
-  for (const r of rows.slice(0, CAP)) {
-    const c = hCache.get(r.id);
-    const info = (c && c.mtime === r.mtime) ? c : { mtime: r.mtime, ...(await head(r.file)), ...(await tail(r.file)) };
+  const slice = rows.slice(0, CAP);
+  // read head+tail for all rows concurrently, reusing the cache when mtime is unchanged.
+  await mapLimit(slice, 48, async (r) => {
+    let info = hCache.get(r.id);
+    if (!info || info.mtime !== r.mtime) {
+      info = { mtime: r.mtime, ...(await head(r.file)), ...(await tail(r.file)) };
+      hCacheDirty = true;
+    }
     hCache.set(r.id, info);
     Object.assign(r, info);
+  });
+  const items = [];
+  for (const r of slice) {
     if (!r.first) continue; // skip empty (0-prompt) sessions
     r.title = r.custom || r.ai || null;
     r.name = r.title || r.first;
@@ -214,7 +245,6 @@ async function load() {
     const d = dCache.get(r.id); // fold in detail if it's already been read for this session
     if (d && d.mtime === r.mtime) Object.assign(r, d);
     items.push(r);
-    if (items.length >= CAP) break;
   }
   // git WIP: flag the most-recent session in each project whose folder has uncommitted changes
   const seenCwd = new Set();
@@ -231,6 +261,7 @@ async function load() {
     r.project = dirLabel.get(r.dir) || proj(r.dir);
     r.hay = (r.project + ' ' + r.name + ' ' + r.first).toLowerCase();
   }
+  saveHCache(slice.map((r) => r.id)); // no-op unless a miss dirtied the cache this pass
   return items;
 }
 
