@@ -9,7 +9,7 @@
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
 ```
-←→ project · ↑↓ move · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ↵ resume · ? help · esc quit · live
+←→ project · ↑↓ move · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ↵ resume · ^o same-window · ? help · esc quit · live
 ```
 
 ## Install
@@ -37,7 +37,7 @@ sessions
 - **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
 - **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h).
 - **Preview** — for the highlighted session: title, project, prompt count, git branch, the compact summary, first/last typed prompt, and Claude's last reply rendered as markdown (including fenced code blocks). `⇥` expands the reply.
-- **`↵` resume** — runs `claude --resume <id>` in that session's original working directory. Under **Ghostty**, it opens the session in a **new window** (`ghostty +new-window`) and leaves sessio running as a launcher, so you can fire off several sessions; in any other terminal it hands over the current window as before.
+- **`↵` resume** — runs `claude --resume <id>` in that session's original working directory. Under **Ghostty**, it opens the session in a **new window** (`ghostty +new-window`) and leaves sessio running as a launcher, so you can fire off several sessions; in any other terminal it hands over the current window as before. Press **`^o`** instead to resume in **this** window (replacing sessio) even under Ghostty — the escape hatch when you don't want a new window.
 - **`?` help** — a full keybinding overlay; any key closes it.
 - **Auto-update** — on launch, `sessio` checks npm for a newer version and updates itself in place (then re-launches). A root-owned global install prints the `sudo` command instead of prompting; a slow or offline network is a no-op. Opt out with `NO_UPDATE_NOTIFIER=1` or `SESSIO_NO_UPDATE=1`.
 
@@ -51,7 +51,8 @@ sessions
 | `^f` | full-text search the current query across all transcripts |
 | `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `⇥` / `^e` | expand / collapse the reply preview |
-| `↵` | resume the selected session in its directory |
+| `↵` | resume the selected session in its directory (Ghostty: new window) |
+| `^o` | resume in **this** window, replacing sessio (Ghostty escape hatch) |
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |
 | `^c` | quit |

@@ -545,6 +545,7 @@ function drawHelp() {
     `${CY}^a${R}     archive / unarchive the selected session`,
     `${CY}⇥ ^e${R}   expand / collapse the reply preview`,
     `${CY}↵${R}      resume ${D}(Ghostty: opens a new window, sessio stays open; else in place)${R}`,
+    `${CY}^o${R}     resume in ${B}this${R} window ${D}(replaces sessio; use under Ghostty to skip the new window)${R}`,
     `${CY}?${R}      toggle this help`,
     `${CY}esc${R}    clear search, then quit`,
     `${CY}^c${R}     quit`,
@@ -583,7 +584,8 @@ function draw() {
   const hint = RG ? `^f search-in-text · ` : '';
   const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
   const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}↵ resume · ? help · esc quit · ${CY}live${D}${R}${flash ? `  ${G}${flash}${R}` : ''}\n`;
+  const resumeHint = inGhostty() ? `↵ new-window · ^o same-window · ` : `↵ resume · `;
+  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}${resumeHint}? help · esc quit · ${CY}live${D}${R}${flash ? `  ${G}${flash}${R}` : ''}\n`;
   s += tabs.join('\n') + '\n';
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
   s += `${prompt} ${q}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
@@ -653,6 +655,25 @@ timer.unref?.();
 
 // never leave the terminal in raw mode / cursor hidden, and surface the real error
 function restore() { try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {} out.write(SHOW); }
+
+// Hand THIS terminal over to `claude --resume`, replacing sessio. Used by ↵ (non-Ghostty,
+// or when the Ghostty new-window launch failed) and by ^o (force same-window even under Ghostty).
+function resumeInPlace(p) {
+  clearInterval(timer);
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  out.write(CLR + SHOW); // restore cursor before handing the terminal to claude
+  const cmd = `cd ${p.cwd || '.'} && claude --resume ${p.id}`;
+  if (!p.cwd) { console.log(cmd); process.exit(0); }
+  try {
+    const r = spawnSync('claude', ['--resume', p.id], { cwd: p.cwd, stdio: 'inherit' });
+    if (r.error) throw r.error; // e.g. claude not on PATH, or nested-launch failure
+    process.exit(r.status ?? 0);
+  } catch (e) {
+    restore();
+    console.log(`\nCouldn't launch claude (${e.code || e.message}). Run it yourself:\n  ${cmd}\n`);
+    process.exit(1);
+  }
+}
 process.on('uncaughtException', (e) => { try { clearInterval(timer); } catch {} restore(); out.write(CLR); console.error('sessions error:', (e && e.stack) || e); process.exit(1); });
 process.on('SIGINT', () => { clearInterval(timer); restore(); out.write(CLR); process.exit(0); });
 
@@ -700,21 +721,10 @@ process.stdin.on('keypress', (str, key) => {
       draw();
       return; // sessio stays open — pick another session to launch
     }
-    // otherwise hand this terminal over to claude in place (default / fallback)
-    clearInterval(timer);
-    if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    out.write(CLR + SHOW); // restore cursor before handing the terminal to claude
-    const cmd = `cd ${p.cwd || '.'} && claude --resume ${p.id}`;
-    if (!p.cwd) { console.log(cmd); process.exit(0); }
-    try {
-      const r = spawnSync('claude', ['--resume', p.id], { cwd: p.cwd, stdio: 'inherit' });
-      if (r.error) throw r.error; // e.g. claude not on PATH, or nested-launch failure
-      process.exit(r.status ?? 0);
-    } catch (e) {
-      restore();
-      console.log(`\nCouldn't launch claude (${e.code || e.message}). Run it yourself:\n  ${cmd}\n`);
-      process.exit(1);
-    }
+    resumeInPlace(p); // non-Ghostty, or the new-window launch failed → hand over this window
+  }
+  else if (key.ctrl && key.name === 'o') { // force resume in THIS window, even under Ghostty
+    const p = list[cur]; if (p) resumeInPlace(p);
   }
   else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
 });
