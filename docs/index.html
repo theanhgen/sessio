@@ -151,11 +151,13 @@
     <h2>What it does</h2>
     <div class="grid">
       <div class="card"><h3><span class="i">⇥</span>Project tabs</h3><p>Sessions grouped by working directory. <kbd>←</kbd><kbd>→</kbd> to switch, or see them <span class="mono">All</span> at once.</p></div>
-      <div class="card"><h3><span class="i">/</span>Type to filter</h3><p>Instantly narrows by title, project, or first prompt as you type — no mode to enter.</p></div>
+      <div class="card"><h3><span class="i">/</span>Type to filter</h3><p>Literal matches win; when there are none, sessio falls back to fuzzy matching by title, project, or first prompt.</p></div>
       <div class="card"><h3><span class="i">^f</span>Full-text search</h3><p>Greps the entire transcript body for a term across <em>every</em> session on disk, via ripgrep.</p></div>
+      <div class="card"><h3><span class="i">▸</span>Pick up work</h3><p>The <span class="mono">open</span> tab surfaces unanswered prompts, next-step requests, and recent projects with uncommitted changes.</p></div>
+      <div class="card"><h3><span class="i">^a</span>Archive locally</h3><p>Hide sessions you are done with without touching Claude’s transcript files; restore them from the archived tab at any time.</p></div>
       <div class="card"><h3><span class="i">●</span>Live &amp; recent</h3><p>Refreshes every 2s. A running session floats up with a <span class="c-green">green</span> dot; recent ones stay <span class="c-orange">orange</span>.</p></div>
       <div class="card"><h3><span class="i">¶</span>Rendered preview</h3><p>Title, branch, prompt count, the compact summary, first/last prompt, and Claude's last reply as markdown.</p></div>
-      <div class="card"><h3><span class="i">↵</span>Resume in place</h3><p>Runs <span class="mono">claude --resume</span> in that session's original directory — you land exactly where you left off.</p></div>
+      <div class="card"><h3><span class="i">↵</span>Resume where you left off</h3><p>Runs <span class="mono">claude --resume</span> in the original directory. Under Ghostty, <kbd>↵</kbd> opens a new window; <kbd>^o</kbd> keeps the current one.</p></div>
     </div>
   </section>
 
@@ -167,8 +169,11 @@
       <tr><td class="k"><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move selection (<kbd>↓</kbd> reveals more)</td></tr>
       <tr><td class="k">type</td><td>Filter by name / project / first prompt</td></tr>
       <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across all transcripts</td></tr>
+      <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session locally</td></tr>
       <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Expand / collapse the reply preview</td></tr>
-      <tr><td class="k"><kbd>↵</kbd></td><td>Resume the selected session in its directory</td></tr>
+      <tr><td class="k"><kbd>↵</kbd></td><td>Resume selected session (Ghostty: new window)</td></tr>
+      <tr><td class="k"><kbd>^o</kbd></td><td>Resume in this window, including under Ghostty</td></tr>
+      <tr><td class="k"><kbd>?</kbd></td><td>Toggle the full keybinding help</td></tr>
       <tr><td class="k"><kbd>esc</kbd></td><td>Clear content search, then quit</td></tr>
     </table>
   </section>

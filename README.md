@@ -32,14 +32,14 @@ sessions
 
 - **Project tabs** — sessions grouped by their working directory; `←`/`→` to switch, or `All`.
 - **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, or the folder has uncommitted git changes). Open sessions are marked with an amber `▸` in any view.
-- **Type to fuzzy-filter** — instantly narrows by title, project, or first prompt. Matching is fuzzy (subsequence) and ranked: exact substrings rank first, looser matches follow.
+- **Type to filter** — instantly narrows by title, project, or first prompt. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching.
 - **`^f` full-text search** — greps the full transcript body for a term, across *all* sessions on disk.
 - **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
 - **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h).
 - **Preview** — for the highlighted session: title, project, prompt count, git branch, the compact summary, first/last typed prompt, and Claude's last reply rendered as markdown (including fenced code blocks). `⇥` expands the reply.
 - **`↵` resume** — runs `claude --resume <id>` in that session's original working directory. Under **Ghostty**, it opens the session in a **new window** (`ghostty +new-window`) and leaves sessio running as a launcher, so you can fire off several sessions; in any other terminal it hands over the current window as before. Press **`^o`** instead to resume in **this** window (replacing sessio) even under Ghostty — the escape hatch when you don't want a new window.
 - **`?` help** — a full keybinding overlay; any key closes it.
-- **Auto-update** — on launch, `sessio` checks npm for a newer version and updates itself in place (then re-launches). A root-owned global install prints the `sudo` command instead of prompting; a slow or offline network is a no-op. Opt out with `NO_UPDATE_NOTIFIER=1` or `SESSIO_NO_UPDATE=1`.
+- **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
 
 ## Keys
 
@@ -56,6 +56,16 @@ sessions
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |
 | `^c` | quit |
+
+## Update
+
+```sh
+sessions --update
+```
+
+This is intentionally explicit: normal launches never contact npm or modify
+your installation. In a git checkout, it prints the `git pull` command for you
+to run rather than changing the checkout itself.
 
 ## Requirements
 
@@ -74,13 +84,15 @@ alias sessions='sessio'   # or point it at the global install
 
 ## How it works
 
-`sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl`, parsing each session's title, prompts, compact summary, and last reply. It caches per-file by mtime so refreshes are cheap, and only the 300 most-recent sessions are shown (full-text search still scans everything on disk).
+`sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl`, parsing each session's title, prompts, compact summary, and last reply. It caches recent list metadata by path and mtime so refreshes are cheap, and only the 300 most-recent sessions are shown while browsing. Full-text search loads every matching session, including matches older than that cap. Cache metadata is kept in `~/.claude/.sessio/list-cache.json`, owner-readable only, and pruned when sessio refreshes.
 
 > ⚠️ **The `.jsonl` transcript format is undocumented and internal to Claude Code.** It may change without notice. `sessio` parses defensively and degrades gracefully, but a format change on Anthropic's side can break fields until this tool is updated. This project is not affiliated with or endorsed by Anthropic.
 
 ## Optional: back up your sessions to iCloud (macOS)
 
 Claude transcripts are your work history and aren't backed up anywhere by default. [`scripts/backup-sessions.sh`](scripts/backup-sessions.sh) rsyncs `~/.claude/projects` into iCloud Drive incrementally (no `--delete`, so a local wipe can't erase your backup).
+
+> **Privacy:** transcript files can contain prompts, code, tool output, and credentials. This optional script uploads them in plaintext to the configured iCloud account. Review the destination and your organisation's data-handling policy before enabling it; use encrypted storage if that is required.
 
 Run it manually, or schedule it with the included LaunchAgent template:
 

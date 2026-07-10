@@ -9,6 +9,8 @@ import readline from 'node:readline';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn, execFile } from 'node:child_process';
+import { sanitizeTerminalText } from '../lib/safety.mjs';
+import { cacheKey, pruneCache, selectTranscriptRows } from '../lib/session-store.mjs';
 
 const ROOT = path.join(os.homedir(), '.claude', 'projects');
 const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back into recent work
@@ -18,12 +20,30 @@ const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back i
 // cleanupPeriodDays still applies — this declutters the list, it does not preserve sessions.
 const SESSIO_DIR = path.join(os.homedir(), '.claude', '.sessio');
 const ARCHIVE_FILE = path.join(SESSIO_DIR, 'archived.json');
-// persistent list-metadata cache: id -> {mtime, ...head, ...tail}. Keyed by mtime so a
+// persistent list-metadata cache: relative transcript path -> {mtime, ...head, ...tail}. Keyed by mtime so a
 // changed transcript is re-read; survives across launches so a cold start is near-instant.
 const HCACHE_FILE = path.join(SESSIO_DIR, 'list-cache.json');
 const loadArchived = () => { try { return new Set(JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8'))); } catch { return new Set(); } };
-const saveArchived = (set) => { try { fs.mkdirSync(SESSIO_DIR, { recursive: true }); fs.writeFileSync(ARCHIVE_FILE, JSON.stringify([...set])); } catch {} };
+function savePrivateJson(file, value) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(SESSIO_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    fs.chmodSync(file, 0o600);
+    return true;
+  } catch {
+    try { fs.unlinkSync(tmp); } catch {}
+    return false;
+  }
+}
+const saveArchived = (set) => savePrivateJson(ARCHIVE_FILE, [...set]);
 let archived = loadArchived();
+const archiveKey = (item) => item.key || item.id;
+const isArchived = (item) => archived.has(archiveKey(item)) || archived.has(item.id); // supports pre-0.3.1 id-only archives
+
+const safeText = sanitizeTerminalText;
+const validPath = (value) => typeof value === 'string' && safeText(value) === value ? value : null;
 
 // locate ripgrep for full-content search (ctrl-f); null -> feature disabled gracefully
 const RG = (() => {
@@ -55,11 +75,11 @@ function head(file) {
     let n = 0, first = null, firstTs = null, cwd = null, branch = null, custom = null, ai = null;
     rl.on('line', (l) => {
       n++;
-      if (l.includes('-title"')) { try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = o.customTitle; else if (o.type === 'ai-title' && o.aiTitle) ai = ai || o.aiTitle; } catch {} }
+      if (l.includes('-title"')) { try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = safeText(o.customTitle); else if (o.type === 'ai-title' && o.aiTitle) ai = ai || safeText(o.aiTitle); } catch {} }
       else if (l.includes('"promptSource":"typed"')) {
-        try { const o = JSON.parse(l); if (o.type === 'user' && o.message) { const c = o.message.content; if (typeof c === 'string' && c.trim() && !c.startsWith('<')) { if (!first) { first = c.trim(); firstTs = o.timestamp || null; } if (!cwd && o.cwd) cwd = o.cwd; if (!branch && o.gitBranch) branch = o.gitBranch; } } } catch {}
+        try { const o = JSON.parse(l); if (o.type === 'user' && o.message) { const c = o.message.content; const text = typeof c === 'string' ? safeText(c) : ''; if (text.trim() && !text.startsWith('<')) { if (!first) { first = text.trim(); firstTs = o.timestamp || null; } if (!cwd && o.cwd) cwd = validPath(o.cwd); if (!branch && o.gitBranch) branch = safeText(o.gitBranch); } } } catch {}
       }
-      else if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = o.cwd; } catch {} }
+      else if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = validPath(o.cwd); } catch {} }
       if (n >= 400 && first && cwd) rl.close();
     });
     const done = () => res({ first, firstTs, cwd, branch, custom, ai });
@@ -75,7 +95,7 @@ function detail(file) {
     let cwd = null, first = null, last = null, firstTs = null, lastTs = null, count = 0, custom = null, ai = null, branch = null, summary = null, summaryTs = null, reply = null, replyTs = null;
     rl.on('line', (l) => {
       if (l.includes('-title"')) {
-        try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = o.customTitle; else if (o.type === 'ai-title' && o.aiTitle) ai = o.aiTitle; } catch {}
+        try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = safeText(o.customTitle); else if (o.type === 'ai-title' && o.aiTitle) ai = safeText(o.aiTitle); } catch {}
         return;
       }
       if (l.includes('"isCompactSummary":true')) { // auto-compact recap; keep the latest, strip boilerplate
@@ -84,7 +104,7 @@ function detail(file) {
           if (o.isCompactSummary === true) { // exact field, not a mention of the word
             const c = o.message && o.message.content; // string in some sessions, array of blocks in others
             const t = typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (x && x.text) || '').join('\n\n') : '';
-            if (t) { const i = t.indexOf('Summary:'); summary = (i >= 0 ? t.slice(i + 8) : t).trim(); summaryTs = o.timestamp || null; } // raw markdown, rendered at display
+            if (t) { const i = t.indexOf('Summary:'); summary = safeText(i >= 0 ? t.slice(i + 8) : t).trim(); summaryTs = o.timestamp || null; }
           }
         } catch {}
         return;
@@ -94,8 +114,9 @@ function detail(file) {
           const o = JSON.parse(l);
           if (o.type === 'assistant' && o.message && Array.isArray(o.message.content)) {
             const txt = o.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n');
-            if (txt.trim()) { reply = txt.trim(); replyTs = o.timestamp || null; } // raw markdown, rendered at display
-            if (!cwd && o.cwd) cwd = o.cwd;
+            const text = safeText(txt);
+            if (text.trim()) { reply = text.trim(); replyTs = o.timestamp || null; }
+            if (!cwd && o.cwd) cwd = validPath(o.cwd);
           }
         } catch {}
         return;
@@ -105,18 +126,19 @@ function detail(file) {
           const o = JSON.parse(l);
           if (o.type === 'user' && o.message) {
             const c = o.message.content;
-            if (typeof c === 'string' && c.trim() && !c.startsWith('<')) {
+            const text = typeof c === 'string' ? safeText(c) : '';
+            if (text.trim() && !text.startsWith('<')) {
               count++;
-              if (!first) { first = c.trim(); firstTs = o.timestamp || null; }
-              last = c.trim(); lastTs = o.timestamp || null;
-              if (!cwd && o.cwd) cwd = o.cwd;
-              if (!branch && o.gitBranch) branch = o.gitBranch;
+              if (!first) { first = text.trim(); firstTs = o.timestamp || null; }
+              last = text.trim(); lastTs = o.timestamp || null;
+              if (!cwd && o.cwd) cwd = validPath(o.cwd);
+              if (!branch && o.gitBranch) branch = safeText(o.gitBranch);
             }
           }
         } catch {}
         return;
       }
-      if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = o.cwd; } catch {} }
+      if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = validPath(o.cwd); } catch {} }
     });
     const done = () => res({ cwd, first, last, firstTs, lastTs, count, custom, ai, branch, summary, summaryTs, reply, replyTs, _loaded: true });
     rl.on('close', done); rl.on('error', done);
@@ -134,9 +156,9 @@ function tail(file) {
       let reply = null, replyTs = null, userTs = null; // last assistant text vs last typed user prompt
       rl.on('line', (l) => {
         if (l.includes('"type":"assistant"') && l.includes('"type":"text"')) {
-          try { const o = JSON.parse(l); if (o.type === 'assistant' && Array.isArray(o.message?.content)) { const t = o.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n'); if (t.trim()) { reply = t.trim(); replyTs = o.timestamp || replyTs; } } } catch {}
+          try { const o = JSON.parse(l); if (o.type === 'assistant' && Array.isArray(o.message?.content)) { const t = safeText(o.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n')); if (t.trim()) { reply = t.trim(); replyTs = o.timestamp || replyTs; } } } catch {}
         } else if (l.includes('"promptSource":"typed"')) {
-          try { const o = JSON.parse(l); if (o.type === 'user' && typeof o.message?.content === 'string' && o.message.content.trim() && !o.message.content.startsWith('<')) userTs = o.timestamp || userTs; } catch {}
+          try { const o = JSON.parse(l); const text = typeof o.message?.content === 'string' ? safeText(o.message.content) : ''; if (o.type === 'user' && text.trim() && !text.startsWith('<')) userTs = o.timestamp || userTs; } catch {}
         }
       });
       const done = () => {
@@ -173,7 +195,7 @@ function gitDirty(cwd) {
 }
 
 function wrap(text, width, maxLines) {
-  const words = (text || '').replace(/\s+/g, ' ').trim().split(' ');
+  const words = safeText(text).replace(/\s+/g, ' ').trim().split(' ');
   const lines = []; let cur = '';
   for (const w of words) {
     if ((cur + ' ' + w).trim().length > width) { lines.push(cur); cur = w; }
@@ -198,39 +220,45 @@ async function mapLimit(items, limit, fn) {
 const hCache = (() => {
   try { return new Map(Object.entries(JSON.parse(fs.readFileSync(HCACHE_FILE, 'utf8')))); } catch { return new Map(); }
 })();
-const dCache = new Map(); // id -> {mtime, ...detail()} preview metadata (lazy, per highlight)
+const dCache = new Map(); // transcript path -> {mtime, ...detail()} preview metadata (lazy, per highlight)
 let hCacheDirty = false;   // only rewrite the disk cache when a miss actually changed it
-// persist the cache, pruning to the ids we still track (drops deleted/aged-out sessions). async + best-effort.
+// Persist a private, atomic cache and prune any deleted or aged-out transcript metadata.
 function saveHCache(ids) {
-  if (!hCacheDirty) return;
-  hCacheDirty = false;
-  const obj = {};
-  for (const id of ids) { const v = hCache.get(id); if (v) obj[id] = v; }
-  try { fs.mkdirSync(SESSIO_DIR, { recursive: true }); } catch {}
-  fs.writeFile(HCACHE_FILE, JSON.stringify(obj), () => {});
+  const keys = new Set(ids);
+  const pruned = pruneCache(hCache, keys);
+  const needsPersist = hCacheDirty || pruned.size !== hCache.size;
+  if (!needsPersist) return;
+  hCache.clear();
+  for (const [key, value] of pruned) hCache.set(key, value);
+  if (savePrivateJson(HCACHE_FILE, Object.fromEntries(pruned))) hCacheDirty = false;
 }
-async function load() {
+async function load(extraFiles = new Set()) {
   const rows = [];
-  for (const d of fs.readdirSync(ROOT)) {
+  let dirs;
+  try { dirs = fs.readdirSync(ROOT); } catch (e) { if (e && e.code === 'ENOENT') { saveHCache([]); return []; } throw e; }
+  for (const d of dirs) {
     const dir = path.join(ROOT, d);
     let st; try { st = fs.statSync(dir); } catch { continue; }
     if (!st.isDirectory()) continue;
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.jsonl')) continue;
       let s; try { s = fs.statSync(path.join(dir, f)); } catch { continue; }
-      if (s.isFile()) rows.push({ id: f.slice(0, -6), file: path.join(dir, f), mtime: s.mtimeMs, size: s.size, dir: d });
+      if (s.isFile()) {
+        const file = path.join(dir, f);
+        rows.push({ id: f.slice(0, -6), key: cacheKey(ROOT, file), file, mtime: s.mtimeMs, size: s.size, dir: d });
+      }
     }
   }
   rows.sort((a, b) => b.mtime - a.mtime);
-  const slice = rows.slice(0, CAP);
+  const slice = selectTranscriptRows(rows, CAP, extraFiles);
   // read head+tail for all rows concurrently, reusing the cache when mtime is unchanged.
   await mapLimit(slice, 48, async (r) => {
-    let info = hCache.get(r.id);
+    let info = hCache.get(r.key);
     if (!info || info.mtime !== r.mtime) {
       info = { mtime: r.mtime, ...(await head(r.file)), ...(await tail(r.file)) };
       hCacheDirty = true;
     }
-    hCache.set(r.id, info);
+    hCache.set(r.key, info);
     Object.assign(r, info);
   });
   const items = [];
@@ -242,7 +270,7 @@ async function load() {
     // recent (last 3 days); unanswered prompts and git-WIP count at any age.
     if (r.open && r.why === 'Claude proposed next' && Date.now() - r.mtime > 3 * 86400000) r.open = false;
     if (r.open) r.openWhy = r.why;
-    const d = dCache.get(r.id); // fold in detail if it's already been read for this session
+    const d = dCache.get(r.key); // fold in detail if it's already been read for this session
     if (d && d.mtime === r.mtime) Object.assign(r, d);
     items.push(r);
   }
@@ -258,17 +286,16 @@ async function load() {
   const dirLabel = new Map();
   for (const r of items) if (r.cwd && !dirLabel.has(r.dir)) dirLabel.set(r.dir, path.basename(r.cwd));
   for (const r of items) {
-    r.project = dirLabel.get(r.dir) || proj(r.dir);
+    r.project = safeText(dirLabel.get(r.dir) || proj(r.dir));
     r.hay = (r.project + ' ' + r.name + ' ' + r.first).toLowerCase();
   }
-  saveHCache(slice.map((r) => r.id)); // no-op unless a miss dirtied the cache this pass
+  saveHCache(slice.map((r) => r.key));
   return items;
 }
 
-// --- fully-automatic update (opt out with NO_UPDATE_NOTIFIER / SESSIO_NO_UPDATE) ---
-// on startup: check npm for a newer version and, if writable, update in place and re-exec the
-// new binary. bounded timeouts + a permission pre-check mean it can never hang or prompt for
-// sudo — on any obstacle it prints the manual command and launches the current version.
+// --- explicit update (sessions --update) ---
+// Starting a session browser must never modify its checkout or global installation. Updates are
+// deliberately opt-in and never run `git pull` in a developer checkout.
 const PKG_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readVersion = (root) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return null; } };
 const isNewer = (a, b) => { const pa = a.split('.').map(Number), pb = b.split('.').map(Number); for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y; } return false; };
@@ -286,27 +313,22 @@ function latestVersion(name, timeoutMs) {
     req.on('error', () => resolve(null));
   });
 }
-async function maybeAutoUpdate() {
-  if (process.env.NO_UPDATE_NOTIFIER || process.env.SESSIO_NO_UPDATE) return;
+async function update() {
+  if (process.env.NO_UPDATE_NOTIFIER || process.env.SESSIO_NO_UPDATE) {
+    console.log('Updates are disabled by NO_UPDATE_NOTIFIER or SESSIO_NO_UPDATE.');
+    return;
+  }
   const pkg = readVersion(PKG_ROOT);
   if (!pkg || !pkg.name || !pkg.version) return;
   const cur = pkg.version;
   const latest = await latestVersion(pkg.name, 2000);         // bounded: slow/offline network never delays launch
-  if (!latest || !isNewer(latest, cur)) return;
-  // re-exec into the freshly-installed code; SESSIO_NO_UPDATE guards the child against a re-check loop.
-  const relaunch = () => { const r = spawnSync(process.argv[0], [process.argv[1], ...process.argv.slice(2)], { stdio: 'inherit', env: { ...process.env, SESSIO_NO_UPDATE: '1' } }); process.exit(r.status ?? 0); };
-  const advanced = () => { const v = readVersion(PKG_ROOT); return v && isNewer(v.version, cur); }; // did THIS install actually move?
+  if (!latest) { console.error('Could not check npm for a newer sessio version.'); process.exitCode = 1; return; }
+  if (!isNewer(latest, cur)) { console.log(`sessio ${cur} is current.`); return; }
   const isGit = fs.existsSync(path.join(PKG_ROOT, '.git'));
   if (isGit) {
-    process.stdout.write(`updating sessio ${cur} → ${latest} (git pull)…\n`);
-    const r = spawnSync('git', ['-C', PKG_ROOT, 'pull', '--ff-only'], { stdio: 'ignore', timeout: 60000 });
-    if (r.status === 0 && advanced()) return relaunch();
-    process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: git -C ${PKG_ROOT} pull\n`);
+    process.stdout.write(`sessio ${latest} available — update this checkout yourself:\n  git -C ${PKG_ROOT} pull\n`);
     return;
   }
-  // only auto-install globally when THIS running copy IS the global install. An npx run or a
-  // project-local node_modules copy would otherwise `npm i -g` on every launch (updating the
-  // global copy, never its own version) — a redundant reinstall + startup stall each time.
   const gRoot = (() => { try { return spawnSync('npm', ['root', '-g'], { encoding: 'utf8', timeout: 5000 }).stdout.trim(); } catch { return ''; } })();
   if (!gRoot || !path.resolve(PKG_ROOT).startsWith(path.resolve(gRoot))) {
     process.stdout.write(`sessio ${latest} available (you have ${cur}) — run: npm i -g ${pkg.name}\n`);
@@ -318,14 +340,22 @@ async function maybeAutoUpdate() {
   }
   process.stdout.write(`updating sessio ${cur} → ${latest}…\n`);
   const r = spawnSync('npm', ['i', '-g', `${pkg.name}@latest`], { stdio: 'ignore', timeout: 120000 });
-  if (r.status === 0 && advanced()) return relaunch();
-  process.stdout.write(`sessio ${latest} available — couldn't auto-update; run: npm i -g ${pkg.name}\n`);
+  if (r.status === 0) { process.stdout.write(`Updated sessio to ${latest}.\n`); return; }
+  process.exitCode = 1;
+  process.stdout.write(`sessio ${latest} available — couldn't update; run: npm i -g ${pkg.name}\n`);
 }
-try { await maybeAutoUpdate(); } catch {} // never let an update problem block the app
+if (process.argv.slice(2).includes('--update')) {
+  try { await update(); } catch { console.error('Could not update sessio.'); process.exitCode = 1; }
+  process.exit(process.exitCode || 0);
+}
 
 process.stdout.write('loading…\r');
 let items = await load();
 if (!items.length) { console.log('No sessions found.'); process.exit(0); }
+if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  console.error('sessions requires an interactive terminal.');
+  process.exit(1);
+}
 
 // --- picker ---
 const out = process.stdout;
@@ -337,7 +367,7 @@ process.on('exit', () => out.write(SHOW)); // always restore cursor, whatever th
 
 // minimal markdown -> ANSI renderer so replies/summaries look like Claude renders them
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
-const inlineMd = (s) => s
+const inlineMd = (s) => safeText(s)
   .replace(/\*\*(.+?)\*\*/g, `${B}$1${R}`)          // bold
   .replace(/__(.+?)__/g, `${B}$1${R}`)
   .replace(/`([^`]+)`/g, `${CY}$1${R}`)             // inline code
@@ -373,7 +403,7 @@ function renderTable(rows, width) { // rows[0] = header, rest = data (separator 
 function mdLines(text, width) {
   width = Math.max(1, width | 0); // guard: a 1-2 col terminal can pass width<=0; the code hard-wrap below would loop forever
   const res = [];
-  const raw = String(text).split('\n');
+  const raw = safeText(text).split('\n');
   const isRow = (s) => /^\s*\|.*\|\s*$/.test(s);
   const isSep = (s) => s.includes('|') && /-/.test(s) && /^\s*\|?[\s:|-]+\|?\s*$/.test(s);
   const cells = (s) => s.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
@@ -419,9 +449,9 @@ const ARCHIVED_TAB = '🗄 archived';
 // tabs are built from live (non-archived) sessions; the archived tab appears only while
 // something is archived, and always sits last.
 const tabsFor = (its) => {
-  const live = its.filter((i) => !archived.has(i.id));
+  const live = its.filter((i) => !isArchived(i));
   return ['All', ...(live.some((i) => i.open) ? [OPEN_TAB] : []), ...new Set(live.map((i) => i.project)),
-    ...(its.some((i) => archived.has(i.id)) ? [ARCHIVED_TAB] : [])];
+    ...(its.some((i) => isArchived(i)) ? [ARCHIVED_TAB] : [])];
 };
 let projects = tabsFor(items);
 // subsequence fuzzy match + score: a contiguous substring always outranks a scattered match;
@@ -446,14 +476,23 @@ function fuzzyScore(hay, needleRaw) {
 const view = () => {
   const p = projects[pIdx];
   let l;
-  if (p === ARCHIVED_TAB) l = items.filter((i) => archived.has(i.id));      // archived tab: only archived
+  if (p === ARCHIVED_TAB) l = items.filter((i) => isArchived(i));      // archived tab: only archived
   else {
     l = p === 'All' ? items : p === OPEN_TAB ? items.filter((i) => i.open) : items.filter((i) => i.project === p);
-    l = l.filter((i) => !archived.has(i.id));                              // every other tab: hide archived
+    l = l.filter((i) => !isArchived(i));                              // every other tab: hide archived
   }
-  if (deep) l = l.filter((i) => deep.ids.has(i.id));      // content match wins
-  else if (q) l = l.map((it) => [it, fuzzyScore(it.hay, q)]) // fuzzy filter, ranked (recency tiebreak)
-    .filter((e) => e[1] >= 0).sort((a, b) => b[1] - a[1] || b[0].mtime - a[0].mtime).map((e) => e[0]);
+  if (deep) l = l.filter((i) => deep.keys.has(i.key));      // content match wins
+  else if (q) {
+    // substring-first: show sessions that literally contain the query (name/project/first prompt),
+    // ranked earliest-hit then most-recent. Only if nothing contains it do we fall back to the
+    // looser subsequence fuzzy match — otherwise a short query like "csu" sprays across prose.
+    const nq = q.toLowerCase();
+    const subs = [];
+    for (const it of l) { const idx = it.hay.indexOf(nq); if (idx >= 0) subs.push([it, idx]); }
+    if (subs.length) l = subs.sort((a, b) => a[1] - b[1] || b[0].mtime - a[0].mtime).map((e) => e[0]);
+    else l = l.map((it) => [it, fuzzyScore(it.hay, q)]) // fuzzy fallback, ranked (recency tiebreak)
+      .filter((e) => e[1] >= 0).sort((a, b) => b[1] - a[1] || b[0].mtime - a[0].mtime).map((e) => e[0]);
+  }
   return l;
 };
 
@@ -461,19 +500,19 @@ const view = () => {
 function ensureDetail() {
   const it = view()[cur];
   if (!it || it._loaded) return;
-  const c = dCache.get(it.id);
+  const c = dCache.get(it.key);
   if (c && c.mtime === it.mtime) { Object.assign(it, c); it.name = (it.custom || it.ai) || it.name; return; }
   detail(it.file).then((d) => {
     const rec = { mtime: it.mtime, ...d };
-    dCache.set(it.id, rec);
+    dCache.set(it.key, rec);
     Object.assign(it, d);
     if (it.custom || it.ai) { it.title = it.custom || it.ai; it.name = it.title; }
     draw();
   });
 }
 
-// content search: grep every transcript body for the term, keep matching session ids.
-// only the CAP most-recent sessions stay in the list, but rg searches all of them on disk.
+// content search: grep every transcript body for the term, then load every matching session
+// (including matches beyond the normal browse cap).
 // async so the live UI never freezes while rg scans; streams stdout (no maxBuffer cap).
 function contentSearch(term) {
   return new Promise((resolve) => {
@@ -484,7 +523,7 @@ function contentSearch(term) {
     catch { return resolve(null); }
     child.stdout.on('data', (d) => { buf += d; });
     child.on('error', () => resolve(null));
-    child.on('close', () => resolve({ query: term, ids: new Set(buf.split('\n').filter(Boolean).map((f) => path.basename(f, '.jsonl'))) }));
+    child.on('close', () => resolve({ query: term, files: new Set(buf.split('\n').filter(Boolean).map((f) => path.resolve(f))) }));
   });
 }
 
@@ -492,9 +531,10 @@ function tabBar() {
   const cols = out.columns || 80;
   const lines = []; let cur2 = '', w = 0;
   projects.forEach((p, i) => {
-    const vis = p.length + 2;
+    const label = safeText(p);
+    const vis = label.length + 2;
     if (w + vis > cols && cur2) { lines.push(cur2); cur2 = ''; w = 0; }
-    cur2 += (i === pIdx ? `${INV} ${p} ${R}` : `${D} ${p} ${R}`);
+    cur2 += (i === pIdx ? `${INV} ${label} ${R}` : `${D} ${label} ${R}`);
     w += vis;
   });
   if (cur2) lines.push(cur2);
@@ -507,12 +547,12 @@ function preview(it, width, replyMax = 6) {
   const rule = D + '─'.repeat(w) + R;
   const kind = it.custom ? `${YE}named${R}` : it.ai ? `${D}auto-named${R}` : `${D}unnamed${R}`;
   const lines = [rule];
-  lines.push(`${CY}${it.name}${R}  ${kind}`);
+  lines.push(`${CY}${safeText(it.name)}${R}  ${kind}`);
   const prompts = it._loaded ? ` · ${it.count} prompt${it.count === 1 ? '' : 's'}` : ''; // count needs the lazy read
-  lines.push(`${D}${it.project} · ${ago(it.mtime)} ago${prompts} · ${sizeFmt(it.size)}${it.branch ? ' · ' + it.branch : ''}${R}`);
+  lines.push(`${D}${safeText(it.project)} · ${ago(it.mtime)} ago${prompts} · ${sizeFmt(it.size)}${it.branch ? ' · ' + safeText(it.branch) : ''}${R}`);
   if (it.open) lines.push(`${YE}▸ pick up${R}${D} · ${it.openWhy || 'unfinished'}${R}`);
-  if (archived.has(it.id)) lines.push(`${D}🗄 archived · hidden from other tabs · ^a to unarchive${R}`);
-  if (deep) lines.push(`${YE}✓ contains "${deep.query}"${R}`);
+  if (isArchived(it)) lines.push(`${D}🗄 archived · hidden from other tabs · ^a to unarchive${R}`);
+  if (deep) lines.push(`${YE}✓ contains "${safeText(deep.query)}"${R}`);
   const rel = (iso) => iso ? ` [${ago(new Date(iso).getTime())}]` : '';
   const quote = (l) => `${D}│${R} ${l}`; // blockquote gutter marks rendered-markdown blocks apart from plain prompts
   if (it.summary) {
@@ -585,17 +625,17 @@ function draw() {
   const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
   const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
   const resumeHint = inGhostty() ? `↵ new-window · ^o same-window · ` : `↵ resume · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}${resumeHint}? help · esc quit · ${CY}live${D}${R}${flash ? `  ${G}${flash}${R}` : ''}\n`;
+  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}${resumeHint}? help · esc quit · ${CY}live${D}${R}${flash ? `  ${G}${safeText(flash)}${R}` : ''}\n`;
   s += tabs.join('\n') + '\n';
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
-  s += `${prompt} ${q}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
+  s += `${prompt} ${safeText(q)}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
   const slice = list.slice(off, off + win);
   if (!slice.length) s += `${D}  no match${R}\n`;
   slice.forEach((it, i) => {
     const on = off + i === cur;
-    const nm = it.name.slice(0, 50).padEnd(50);
+    const nm = safeText(it.name).slice(0, 50).padEnd(50);
     const showProj = projects[pIdx] === 'All' || projects[pIdx] === OPEN_TAB;
-    const meta = (showProj ? it.project.slice(0, 16).padEnd(16) + ' ' : '') + sizeFmt(it.size).padStart(5) + ' ' + ago(it.mtime).padStart(3);
+    const meta = (showProj ? safeText(it.project).slice(0, 16).padEnd(16) + ' ' : '') + sizeFmt(it.size).padStart(5) + ' ' + ago(it.mtime).padStart(3);
     const age = Date.now() - it.mtime; // col0 recency dot: green<5m, orange<24h
     const dot = age < ACTIVE_MS ? `${G}●${R}` : age < RECENT_MS ? `${O}●${R}` : ' ';
     const om = it.open ? `${YE}▸${R}` : ' '; // col1 open marker: pick up where you left off
@@ -617,7 +657,7 @@ function ghosttyLaunch(cwd, id) {
   // would exec directly and fail to find claude/node. Homebrew et al. append to the login
   // profile (~/.zprofile), which `-l` sources. timeout bounds any hang so the TUI can't freeze.
   const shell = process.env.SHELL || '/bin/zsh';
-  const args = ['+new-window', `--working-directory=${cwd}`, '-e', shell, '-l', '-c', `claude --resume ${id}`];
+  const args = ['+new-window', `--working-directory=${cwd}`, '-e', shell, '-l', '-c', 'exec claude --resume "$1"', 'sessio', id];
   for (const bin of ['ghostty', '/Applications/Ghostty.app/Contents/MacOS/ghostty']) {
     try { const r = spawnSync(bin, args, { stdio: 'ignore', timeout: 5000 }); if (!r.error && !r.signal) return r.status === 0 || r.status == null; } catch {}
   }
@@ -638,14 +678,17 @@ const timer = setInterval(async () => {
   if (refreshing) return;
   refreshing = true;
   try {
-    const selId = view()[cur]?.id;
+    const selKey = view()[cur]?.key;
     const activeName = projects[pIdx];
-    items = await load();
+    const activeSearch = deep;
+    const refreshed = await load(activeSearch?.files);
+    if (deep !== activeSearch) return;
+    items = refreshed;
     projects = tabsFor(items);
     const np = projects.indexOf(activeName);
     pIdx = np >= 0 ? np : 0;
     const v = view();
-    const ni = selId ? v.findIndex((i) => i.id === selId) : -1;
+    const ni = selKey ? v.findIndex((i) => i.key === selKey) : -1;
     cur = ni >= 0 ? ni : Math.min(cur, Math.max(0, v.length - 1));
     draw();
     ensureDetail();
@@ -662,7 +705,8 @@ function resumeInPlace(p) {
   clearInterval(timer);
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   out.write(CLR + SHOW); // restore cursor before handing the terminal to claude
-  const cmd = `cd ${p.cwd || '.'} && claude --resume ${p.id}`;
+  const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
+  const cmd = `cd -- ${shellQuote(p.cwd || '.')} && claude --resume ${shellQuote(p.id)}`;
   if (!p.cwd) { console.log(cmd); process.exit(0); }
   try {
     const r = spawnSync('claude', ['--resume', p.id], { cwd: p.cwd, stdio: 'inherit' });
@@ -690,15 +734,23 @@ process.stdin.on('keypress', (str, key) => {
     if (RG && q) {
       const gen = ++searchGen, term = q;
       out.write(`${CY}searching…${R}\r`);
-      contentSearch(term).then((res) => {
+      contentSearch(term).then(async (res) => {
         if (gen !== searchGen) return; // a newer query/search superseded this one
-        deep = res; cur = 0; off = 0; limit = 12; draw(); ensureDetail();
+        if (!res) { flash = 'content search failed'; draw(); return; }
+        const matched = await load(res.files);
+        if (gen !== searchGen) return;
+        deep = { ...res, keys: new Set([...res.files].map((file) => cacheKey(ROOT, file))) };
+        items = matched;
+        projects = tabsFor(items);
+        pIdx = 0;
+        cur = 0; off = 0; limit = 12; draw(); ensureDetail();
       });
     }
   }
   else if (key.ctrl && key.name === 'a') {                     // archive/unarchive: sessio-local hide only
     const p = list[cur]; if (!p) return;
-    if (archived.has(p.id)) archived.delete(p.id); else archived.add(p.id);
+    if (isArchived(p)) { archived.delete(archiveKey(p)); archived.delete(p.id); }
+    else archived.add(archiveKey(p));
     saveArchived(archived);
     const activeName = projects[pIdx];
     projects = tabsFor(items);                                // archived tab / emptied project tabs may appear/disappear
@@ -717,7 +769,7 @@ process.stdin.on('keypress', (str, key) => {
     const p = list[cur]; if (!p) return;
     // Ghostty: open the session in a NEW window and keep sessio running as a launcher.
     if (inGhostty() && p.cwd && ghosttyLaunch(p.cwd, p.id)) {
-      flash = `↗ opened "${(p.name || '').slice(0, 40)}" in a new window`;
+      flash = `↗ opened "${safeText(p.name).slice(0, 40)}" in a new window`;
       draw();
       return; // sessio stays open — pick another session to launch
     }

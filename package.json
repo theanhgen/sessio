@@ -1,6 +1,6 @@
 {
   "name": "sessio",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Interactive terminal browser to find and resume past Claude Code sessions.",
   "keywords": [
     "claude",
@@ -16,9 +16,14 @@
     "sessions": "bin/sessio.mjs",
     "sessio": "bin/sessio.mjs"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "files": [
     "bin/",
+    "lib/",
     "scripts/",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
