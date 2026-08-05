@@ -103,7 +103,7 @@ fn to_dump(it: &Item) -> DumpRow<'_> {
         cwd: it.cwd.as_deref(),
         branch: it.branch.as_deref(),
         open: it.open,
-        open_why: it.open_why.as_deref(),
+        open_why: it.open_why(),
         hay: Some(&it.hay),
     }
 }

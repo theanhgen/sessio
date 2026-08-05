@@ -148,6 +148,13 @@ function detail(file) {
 // cheap tail read (last ~64KB) to tell whether a session is "open": who spoke last,
 // and — if Claude — whether it ended on a question / proposal you didn't answer.
 const CTA = /\?\s*["')\]]*\s*$|\b(want me to|should i|shall i|do you want|let me know|ready to|next step|proceed\b|which (one|of)|confirm)\b/i;
+// Why a session counts as "open". These strings are user-visible in the preview AND the 3-day
+// decay below matches on one of them, so they are defined exactly once: the decay previously
+// compared against 'Claude proposed next' while tail() wrote 'Claude asked / proposed next',
+// which silently disabled it for the whole life of the feature.
+const WHY_UNANSWERED = 'your prompt got no reply';
+const WHY_CTA = 'Claude asked / proposed next';
+const WHY_GIT = 'uncommitted changes';
 function tail(file) {
   return new Promise((res) => {
     fs.stat(file, (e, st) => {
@@ -164,8 +171,8 @@ function tail(file) {
       const done = () => {
         const T = (x) => x ? new Date(x).getTime() : 0;
         let open = false, why = '';
-        if (userTs && T(userTs) > T(replyTs)) { open = true; why = 'your prompt got no reply'; }
-        else if (reply && CTA.test(reply.slice(-400))) { open = true; why = 'Claude asked / proposed next'; }
+        if (userTs && T(userTs) > T(replyTs)) { open = true; why = WHY_UNANSWERED; }
+        else if (reply && CTA.test(reply.slice(-400))) { open = true; why = WHY_CTA; }
         res({ open, why });
       };
       rl.on('close', done); rl.on('error', done);
@@ -268,7 +275,7 @@ async function load(extraFiles = new Set()) {
     r.name = r.title || r.first;
     // "Claude proposed next" is weak (most replies offer next steps) — only count it when
     // recent (last 3 days); unanswered prompts and git-WIP count at any age.
-    if (r.open && r.why === 'Claude proposed next' && Date.now() - r.mtime > 3 * 86400000) r.open = false;
+    if (r.open && r.why === WHY_CTA && Date.now() - r.mtime > 3 * 86400000) r.open = false;
     if (r.open) r.openWhy = r.why;
     const d = dCache.get(r.key); // fold in detail if it's already been read for this session
     if (d && d.mtime === r.mtime) Object.assign(r, d);
@@ -279,7 +286,7 @@ async function load(extraFiles = new Set()) {
   for (const r of items) {
     if (!r.cwd || seenCwd.has(r.cwd)) continue;
     seenCwd.add(r.cwd);
-    if (gitDirty(r.cwd)) { r.open = true; r.openWhy = r.openWhy || 'uncommitted changes'; }
+    if (gitDirty(r.cwd)) { r.open = true; r.openWhy = r.openWhy || WHY_GIT; }
   }
   // one canonical label per project dir: prefer a sibling's real cwd basename (hyphens
   // intact); fall back to the dash-decoded name only if no session in the dir has a cwd.

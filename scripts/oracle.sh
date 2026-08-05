@@ -28,10 +28,45 @@ command -v jq >/dev/null || { echo "oracle needs jq (brew install jq)" >&2; exit
 bin="$root/target/release/sessio"
 [[ -x "$bin" ]] || { echo "build first: cargo build --release" >&2; exit 1; }
 
-echo "→ js"
-node "$root/legacy/sessio.mjs" --dump-json | jq -S 'sort_by(.key)' > "$out/js.json"
-echo "→ rust"
-"$bin" --dump-json | jq -S 'sort_by(.key)' > "$out/rs.json"
+# The two dumps are taken seconds apart, and any session running right now is being appended
+# to in between — which shows up as a spurious mismatch on mtime, size, reply and open. So
+# fingerprint the transcript tree around the pair and retry if it moved under us.
+fingerprint() {
+  node -e '
+    const fs = require("fs"), path = require("path"), crypto = require("crypto");
+    const root = path.join(process.env.HOME, ".claude", "projects");
+    const h = crypto.createHash("sha256");
+    let dirs = [];
+    try { dirs = fs.readdirSync(root).sort(); } catch { }
+    for (const d of dirs) {
+      const dir = path.join(root, d);
+      let files = [];
+      try { files = fs.readdirSync(dir).sort(); } catch { continue; }
+      for (const f of files) {
+        if (!f.endsWith(".jsonl")) continue;
+        try {
+          const st = fs.statSync(path.join(dir, f));
+          h.update(`${d}/${f}:${st.mtimeMs}:${st.size}\n`);
+        } catch { }
+      }
+    }
+    process.stdout.write(h.digest("hex"));
+  '
+}
+
+for attempt in 1 2 3; do
+  before=$(fingerprint)
+  echo "→ js"
+  node "$root/legacy/sessio.mjs" --dump-json | jq -S 'sort_by(.key)' > "$out/js.json"
+  echo "→ rust"
+  "$bin" --dump-json | jq -S 'sort_by(.key)' > "$out/rs.json"
+  after=$(fingerprint)
+  [[ "$before" == "$after" ]] && break
+  echo "   transcripts changed mid-run (a session is live) — retry $attempt/3" >&2
+done
+if [[ "$before" != "$after" ]]; then
+  echo "   WARNING: transcripts kept changing; a mismatch below may be churn, not a port bug" >&2
+fi
 
 js_rows=$(jq 'length' "$out/js.json")
 rs_rows=$(jq 'length' "$out/rs.json")

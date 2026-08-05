@@ -681,7 +681,7 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         lines.push(Line::from(vec![
             Span::styled("▸ pick up", Style::default().fg(theme::NAMED)),
             Span::styled(
-                format!(" · {}", it.open_why.as_deref().unwrap_or("unfinished")),
+                format!(" · {}", it.open_why().unwrap_or("unfinished")),
                 dim(),
             ),
         ]));

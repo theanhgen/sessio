@@ -5,13 +5,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::discover::{self, Row, CAP};
-use crate::parse::{self, Detail};
+use crate::parse::{self, Detail, OpenReason};
 use crate::safety::sanitize;
 use crate::store::Archive;
 
 pub const OPEN_TAB: &str = "⏸ open";
 pub const ARCHIVED_TAB: &str = "🗄 archived";
 pub const ALL_TAB: &str = "All";
+
+/// "Claude asked / proposed next" is a weak signal — most replies offer a next step — so it
+/// only keeps a session open while it is recent. Unanswered prompts and git WIP count at any age.
+pub const CTA_MAX_AGE_MS: i64 = 3 * 86_400_000;
 
 /// Green dot: active (written in the last 5 minutes).
 pub const ACTIVE_MS: i64 = 5 * 60 * 1000;
@@ -35,7 +39,7 @@ pub struct Item {
     pub ai: Option<String>,
 
     pub open: bool,
-    pub open_why: Option<String>,
+    pub open_reason: Option<OpenReason>,
 
     pub title: Option<String>,
     pub name: String,
@@ -47,6 +51,10 @@ pub struct Item {
 }
 
 impl Item {
+    /// The user-visible reason shown beside the "pick up" marker.
+    pub fn open_why(&self) -> Option<&'static str> {
+        self.open_reason.map(OpenReason::label)
+    }
     pub fn prompt_count(&self) -> Option<usize> {
         self.detail.as_ref().map(|d| d.count)
     }
@@ -70,21 +78,11 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
             let title = head.custom.clone().or_else(|| head.ai.clone());
             let first = head.first.clone().unwrap_or_default();
             let name = title.clone().unwrap_or(first);
-            let mut open = tail.open;
-            let why = tail.why;
+            let open = tail.open;
+            let reason = tail.reason;
 
-            // Ported verbatim from bin/sessio.mjs:271, bug included: tail() writes
-            // "Claude asked / proposed next" while this compares against "Claude proposed next",
-            // so the 3-day decay never fires. Kept so --dump-json stays byte-identical to the
-            // JS; fix both implementations in one change.
-            const JS_DECAY_NEVER_MATCHES: &str = "Claude proposed next";
-            if open
-                && why.as_deref() == Some(JS_DECAY_NEVER_MATCHES)
-                && now_ms() - row.mtime > 3 * 86_400_000
-            {
-                open = false;
-            }
-            let open_why = if open { why.clone() } else { None };
+            let open = decay(open, reason, row.mtime, now_ms());
+            let open_reason = if open { reason } else { None };
 
             Item {
                 id: row.id,
@@ -100,7 +98,7 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
                 custom: head.custom,
                 ai: head.ai,
                 open,
-                open_why,
+                open_reason,
                 title,
                 name,
                 project: String::new(), // assigned below, once dir labels are known
@@ -123,8 +121,8 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
     for (it, is_dirty) in items.iter_mut().zip(flags) {
         if is_dirty {
             it.open = true;
-            if it.open_why.is_none() {
-                it.open_why = Some("uncommitted changes".to_string());
+            if it.open_reason.is_none() {
+                it.open_reason = Some(OpenReason::GitWip);
             }
         }
     }
@@ -159,6 +157,62 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
         .to_lowercase();
     }
     items
+}
+
+/// Whether a session still counts as open, given its age.
+///
+/// Split out so it is testable without a filesystem: this is the rule the JS had but never
+/// applied, because its decay check compared against a different string literal than the one
+/// it wrote. See `OpenReason` for why that can no longer happen.
+pub fn decay(open: bool, reason: Option<OpenReason>, mtime: i64, now: i64) -> bool {
+    if open && reason == Some(OpenReason::CallToAction) && now - mtime > CTA_MAX_AGE_MS {
+        return false;
+    }
+    open
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DAY: i64 = 86_400_000;
+    const NOW: i64 = 1_700_000_000_000;
+
+    #[test]
+    fn stale_call_to_action_stops_counting_as_open() {
+        assert!(!decay(true, Some(OpenReason::CallToAction), NOW - 4 * DAY, NOW));
+    }
+
+    #[test]
+    fn recent_call_to_action_stays_open() {
+        assert!(decay(true, Some(OpenReason::CallToAction), NOW - 2 * DAY, NOW));
+        // Exactly at the boundary is still open — the JS used a strict `>`.
+        assert!(decay(true, Some(OpenReason::CallToAction), NOW - 3 * DAY, NOW));
+    }
+
+    #[test]
+    fn unanswered_prompts_and_git_wip_never_decay() {
+        for reason in [OpenReason::Unanswered, OpenReason::GitWip] {
+            assert!(
+                decay(true, Some(reason), NOW - 400 * DAY, NOW),
+                "{reason:?} must count at any age"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closed_session_stays_closed() {
+        assert!(!decay(false, Some(OpenReason::CallToAction), NOW, NOW));
+        assert!(!decay(false, None, NOW, NOW));
+    }
+
+    #[test]
+    fn labels_are_stable_user_visible_strings() {
+        // The preview renders these; the oracle compares them against the JS constants.
+        assert_eq!(OpenReason::Unanswered.label(), "your prompt got no reply");
+        assert_eq!(OpenReason::CallToAction.label(), "Claude asked / proposed next");
+        assert_eq!(OpenReason::GitWip.label(), "uncommitted changes");
+    }
 }
 
 /// Tabs are built from live (non-archived) sessions; the archived tab appears only while

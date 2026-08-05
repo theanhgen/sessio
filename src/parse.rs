@@ -26,10 +26,35 @@ pub struct Head {
     pub ai: Option<String>,
 }
 
+/// Why a session counts as "open".
+///
+/// A discriminant rather than a string, because the JS compared the *rendered label* against a
+/// different literal than the one it wrote — which silently disabled the 3-day decay for the
+/// whole life of the feature. A variant cannot drift from its own label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenReason {
+    /// You typed something and Claude never answered.
+    Unanswered,
+    /// Claude ended on a question or proposal you didn't answer.
+    CallToAction,
+    /// The session's folder has uncommitted changes.
+    GitWip,
+}
+
+impl OpenReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            OpenReason::Unanswered => "your prompt got no reply",
+            OpenReason::CallToAction => "Claude asked / proposed next",
+            OpenReason::GitWip => "uncommitted changes",
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Tail {
     pub open: bool,
-    pub why: Option<String>,
+    pub reason: Option<OpenReason>,
 }
 
 fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -203,11 +228,11 @@ pub fn tail(path: &Path) -> Tail {
     };
     if unanswered {
         t.open = true;
-        t.why = Some("your prompt got no reply".to_string());
+        t.reason = Some(OpenReason::Unanswered);
     } else if let Some(r) = &reply {
         if crate::cta::looks_like_call_to_action(r) {
             t.open = true;
-            t.why = Some("Claude asked / proposed next".to_string());
+            t.reason = Some(OpenReason::CallToAction);
         }
     }
     t
