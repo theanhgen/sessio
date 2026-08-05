@@ -836,9 +836,11 @@ fn stamp(iso: &str) -> String {
     }
 }
 
+/// The bracketed relative age beside an absolute timestamp: ` [5m]`.
+/// The JS prints no "ago" here — the word appears only in the metadata line.
 fn rel(iso: &str) -> String {
     match crate::parse::parse_iso_ms(iso) {
-        Some(ms) => format!(" [{} ago]", ago(ms)),
+        Some(ms) => format!(" [{}]", ago(ms)),
         None => String::new(),
     }
 }

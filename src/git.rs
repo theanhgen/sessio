@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -14,6 +15,10 @@ use std::time::{Duration, Instant};
 const TTL: Duration = Duration::from_secs(30);
 /// Bound on a single `git status`, so a huge or networked repo can't wedge a worker.
 const TIMEOUT: Duration = Duration::from_secs(2);
+/// Checks run on a fixed pool rather than a thread per directory. A browse across 300 sessions
+/// can touch a hundred distinct repos; one OS thread and one `git` process each would spike CPU
+/// and file descriptors for work whose results are only ever read a tick later.
+const WORKERS: usize = 4;
 
 struct State {
     cache: HashMap<String, (bool, Instant)>,
@@ -47,23 +52,41 @@ pub fn dirty(cwd: &str) -> bool {
     }
 }
 
+/// The work queue feeding the fixed worker pool, started on first use.
+fn queue() -> &'static Sender<String> {
+    static Q: OnceLock<Sender<String>> = OnceLock::new();
+    Q.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<String>();
+        let rx = std::sync::Arc::new(Mutex::new(rx));
+        for _ in 0..WORKERS {
+            let rx = std::sync::Arc::clone(&rx);
+            std::thread::spawn(move || loop {
+                // Hold the receiver lock only long enough to take one item.
+                let next = { rx.lock().expect("queue is never poisoned").recv() };
+                let Ok(cwd) = next else { return }; // sender dropped: process is exiting
+                let result = run_status(&cwd);
+                let mut s = state().lock().expect("git cache is never poisoned");
+                s.inflight.remove(&cwd);
+                s.cache.insert(cwd, (result, Instant::now()));
+            });
+        }
+        tx
+    })
+}
+
 fn spawn_refresh(s: &mut State, cwd: &str) {
     if s.inflight.contains(cwd) {
         return;
     }
     if !Path::new(cwd).exists() {
-        // Directory gone: cache clean and don't spawn anything.
+        // Directory gone: cache clean and don't queue anything.
         s.cache.insert(cwd.to_string(), (false, Instant::now()));
         return;
     }
     s.inflight.insert(cwd.to_string());
-    let owned = cwd.to_string();
-    std::thread::spawn(move || {
-        let result = run_status(&owned);
-        let mut s = state().lock().expect("git cache is never poisoned");
-        s.inflight.remove(&owned);
-        s.cache.insert(owned, (result, Instant::now()));
-    });
+    if queue().send(cwd.to_string()).is_err() {
+        s.inflight.remove(cwd); // pool is gone; let a later call retry
+    }
 }
 
 /// `git status --porcelain` — not a bare `.git` check, so sessions started in a repo subdir are
@@ -118,6 +141,17 @@ mod tests {
         assert_eq!(s.cache.get(missing).map(|(d, _)| *d), Some(false));
         // Scoped to this path: the cache is process-global and other tests share it.
         assert!(!s.inflight.contains(missing), "a missing dir must not spawn git");
+    }
+
+    #[test]
+    fn many_directories_stay_non_blocking_on_a_bounded_pool() {
+        // Regression: a thread (and a `git` process) per directory used to be spawned here.
+        // Queueing must stay cheap no matter how many repos a browse touches.
+        let start = Instant::now();
+        for i in 0..200 {
+            let _ = dirty(&format!("/nonexistent/sessio/bulk/{i}"));
+        }
+        assert!(start.elapsed() < Duration::from_millis(500));
     }
 
     #[test]

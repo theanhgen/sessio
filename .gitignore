@@ -6,3 +6,4 @@ npm-debug.log*
 
 # rust build artifacts
 /target/
+.agent-context/

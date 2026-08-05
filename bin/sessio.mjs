@@ -34,13 +34,24 @@ function platformPackage() {
   if (platform === 'darwin' && arch === 'arm64') return '@sessio/darwin-arm64';
   if (platform === 'darwin' && arch === 'x64') return '@sessio/darwin-x64';
   if (platform === 'linux' && arch === 'x64') return isMusl() ? '@sessio/linux-x64-musl' : '@sessio/linux-x64';
-  if (platform === 'linux' && arch === 'arm64') return '@sessio/linux-arm64';
+  // There is no aarch64-musl build. @sessio/linux-arm64 is glibc-only and declares it, so
+  // handing it to a musl host would either be skipped by npm or fail on a missing loader —
+  // say so plainly instead of failing later with a confusing message.
+  if (platform === 'linux' && arch === 'arm64') return isMusl() ? null : '@sessio/linux-arm64';
   return null;
 }
 
 function findBinary() {
   const pkg = platformPackage();
-  if (!pkg) return { error: `sessio has no prebuilt binary for ${process.platform}-${process.arch}.` };
+  if (!pkg) {
+    const musl = process.platform === 'linux' && isMusl() ? ' (musl)' : '';
+    return {
+      error:
+        `sessio has no prebuilt binary for ${process.platform}-${process.arch}${musl}.\n` +
+        'Build from source instead:\n' +
+        '  cargo install --git https://github.com/theanhgen/sessio',
+    };
+  }
   try {
     // Resolve the package's own manifest — the binary sits beside it.
     const manifest = require.resolve(`${pkg}/package.json`);
@@ -65,14 +76,54 @@ const readPkg = (root) => {
     return null;
   }
 };
-const isNewer = (a, b) => {
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+/** Split a version into its numeric core and prerelease identifiers, dropping build metadata. */
+export function parseSemver(v) {
+  const s = String(v).split('+')[0];
+  const dash = s.indexOf('-'); // first only: `1.0.0-alpha-beta.1` has one prerelease part
+  const core = dash === -1 ? s : s.slice(0, dash);
+  const pre = dash === -1 ? null : s.slice(dash + 1);
+  return {
+    nums: core.split('.').map((n) => (/^\d+$/.test(n) ? Number(n) : 0)),
+    pre: pre ? pre.split('.') : null,
+  };
+}
+
+/** SemVer §11 precedence for prerelease identifiers. */
+function comparePre(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i], y = b[i];
+    if (x === undefined) return -1; // a smaller set of fields has lower precedence
+    if (y === undefined) return 1;
+    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
+    if (nx && ny) {
+      if (Number(x) !== Number(y)) return Number(x) < Number(y) ? -1 : 1;
+    } else if (nx !== ny) {
+      return nx ? -1 : 1; // numeric identifiers rank below alphanumeric ones
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * True when `a` is strictly newer than `b`.
+ *
+ * Prereleases have to be handled properly: splitting on '.' and calling Number() turns
+ * `1.0.0-alpha.1` into [1, 0, NaN, 1], so the patch collapsed to 0 and anyone on an alpha was
+ * told the stable release "is current" instead of being offered the upgrade.
+ */
+export function isNewer(a, b) {
+  const pa = parseSemver(a), pb = parseSemver(b);
   for (let i = 0; i < 3; i++) {
-    const x = pa[i] || 0, y = pb[i] || 0;
+    const x = pa.nums[i] || 0, y = pb.nums[i] || 0;
     if (x !== y) return x > y;
   }
-  return false;
-};
+  if (!pa.pre && !pb.pre) return false;
+  if (!pa.pre) return true;  // a release outranks any prerelease of the same core
+  if (!pb.pre) return false;
+  return comparePre(pa.pre, pb.pre) > 0;
+}
 const writable = (p) => {
   try { fs.accessSync(p, fs.constants.W_OK); return true; } catch { return false; }
 };
@@ -135,28 +186,35 @@ async function update() {
 
 // --- entry -------------------------------------------------------------------------------
 
-const argv = process.argv.slice(2);
+// Only launch when run directly. The version helpers above are exported for unit tests, and
+// importing this file must not start a TUI or exit the test runner.
+const isMain =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-if (argv.includes('--update')) {
-  try { await update(); } catch { console.error('Could not update sessio.'); process.exitCode = 1; }
-  process.exit(process.exitCode || 0);
-}
+if (isMain) {
+  const argv = process.argv.slice(2);
 
-const { bin, error } = findBinary();
-if (error) {
-  console.error(error);
-  process.exit(1);
-}
+  if (argv.includes('--update')) {
+    try { await update(); } catch { console.error('Could not update sessio.'); process.exitCode = 1; }
+    process.exit(process.exitCode || 0);
+  }
 
-// stdio: 'inherit' keeps the TUI attached to the real terminal. Node has no execve, so the
-// launcher stays alive as a thin parent and forwards the child's exit status and signals.
-const r = spawnSync(bin, argv, { stdio: 'inherit' });
-if (r.error) {
-  console.error(`Could not start sessio: ${r.error.message}`);
-  process.exit(1);
+  const { bin, error } = findBinary();
+  if (error) {
+    console.error(error);
+    process.exit(1);
+  }
+
+  // stdio: 'inherit' keeps the TUI attached to the real terminal. Node has no execve, so the
+  // launcher stays alive as a thin parent and forwards the child's exit status and signals.
+  const r = spawnSync(bin, argv, { stdio: 'inherit' });
+  if (r.error) {
+    console.error(`Could not start sessio: ${r.error.message}`);
+    process.exit(1);
+  }
+  if (r.signal) {
+    // Re-raise so the shell sees the real cause of death (e.g. ^C -> SIGINT) rather than exit 0.
+    process.kill(process.pid, r.signal);
+  }
+  process.exit(r.status ?? 0);
 }
-if (r.signal) {
-  // Re-raise so the shell sees the real cause of death (e.g. ^C -> SIGINT) rather than exit 0.
-  process.kill(process.pid, r.signal);
-}
-process.exit(r.status ?? 0);

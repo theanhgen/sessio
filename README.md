@@ -4,7 +4,7 @@
 
 🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
 
-`sessio` is a fast, dependency-free TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. Project tabs, type-to-filter, full-text search, a live-updating list, and a preview of where each session left off.
+`sessio` is a fast, self-contained TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. Project tabs, type-to-filter, full-text search, a live-updating list, and a preview of where each session left off.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
@@ -69,7 +69,8 @@ to run rather than changing the checkout itself.
 
 ## Requirements
 
-- **Node.js ≥ 16**
+- **Node.js ≥ 16** — only to install from npm. sessio itself is a native binary with no runtime
+  dependencies; `cargo install` and the prebuilt archives don't need node at all.
 - **Claude Code** installed, with a `claude` binary on your PATH (used to resume)
 - **ripgrep** (optional) for `^f` full-text search
 - macOS or Linux
@@ -84,7 +85,9 @@ alias sessions='sessio'   # or point it at the global install
 
 ## How it works
 
-`sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl`, parsing each session's title, prompts, compact summary, and last reply. It caches recent list metadata by path and mtime so refreshes are cheap, and only the 300 most-recent sessions are shown while browsing. Full-text search loads every matching session, including matches older than that cap. Cache metadata is kept in `~/.claude/.sessio/list-cache.json`, owner-readable only, and pruned when sessio refreshes.
+`sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl` (or under `$CLAUDE_CONFIG_DIR` if you've relocated it), parsing each session's title, prompts, compact summary, and last reply. Only the 300 most-recent sessions are read while browsing; full-text search loads every matching session, including matches older than that cap.
+
+A full cold scan of those 300 takes about 40ms, so there is no metadata cache to go stale — every refresh re-reads from disk. The only state sessio keeps is your archive list, in `~/.claude/.sessio/archived.json`, written owner-only.
 
 > ⚠️ **The `.jsonl` transcript format is undocumented and internal to Claude Code.** It may change without notice. `sessio` parses defensively and degrades gracefully, but a format change on Anthropic's side can break fields until this tool is updated. This project is not affiliated with or endorsed by Anthropic.
 

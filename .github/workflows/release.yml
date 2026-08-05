@@ -80,6 +80,12 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     environment: npm-publish
+    permissions:
+      contents: read
+      # `npm publish --provenance` mints a signed attestation from a GitHub OIDC token. The
+      # workflow-level `contents: read` sets every unlisted scope to none, so without this the
+      # publish fails outright rather than silently publishing unsigned.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -112,6 +118,28 @@ jobs:
         run: |
           chmod +x staged/sessio-linux-x64/bin/sessio
           staged/sessio-linux-x64/bin/sessio --version
+
+      # The launcher pins exact versions of the platform packages. Those are staged at THIS
+      # release's version, so the pins must be rewritten to match — otherwise a version bump
+      # publishes a launcher depending on the previous release's binaries, which either
+      # installs stale binaries or fails to resolve.
+      - name: Pin launcher to this release's platform packages
+        run: |
+          v='${{ steps.v.outputs.version }}'
+          for dir in staged/*/; do
+            name=$(node -p "require('./$dir/package.json').name")
+            npm pkg set "optionalDependencies.$name=$v"
+          done
+          node -e '
+            const deps = require("./package.json").optionalDependencies || {};
+            const v = process.argv[1];
+            const wrong = Object.entries(deps).filter(([, got]) => got !== v);
+            if (wrong.length) {
+              console.error("optionalDependencies not pinned to " + v + ":", wrong);
+              process.exit(1);
+            }
+            console.log("pinned " + Object.keys(deps).length + " platform packages to " + v);
+          ' "$v"
 
       - name: Publish platform packages
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
