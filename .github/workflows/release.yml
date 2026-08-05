@@ -1,0 +1,136 @@
+name: release
+
+# Build the native binaries for every supported target, then publish the platform packages and
+# the `sessio` launcher that depends on them. Publishing the launcher LAST matters: it pins
+# exact versions of the platform packages, so it must never be installable before they exist.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and stage, but do not publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true # a partial matrix must not publish a half-supported release
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+            cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-22.04
+            musl: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross-linker (aarch64 gnu)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+
+      - name: Install musl tools
+        if: matrix.musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Test
+        # Only the host-native targets can run their own tests.
+        if: ${{ !matrix.cross }}
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Verify the binary runs
+        if: ${{ !matrix.cross }}
+        run: ./target/${{ matrix.target }}/release/sessio --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/sessio
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Resolve version
+        id: v
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/v}"
+            if [[ "$tag" != "$version" ]]; then
+              echo "tag v$tag does not match package.json version $version" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Stage platform packages
+        run: scripts/stage-npm-packages.sh "${{ steps.v.outputs.version }}" artifacts staged
+
+      - name: Sanity-check the launcher against a staged binary
+        run: |
+          chmod +x staged/sessio-linux-x64/bin/sessio
+          staged/sessio-linux-x64/bin/sessio --version
+
+      - name: Publish platform packages
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in staged/*/; do
+            npm publish "$dir" --access public --provenance
+          done
+
+      # Last, so `sessio` is never resolvable before the binaries it pins.
+      - name: Publish launcher
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Dry-run summary
+        if: ${{ github.event_name != 'push' && inputs.dry_run }}
+        run: |
+          echo "Dry run — staged but did not publish:" >> "$GITHUB_STEP_SUMMARY"
+          ls -1 staged >> "$GITHUB_STEP_SUMMARY"
