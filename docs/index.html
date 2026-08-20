@@ -128,21 +128,23 @@
     <div class="term" aria-label="sessio terminal preview">
       <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">sessions</span></div>
 <pre>
-<span class="c-dim">←→ project · ↑↓ move · type · ^f search-in-text · ⇥ expand-reply · ↵ resume · esc quit · </span><span class="c-cyan">live</span>
-<span class="sel"> All </span> <span class="c-dim"> web-app  api  cli-tool  docs  mobile </span>
+<span class="c-dim">←→ project · ↑↓ move · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ↵ resume · ^o same-window · ? help · esc quit · </span><span class="c-cyan">live</span>
+<span class="sel"> All </span> <span class="c-dim"> ⏸ open  web-app  api  cli-tool  docs  mobile </span>
 <span class="c-cyan">›</span> <span class="c-dim">▏</span>
-<span class="c-green">●</span><span class="sel"> add rate limiting to auth routes      api         14K  2m </span>
-<span class="c-orange">●</span> <span class="b">fix login redirect loop</span>              <span class="c-dim">web-app      9K  3h</span>
+<span class="c-green">◉</span><span class="sel"> add rate limiting to auth routes      api         14K  2m </span>
+<span class="c-orange">●</span> <span class="c-orange">▸</span> <span class="b">fix login redirect loop</span>            <span class="c-dim">web-app      9K  3h</span>
 <span class="c-orange">●</span> refactor cache layer                 <span class="c-dim">api         22K  8h</span>
   write onboarding docs                <span class="c-dim">docs        11K  1d</span>
 <span class="c-dim"> ↓ 291 more — press ↓ to reveal</span>
 <span class="c-dim">──────────────────────────────────────────────────────────</span>
-<span class="c-cyan">add rate limiting to auth routes</span>  <span class="c-yellow">named</span>
+<span class="c-cyan">add rate limiting to auth routes</span>  <span class="c-yellow">named</span>  <span class="c-green">running · pid 48210 ttys013</span>
 <span class="c-dim">api · 2m ago · 14 prompts · 14K · main</span>
+<span class="c-dim">recap · [2m]</span>
+<span class="c-dim">│</span> Limiter is in and tested; the Retry-After header still
+<span class="c-dim">│</span> needs a decision on units. <span class="c-orange">Next action is yours.</span>
 <span class="c-dim">reply · [2m]</span>
 <span class="c-dim">│</span> Added a token-bucket limiter on the login and signup
-<span class="c-dim">│</span> routes; over-limit requests now return <span class="b">429</span> with a
-<span class="c-dim">│</span> Retry-After header. Tests pass. <span class="c-dim">… ⇥ for full</span>
+<span class="c-dim">│</span> routes; over-limit requests now return <span class="b">429</span>. <span class="c-dim">… ⇥ for full</span>
 </pre>
     </div>
   </header>
@@ -154,10 +156,12 @@
       <div class="card"><h3><span class="i">/</span>Type to filter</h3><p>Literal matches win; when there are none, sessio falls back to fuzzy matching by title, project, or first prompt.</p></div>
       <div class="card"><h3><span class="i">^f</span>Full-text search</h3><p>Greps the entire transcript body for a term across <em>every</em> session on disk, via ripgrep.</p></div>
       <div class="card"><h3><span class="i">▸</span>Pick up work</h3><p>The <span class="mono">open</span> tab surfaces unanswered prompts, next-step requests, and recent projects with uncommitted changes.</p></div>
-      <div class="card"><h3><span class="i">^a</span>Archive locally</h3><p>Hide sessions you are done with without touching Claude’s transcript files; restore them from the archived tab at any time.</p></div>
+      <div class="card"><h3><span class="i">^a</span>Archive locally</h3><p>Hide sessions you are done with without touching Claude’s transcript files. A session you work in again un-hides itself on the next refresh.</p></div>
       <div class="card"><h3><span class="i">●</span>Live &amp; recent</h3><p>Refreshes every 2s. A running session floats up with a <span class="c-green">green</span> dot; recent ones stay <span class="c-orange">orange</span>.</p></div>
-      <div class="card"><h3><span class="i">¶</span>Rendered preview</h3><p>Title, branch, prompt count, the compact summary, first/last prompt, and Claude's last reply as markdown.</p></div>
+      <div class="card"><h3><span class="i">◉</span>Never resume twice</h3><p>A <span class="c-green">◉</span> means a <span class="mono">claude</span> is attached right now. <kbd>↵</kbd> goes to that session instead of pointing a second <span class="mono">claude</span> at the same transcript.</p></div>
+      <div class="card"><h3><span class="i">¶</span>Rendered preview</h3><p>Title, branch, prompt count, Claude’s away-recap of where things stand, first/last prompt, and its last reply as markdown.</p></div>
       <div class="card"><h3><span class="i">↵</span>Resume where you left off</h3><p>Runs <span class="mono">claude --resume</span> in the original directory. Under Ghostty, <kbd>↵</kbd> opens a new window; <kbd>^o</kbd> keeps the current one.</p></div>
+      <div class="card"><h3><span class="i">⌁</span>Native binary</h3><p>Rust, no runtime dependencies. A cold scan of 300 sessions takes about 40ms, so nothing is cached and nothing goes stale.</p></div>
     </div>
   </section>
 
@@ -168,10 +172,12 @@
       <tr><td class="k"><kbd>←</kbd> <kbd>→</kbd></td><td>Switch project tab</td></tr>
       <tr><td class="k"><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move selection (<kbd>↓</kbd> reveals more)</td></tr>
       <tr><td class="k">type</td><td>Filter by name / project / first prompt</td></tr>
+      <tr><td class="k"><kbd>^w</kbd> / <kbd>⌥⌫</kbd></td><td>Delete the last word of the query</td></tr>
+      <tr><td class="k"><kbd>^u</kbd> / <kbd>⌘⌫</kbd></td><td>Clear the whole query</td></tr>
       <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across all transcripts</td></tr>
       <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session locally</td></tr>
       <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Expand / collapse the reply preview</td></tr>
-      <tr><td class="k"><kbd>↵</kbd></td><td>Resume selected session (Ghostty: new window)</td></tr>
+      <tr><td class="k"><kbd>↵</kbd></td><td>Resume selected session — or go to it if it is already running (Ghostty: new window)</td></tr>
       <tr><td class="k"><kbd>^o</kbd></td><td>Resume in this window, including under Ghostty</td></tr>
       <tr><td class="k"><kbd>?</kbd></td><td>Toggle the full keybinding help</td></tr>
       <tr><td class="k"><kbd>esc</kbd></td><td>Clear content search, then quit</td></tr>
@@ -192,6 +198,10 @@
 <span class="c-green">$</span> brew install ripgrep   <span class="c-dim"># or: apt install ripgrep</span></pre>
     </div>
     <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Requires <b style="color:var(--fg)">Node.js ≥ 16</b> and <b style="color:var(--fg)">Claude Code</b> (the <span class="mono">claude</span> binary on your PATH). macOS and Linux.</p>
+
+    <div class="note" style="border-left-color:var(--cyan);margin-top:22px"><b>Trying the 1.0 alpha:</b> sessio has been rewritten in Rust and ships as a native binary — Node is needed to install it, not to run it. It is on the <span class="mono">alpha</span> dist-tag, so a plain install still gives you the stable 0.3 line:
+      <div style="margin-top:12px;font-family:var(--mono);font-size:13.5px;color:var(--fg)">$ npm i -g sessio@alpha<br>$ cargo install --git https://github.com/theanhgen/sessio <span class="c-dim">&nbsp;# or build it yourself</span></div>
+    </div>
   </section>
 
   <section style="padding-top:0">

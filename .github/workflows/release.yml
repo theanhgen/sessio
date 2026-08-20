@@ -109,7 +109,19 @@ jobs:
               exit 1
             fi
           fi
+          # npm points `latest` at whatever was published last unless told otherwise — it does
+          # not read the version to notice a prerelease. Left to the default, 1.0.0-alpha.2
+          # becomes what a plain `npm i -g sessio` installs. The dist-tag is derived from the
+          # version instead: 1.0.0-alpha.2 -> alpha, 1.0.0 -> latest.
+          if [[ "$version" == *-* ]]; then
+            npm_tag="${version#*-}"
+            npm_tag="${npm_tag%%.*}"
+          else
+            npm_tag=latest
+          fi
+          echo "publishing $version under dist-tag $npm_tag"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
 
       - name: Stage platform packages
         run: scripts/stage-npm-packages.sh "${{ steps.v.outputs.version }}" artifacts staged
@@ -147,7 +159,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for dir in staged/*/; do
-            npm publish "$dir" --access public --provenance
+            npm publish "$dir" --access public --provenance --tag "${{ steps.v.outputs.npm_tag }}"
           done
 
       # Last, so `sessio` is never resolvable before the binaries it pins.
@@ -155,7 +167,7 @@ jobs:
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag "${{ steps.v.outputs.npm_tag }}"
 
       - name: Dry-run summary
         if: ${{ github.event_name != 'push' && inputs.dry_run }}
