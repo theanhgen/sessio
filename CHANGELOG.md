@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0-alpha.3 - 2026-08-20
+## 1.0.0-alpha.4 - 2026-08-20
 
 Prerelease. Published under the `alpha` dist-tag — `npm i -g sessio` still installs 0.3.x.
 Install it with `npm i -g sessio@alpha`.
