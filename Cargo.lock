@@ -575,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "sessio"
-version = "1.0.0-alpha.6"
+version = "1.0.0-alpha.7"
 dependencies = [
  "chrono",
  "ratatui",

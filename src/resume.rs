@@ -67,8 +67,16 @@ pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
 /// even supported on macOS — but its windows are ordinary accessibility objects, and Claude Code
 /// sets the terminal title to the session's name. So: match the title and `AXRaise`.
 ///
-/// Reaches only a session that is its window's *current tab*: System Events enumerates windows,
-/// not tabs. `false` therefore means "couldn't find the window", never "not running".
+/// A window shows the title of whichever *split* has focus and says nothing about the others, so
+/// a session sharing a window with another is invisible from outside until it is the focused one.
+/// Walking the splits with `goto_split:next` fixes that, because the title after each step says
+/// where the walk landed — that feedback is what makes this a search rather than a guess. A window
+/// with one split reports the same title back and is dropped after a single keystroke, and the
+/// walk wraps, so a window that does not hold the session ends on the split it started on.
+///
+/// Still cannot reach a session in a background *tab*: those are not accessibility objects at all,
+/// so there is nothing to enumerate and no title to read. `false` means "couldn't find it", never
+/// "not running".
 #[cfg(target_os = "macos")]
 pub fn focus_window_titled(name: &str) -> bool {
     // A short name would match half the desktop. Claude's titles are sentences; anything this
@@ -78,6 +86,8 @@ pub fn focus_window_titled(name: &str) -> bool {
     }
     const SCRIPT: &str = r#"on run argv
   set target to item 1 of argv
+  set mayWalk to (item 2 of argv is "walk")
+  set maxSteps to 6
   tell application "System Events"
     if not (exists process "Ghostty") then return "noproc"
     tell process "Ghostty"
@@ -88,6 +98,28 @@ pub fn focus_window_titled(name: &str) -> bool {
           return "ok"
         end if
       end repeat
+      if not mayWalk then return "nomatch"
+      set wasMain to missing value
+      try
+        set wasMain to first window whose value of attribute "AXMain" is true
+      end try
+      repeat with w in windows
+        set home to name of w as text
+        perform action "AXRaise" of w
+        set frontmost to true
+        delay 0.15
+        repeat with i from 1 to maxSteps
+          keystroke "]" using command down
+          delay 0.18
+          set here to name of w as text
+          if here contains target then return "ok"
+          if here is home then exit repeat
+        end repeat
+      end repeat
+      if wasMain is not missing value then
+        perform action "AXRaise" of wasMain
+        set frontmost to true
+      end if
     end tell
   end tell
   return "nomatch"
@@ -95,13 +127,42 @@ end run"#;
 
     // `name` is passed as argv, never interpolated into the script, so a session title cannot
     // become AppleScript.
+    let walk = if split_walk_is_safe() { "walk" } else { "raise-only" };
     Command::new("osascript")
-        .args(["-e", SCRIPT, name])
+        .args(["-e", SCRIPT, name, walk])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
         .map(|o| o.stdout.starts_with(b"ok"))
         .unwrap_or(false)
+}
+
+/// Whether ⌘] still belongs to Ghostty. Asked once, from Ghostty itself (~25ms).
+///
+/// This is not politeness about a rebound key: a keystroke Ghostty does not claim is delivered to
+/// whatever is running in that split, so walking with an unbound ⌘] would type brackets into the
+/// user's session instead of moving between panes.
+#[cfg(target_os = "macos")]
+fn split_walk_is_safe() -> bool {
+    use std::sync::OnceLock;
+    static SAFE: OnceLock<bool> = OnceLock::new();
+    *SAFE.get_or_init(|| {
+        Command::new("ghostty")
+            .arg("+list-keybinds")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .map(|o| walk_key_is_bound(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or(false)
+    })
+}
+
+/// True when `super+]` is bound to `goto_split:next` and nothing else.
+pub fn walk_key_is_bound(keybinds: &str) -> bool {
+    keybinds.lines().any(|l| {
+        let l = l.trim().strip_prefix("keybind = ").unwrap_or(l.trim());
+        l.strip_prefix("super+]=").is_some_and(|action| action.trim() == "goto_split:next")
+    })
 }
 
 /// No accessibility API to lean on outside macOS; the caller falls back to the guard.
@@ -145,6 +206,23 @@ mod tests {
     fn shell_quoting_survives_apostrophes() {
         assert_eq!(shell_quote("plain"), "'plain'");
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
+    }
+
+    #[test]
+    fn the_split_walk_only_runs_when_ghostty_owns_the_key() {
+        // ⌘] is only ours to send while Ghostty claims it. Rebound or removed, the same keystroke
+        // is delivered to whatever runs in that split — so this decides between walking the panes
+        // and typing brackets into someone's session.
+        let stock = "keybind = super+d=new_split:right\nkeybind = super+]=goto_split:next\n";
+        assert!(walk_key_is_bound(stock));
+        // Ghostty prints them bare from some code paths.
+        assert!(walk_key_is_bound("super+]=goto_split:next"));
+
+        assert!(!walk_key_is_bound("keybind = super+]=goto_split:previous"), "wrong direction");
+        assert!(!walk_key_is_bound("keybind = super+]=text:hello"), "rebound to something else");
+        assert!(!walk_key_is_bound("keybind = super+[=goto_split:next"), "different key");
+        assert!(!walk_key_is_bound("keybind = super+shift+]=goto_split:next"), "needs modifiers");
+        assert!(!walk_key_is_bound(""), "no keybinds at all");
     }
 
     #[test]

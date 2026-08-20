@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0-alpha.7 - 2026-08-20
+
+- `↵` on a running session now focuses the right **split**, not just the right window. A window
+  reports the title of whichever split has focus and nothing about the others, so a session
+  sharing a window was invisible from outside and `↵` landed you in its neighbour. sessio now
+  walks the splits with `goto_split:next` and reads the title back after each step, which turns
+  it into a search with feedback rather than a guess: it stops on the target, and a window that
+  does not hold it wraps back to the split it started on. Gated on ⌘] still being bound to
+  `goto_split:next` — a keystroke Ghostty does not claim would be delivered to whatever runs in
+  that pane, typing brackets into a live session. Background *tabs* remain out of reach: they
+  are not accessibility objects at all, so there is nothing to enumerate or read.
+
 ## 1.0.0-alpha.6 - 2026-08-20
 
 - Fixed `sessions` doing nothing at all when installed from npm. The launcher only ran when the
