@@ -1,10 +1,13 @@
 # Changelog
 
-## 1.0.0-alpha.4 - 2026-08-20
+## 1.0.0-alpha.5 - 2026-08-20
 
 Prerelease. Published under the `alpha` dist-tag — `npm i -g sessio` still installs 0.3.x.
 Install it with `npm i -g sessio@alpha`.
 
+- Publish the per-platform binaries under plain `sessio-darwin-arm64`-style names instead of an
+  `@sessio/*` scope. The scope would have needed an npm organization created for it; the flat
+  names are already ours and need no npm-side setup.
 - Fixed the flash message lasting about 120ms. It was cleared after one frame, which in the JS
   reference meant a keypress or the 2s tick, but this loop redraws on every 120ms input poll —
   so `already running — ↵ again to open it twice`, the entire answer to pressing `↵` on a live

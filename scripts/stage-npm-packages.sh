@@ -44,7 +44,7 @@ for entry in "${targets[@]}"; do
 
   cat > "$pkg/package.json" <<JSON
 {
-  "name": "@sessio/$suffix",
+  "name": "sessio-$suffix",
   "version": "$version",
   "description": "sessio native binary for $os-$cpu${libc:+ ($libc)}",
   "os": ["$os"],
@@ -59,7 +59,7 @@ for entry in "${targets[@]}"; do
 JSON
 
   cat > "$pkg/README.md" <<MD
-# @sessio/$suffix
+# sessio-$suffix
 
 Native binary for [sessio](https://www.npmjs.com/package/sessio) on $os-$cpu${libc:+ ($libc)}.
 
@@ -67,7 +67,7 @@ Do not install this directly — install \`sessio\`, which pulls in the right bi
 machine as an optional dependency.
 MD
 
-  echo "staged @sessio/$suffix"
+  echo "staged sessio-$suffix"
   staged=$((staged + 1))
 done
 

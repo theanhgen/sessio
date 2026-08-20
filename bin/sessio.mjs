@@ -31,13 +31,13 @@ function isMusl() {
 
 function platformPackage() {
   const { platform, arch } = process;
-  if (platform === 'darwin' && arch === 'arm64') return '@sessio/darwin-arm64';
-  if (platform === 'darwin' && arch === 'x64') return '@sessio/darwin-x64';
-  if (platform === 'linux' && arch === 'x64') return isMusl() ? '@sessio/linux-x64-musl' : '@sessio/linux-x64';
-  // There is no aarch64-musl build. @sessio/linux-arm64 is glibc-only and declares it, so
+  if (platform === 'darwin' && arch === 'arm64') return 'sessio-darwin-arm64';
+  if (platform === 'darwin' && arch === 'x64') return 'sessio-darwin-x64';
+  if (platform === 'linux' && arch === 'x64') return isMusl() ? 'sessio-linux-x64-musl' : 'sessio-linux-x64';
+  // There is no aarch64-musl build. sessio-linux-arm64 is glibc-only and declares it, so
   // handing it to a musl host would either be skipped by npm or fail on a missing loader —
   // say so plainly instead of failing later with a confusing message.
-  if (platform === 'linux' && arch === 'arm64') return isMusl() ? null : '@sessio/linux-arm64';
+  if (platform === 'linux' && arch === 'arm64') return isMusl() ? null : 'sessio-linux-arm64';
   return null;
 }
 
