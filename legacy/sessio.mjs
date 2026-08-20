@@ -23,7 +23,15 @@ const ARCHIVE_FILE = path.join(SESSIO_DIR, 'archived.json');
 // persistent list-metadata cache: relative transcript path -> {mtime, ...head, ...tail}. Keyed by mtime so a
 // changed transcript is re-read; survives across launches so a cold start is near-instant.
 const HCACHE_FILE = path.join(SESSIO_DIR, 'list-cache.json');
-const loadArchived = () => { try { return new Set(JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8'))); } catch { return new Set(); } };
+// Entries are `{k, at}` since sessio started stamping when a session was archived (so one that
+// is written to afterwards can come back out on its own). Bare strings are the older shape and
+// still load — this reference implementation only needs to read what the Rust build writes.
+const loadArchived = () => {
+  try {
+    const raw = JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8'));
+    return new Set(raw.map((e) => (e && typeof e === 'object' ? e.k : e)).filter((k) => typeof k === 'string'));
+  } catch { return new Set(); }
+};
 function savePrivateJson(file, value) {
   const tmp = `${file}.${process.pid}.tmp`;
   try {
@@ -69,6 +77,15 @@ const ts = (iso) => { if (!iso) return ' '.repeat(12); const d = new Date(iso), 
 // tool-result lines from being JSON-parsed.
 // light head read for the LIST: first typed prompt, cwd, branch, and any early title.
 // stops after ~400 lines once first+cwd are known, so giant transcripts aren't fully read.
+// Which `promptSource` values count as something a human actually asked. Gating on 'typed'
+// alone hid every background session (the task panel records its prompt as 'queued'), because a
+// session with no first prompt is dropped from the list entirely. 'system' is the one source
+// that is not the user speaking.
+const HUMAN_PROMPT = new Set(['typed', 'queued', 'suggestion_accepted']);
+// list-cache.json keys parsed head/tail info by mtime alone, so a change to what head() extracts
+// keeps serving the old answer forever on files that never change again. Bump on every parser
+// change: entries stamped with an older version are re-read.
+const HEAD_V = 3;
 function head(file) {
   return new Promise((res) => {
     const rl = readline.createInterface({ input: fs.createReadStream(file) });
@@ -76,8 +93,8 @@ function head(file) {
     rl.on('line', (l) => {
       n++;
       if (l.includes('-title"')) { try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = safeText(o.customTitle); else if (o.type === 'ai-title' && o.aiTitle) ai = ai || safeText(o.aiTitle); } catch {} }
-      else if (l.includes('"promptSource":"typed"')) {
-        try { const o = JSON.parse(l); if (o.type === 'user' && o.message) { const c = o.message.content; const text = typeof c === 'string' ? safeText(c) : ''; if (text.trim() && !text.startsWith('<')) { if (!first) { first = text.trim(); firstTs = o.timestamp || null; } if (!cwd && o.cwd) cwd = validPath(o.cwd); if (!branch && o.gitBranch) branch = safeText(o.gitBranch); } } } catch {}
+      else if (l.includes('"promptSource":"')) {
+        try { const o = JSON.parse(l); if (o.type === 'user' && o.message && HUMAN_PROMPT.has(o.promptSource)) { const c = o.message.content; const text = typeof c === 'string' ? safeText(c) : ''; if (text.trim() && !text.startsWith('<')) { if (!first) { first = text.trim(); firstTs = o.timestamp || null; } if (!cwd && o.cwd) cwd = validPath(o.cwd); if (!branch && o.gitBranch) branch = safeText(o.gitBranch); } } } catch {}
       }
       else if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = validPath(o.cwd); } catch {} }
       if (n >= 400 && first && cwd) rl.close();
@@ -92,10 +109,14 @@ function head(file) {
 function detail(file) {
   return new Promise((res) => {
     const rl = readline.createInterface({ input: fs.createReadStream(file) });
-    let cwd = null, first = null, last = null, firstTs = null, lastTs = null, count = 0, custom = null, ai = null, branch = null, summary = null, summaryTs = null, reply = null, replyTs = null;
+    let cwd = null, first = null, last = null, firstTs = null, lastTs = null, count = 0, custom = null, ai = null, branch = null, summary = null, summaryTs = null, reply = null, replyTs = null, recap = null, recapTs = null;
     rl.on('line', (l) => {
       if (l.includes('-title"')) {
         try { const o = JSON.parse(l); if (o.type === 'custom-title' && o.customTitle) custom = safeText(o.customTitle); else if (o.type === 'ai-title' && o.aiTitle) ai = safeText(o.aiTitle); } catch {}
+        return;
+      }
+      if (l.includes('"away_summary"')) { // Claude's away-recap; the last one in the file wins
+        try { const o = JSON.parse(l); if (o.type === 'system' && o.subtype === 'away_summary') { const t = cleanRecap(o.content); if (t) { recap = t; recapTs = o.timestamp || null; } } } catch {}
         return;
       }
       if (l.includes('"isCompactSummary":true')) { // auto-compact recap; keep the latest, strip boilerplate
@@ -121,10 +142,10 @@ function detail(file) {
         } catch {}
         return;
       }
-      if (l.includes('"promptSource":"typed"')) {
+      if (l.includes('"promptSource":"')) {
         try {
           const o = JSON.parse(l);
-          if (o.type === 'user' && o.message) {
+          if (o.type === 'user' && o.message && HUMAN_PROMPT.has(o.promptSource)) {
             const c = o.message.content;
             const text = typeof c === 'string' ? safeText(c) : '';
             if (text.trim() && !text.startsWith('<')) {
@@ -140,7 +161,7 @@ function detail(file) {
       }
       if (!cwd && l.includes('"cwd":"')) { try { const o = JSON.parse(l); if (o.cwd) cwd = validPath(o.cwd); } catch {} }
     });
-    const done = () => res({ cwd, first, last, firstTs, lastTs, count, custom, ai, branch, summary, summaryTs, reply, replyTs, _loaded: true });
+    const done = () => res({ cwd, first, last, firstTs, lastTs, count, custom, ai, branch, summary, summaryTs, reply, replyTs, recap, recapTs, _loaded: true });
     rl.on('close', done); rl.on('error', done);
   });
 }
@@ -153,27 +174,41 @@ const CTA = /\?\s*["')\]]*\s*$|\b(want me to|should i|shall i|do you want|let me
 // compared against 'Claude proposed next' while tail() wrote 'Claude asked / proposed next',
 // which silently disabled it for the whole life of the feature.
 const WHY_UNANSWERED = 'your prompt got no reply';
+const WHY_RECAP = 'recap says your move';
 const WHY_CTA = 'Claude asked / proposed next';
 const WHY_GIT = 'uncommitted changes';
+// Claude writes an away-recap when you leave a session: `{type:'system', subtype:'away_summary'}`
+// with a goal / state / whose-move paragraph in `content`. It is worth far more than the CTA
+// guess below — it *states* who owes the next move instead of pattern-matching a question mark —
+// and it is present in far more transcripts than the compact summary the preview used before.
+const RECAP_OPEN = /next action is yours/i;
+/** Strip the fixed UI hint Claude appends; it is noise in a preview. */
+const cleanRecap = (c) => safeText(typeof c === 'string' ? c : '')
+  .replace(/\s*\(disable recaps in \/config\)\s*$/, '')
+  .trim();
 function tail(file) {
   return new Promise((res) => {
     fs.stat(file, (e, st) => {
       if (e) return res({});
       const rl = readline.createInterface({ input: fs.createReadStream(file, { start: Math.max(0, st.size - 65536) }) });
       let reply = null, replyTs = null, userTs = null; // last assistant text vs last typed user prompt
+      let recap = null, recapTs = null;                 // Claude's latest away-recap
       rl.on('line', (l) => {
-        if (l.includes('"type":"assistant"') && l.includes('"type":"text"')) {
+        if (l.includes('"away_summary"')) {
+          try { const o = JSON.parse(l); if (o.type === 'system' && o.subtype === 'away_summary') { const t = cleanRecap(o.content); if (t) { recap = t; recapTs = o.timestamp || recapTs; } } } catch {}
+        } else if (l.includes('"type":"assistant"') && l.includes('"type":"text"')) {
           try { const o = JSON.parse(l); if (o.type === 'assistant' && Array.isArray(o.message?.content)) { const t = safeText(o.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n')); if (t.trim()) { reply = t.trim(); replyTs = o.timestamp || replyTs; } } } catch {}
-        } else if (l.includes('"promptSource":"typed"')) {
-          try { const o = JSON.parse(l); const text = typeof o.message?.content === 'string' ? safeText(o.message.content) : ''; if (o.type === 'user' && text.trim() && !text.startsWith('<')) userTs = o.timestamp || userTs; } catch {}
+        } else if (l.includes('"promptSource":"')) {
+          try { const o = JSON.parse(l); const text = typeof o.message?.content === 'string' ? safeText(o.message.content) : ''; if (o.type === 'user' && HUMAN_PROMPT.has(o.promptSource) && text.trim() && !text.startsWith('<')) userTs = o.timestamp || userTs; } catch {}
         }
       });
       const done = () => {
         const T = (x) => x ? new Date(x).getTime() : 0;
         let open = false, why = '';
         if (userTs && T(userTs) > T(replyTs)) { open = true; why = WHY_UNANSWERED; }
+        else if (recap && RECAP_OPEN.test(recap) && T(recapTs) >= T(replyTs)) { open = true; why = WHY_RECAP; }
         else if (reply && CTA.test(reply.slice(-400))) { open = true; why = WHY_CTA; }
-        res({ open, why });
+        res({ open, why, recap, recapTs });
       };
       rl.on('close', done); rl.on('error', done);
     });
@@ -261,8 +296,8 @@ async function load(extraFiles = new Set()) {
   // read head+tail for all rows concurrently, reusing the cache when mtime is unchanged.
   await mapLimit(slice, 48, async (r) => {
     let info = hCache.get(r.key);
-    if (!info || info.mtime !== r.mtime) {
-      info = { mtime: r.mtime, ...(await head(r.file)), ...(await tail(r.file)) };
+    if (!info || info.mtime !== r.mtime || info.v !== HEAD_V) {
+      info = { v: HEAD_V, mtime: r.mtime, ...(await head(r.file)), ...(await tail(r.file)) };
       hCacheDirty = true;
     }
     hCache.set(r.key, info);
@@ -416,6 +451,33 @@ function cellFit(raw, wd) { // render a table cell to an exact visible width
   if (vis.length <= wd) return styled + ' '.repeat(wd - vis.length);
   return raw.slice(0, Math.max(0, wd - 1)) + '…'; // drop styling when truncating (rare)
 }
+/** Truncate a styled line to `cols` visible columns. ANSI codes are zero-width, so a naive
+ *  slice() would cut mid-escape and bleed styling into the rest of the frame. */
+function clipLine(s, cols) {
+  if (cols <= 0) return '';
+  if (stripAnsi(s).length <= cols) return s;
+  let outp = '', vis = 0;
+  for (let i = 0; i < s.length; ) {
+    if (s[i] === '\x1b') {
+      const m = /^\x1b\[[0-9;]*m/.exec(s.slice(i));
+      if (m) { outp += m[0]; i += m[0].length; continue; }   // copy the escape, costs no columns
+    }
+    if (vis >= cols) break;
+    outp += s[i]; vis++; i++;
+  }
+  return outp + R;
+}
+/** Fit a whole frame to the viewport.
+ *
+ *  Every line must fit `cols` and the frame must fit `rows`, because CLR is `\x1b[2J\x1b[H` —
+ *  it clears the *visible* screen only. If any line wraps, the frame grows past `rows`, the
+ *  terminal scrolls, and the rows that scrolled off land in the scrollback where the next CLR
+ *  can't reach them. The redraw then stacks a fresh copy of the UI under every previous one
+ *  instead of repainting in place. No trailing newline for the same reason: a newline on the
+ *  last row scrolls by one. */
+function fitFrame(lines, cols, rows) {
+  return lines.slice(0, Math.max(1, rows)).map((l) => clipLine(l, cols)).join('\n');
+}
 function renderTable(rows, width) { // rows[0] = header, rest = data (separator already dropped)
   const ncol = Math.max(...rows.map((r) => r.length));
   rows = rows.map((r) => { const c = r.slice(); while (c.length < ncol) c.push(''); return c; });
@@ -555,6 +617,21 @@ function contentSearch(term) {
   });
 }
 
+/** Index of `q` with its last word removed: trailing separators first, then the word itself.
+ *  Separators include the punctuation in paths and titles, so one ⌥⌫ over `mybit/tooling`
+ *  leaves `mybit/`. */
+function dropWord(q) {
+  const trimmed = q.replace(/[\s/\-_.:,]+$/, '');
+  const i = trimmed.search(/[\s/\-_.:,](?=[^\s/\-_.:,]*$)/);
+  return i === -1 ? 0 : i + 1;
+}
+
+/** Every edit to the query invalidates the content search and the scroll position. */
+function requery() {
+  deep = null; searchGen++; cur = 0; off = 0; limit = 12;
+  draw(); ensureDetail();
+}
+
 function tabBar() {
   const cols = out.columns || 80;
   const lines = []; let cur2 = '', w = 0;
@@ -583,7 +660,10 @@ function preview(it, width, replyMax = 6) {
   if (deep) lines.push(`${YE}✓ contains "${safeText(deep.query)}"${R}`);
   const rel = (iso) => iso ? ` [${ago(new Date(iso).getTime())}]` : '';
   const quote = (l) => `${D}│${R} ${l}`; // blockquote gutter marks rendered-markdown blocks apart from plain prompts
-  if (it.summary) {
+  if (it.recap) { // the recap is newer, shorter and says whose move it is — prefer it
+    lines.push(`${V}recap${R}${D}${it.recapTs ? ` · ${ts(it.recapTs).trim()}${rel(it.recapTs)}` : ''}${R}`);
+    mdLines(it.recap, w - 2).slice(0, 4).forEach((l) => lines.push(quote(l)));
+  } else if (it.summary) {
     lines.push(`${D}summary${it.summaryTs ? ` · ${ts(it.summaryTs).trim()}${rel(it.summaryTs)}` : ''}${R}`);
     mdLines(it.summary, w - 2).slice(0, 4).forEach((l) => lines.push(quote(l)));
   }
@@ -610,6 +690,8 @@ function drawHelp() {
     `${CY}↑ ↓${R}    move selection ${D}(↓ reveals more)${R}`,
     `${CY}type${R}   fuzzy-filter by name / project / first prompt`,
     ...(RG ? [`${CY}^f${R}     full-text search across all transcripts on disk`] : []),
+    `${CY}^w ⌥⌫${R}  delete the last word of the query`,
+    `${CY}^u ⌘⌫${R}  clear the whole query`,
     `${CY}^a${R}     archive / unarchive the selected session`,
     `${CY}⇥ ^e${R}   expand / collapse the reply preview`,
     `${CY}↵${R}      resume ${D}(Ghostty: opens a new window, sessio stays open; else in place)${R}`,
@@ -619,7 +701,7 @@ function drawHelp() {
     `${CY}^c${R}     quit`,
     '', `${D}press any key to close${R}`,
   ];
-  out.write(CLR + rows.join('\n') + '\n');
+  out.write(CLR + fitFrame(rows, out.columns || 80, out.rows || 24));
 }
 
 function draw() {
@@ -629,36 +711,56 @@ function draw() {
   const tabs = tabBar();
   const cols = out.columns || 80;
   const rows = out.rows || 24;
-  // reply is capped so the preview never scrolls the frame off; ^e expands it to fill,
-  // keeping at least MIN_LIST rows of list. default is 6 reply lines.
-  // default keeps a healthy list and gives the reply the rest (shows short/medium replies in full);
-  // ^e/⇥ expand shrinks the list to MIN_LIST so long replies get maximum room.
-  const MIN_LIST = 3, DEFAULT_LIST = 6;
-  const base = preview(list[cur], cols, 0).length; // preview height without the reply block
-  const budget = rows - (1 + tabs.length + 1 + 1) - base - 2 - (expand ? MIN_LIST : DEFAULT_LIST);
-  const replyMax = Math.max(1, budget);
+  // The split is decided by the terminal, never by what is in the tab or by what the highlighted
+  // session's preview happens to contain. Deriving it from content moved the separator and
+  // everything under it on every ←/→, which reads as the UI wandering on its own.
+  const MIN_LIST = 3, MIN_PREVIEW = 8;
+  const chrome = 1 + tabs.length + 1;                 // header, tab bar, query
+  const body = Math.max(0, rows - chrome - 1);        // and the always-present "↓ more" row
+  const ceiling = Math.max(MIN_LIST, body - MIN_PREVIEW);
+  const want = expand ? MIN_LIST : limit;             // ⇥ hands the room to the reply
+  const win = Math.min(Math.max(MIN_LIST, Math.min(want, ceiling)), Math.max(1, body));
+  limit = Math.min(limit, ceiling);                   // ↓ may not grow the list past its share
+  const previewBox = Math.max(0, body - win);
+  const base = preview(list[cur], cols, 0).length;    // preview height without the reply block
+  const replyMax = Math.max(1, previewBox - base);
   const prev = preview(list[cur], cols, replyMax);
-  // reserve space for header, tabs, query, preview, and the show-more line, so
-  // the viewport (rows visible at once) never pushes anything off-screen.
-  const overhead = 1 + tabs.length + 1 + prev.length + 1;
-  const maxFit = Math.max(3, (out.rows || 24) - overhead);
-  if (limit > maxFit) limit = maxFit;                 // cap growth to what fits
-  // never hide an ACTIVE (green) session behind "show more"; recent/orange stay top-sorted + paged
-  const activeCount = list.filter((i) => Date.now() - i.mtime < ACTIVE_MS).length;
-  const win = Math.min(Math.max(limit, activeCount), maxFit, list.length);
   if (cur < off) off = cur;
   if (cur >= off + win) off = cur - win + 1;
   if (off < 0) off = 0;
-  const hint = RG ? `^f search-in-text · ` : '';
-  const arch = projects[pIdx] === ARCHIVED_TAB ? `^a unarchive · ` : `^a archive · `;
-  const exp = expand ? `${CY}⇥ collapse${D} · ` : `⇥ expand-reply · `;
-  const resumeHint = inGhostty() ? `↵ new-window · ^o same-window · ` : `↵ resume · `;
-  let s = CLR + `${D}←→ project · ↑↓ move · type · ${hint}${arch}${exp}${resumeHint}? help · esc quit · ${CY}live${D}${R}${flash ? `  ${G}${safeText(flash)}${R}` : ''}\n`;
-  s += tabs.join('\n') + '\n';
+  // The key bar is ~136 columns under Ghostty. It used to wrap on any narrower window, which
+  // pushed the frame past `rows` and made every redraw stack (see fitFrame). Drop the least
+  // essential hints instead — highest `p` first — until what is left fits on one line. `? help`
+  // is p0 because it reveals everything that was dropped.
+  const segs = [
+    { p: 3, t: `←→ project` },
+    { p: 3, t: `↑↓ move` },
+    { p: 4, t: `type` },
+    ...(RG ? [{ p: 5, t: `^f search-in-text` }] : []),
+    { p: 5, t: projects[pIdx] === ARCHIVED_TAB ? `^a unarchive` : `^a archive` },
+    { p: 4, t: expand ? `${CY}⇥ collapse${D}` : `⇥ expand-reply` },
+    ...(inGhostty()
+      ? [{ p: 1, t: `↵ new-window` }, { p: 2, t: `^o same-window` }]
+      : [{ p: 1, t: `↵ resume` }]),
+    { p: 0, t: `? help` },
+    { p: 2, t: `esc quit` },
+    { p: 5, t: `${CY}live${D}` },
+  ];
+  // A flash is why you pressed the key; the hints are always there. Budget the message first and
+  // shrink the bar around it, so a message is never clipped down to nonsense.
+  const msg = flash ? `  ${G}${safeText(flash)}${R}` : '';
+  const room = cols - stripAnsi(msg).length;
+  let bar = '';
+  for (let cut = 5; cut >= 0; cut--) {
+    bar = segs.filter((sg) => sg.p <= cut).map((sg) => sg.t).join(' · ');
+    if (stripAnsi(bar).length <= room) break;
+  }
+  const L = [`${D}${bar}${R}${msg}`];
+  L.push(...tabs);
   const prompt = deep ? `${YE}content›${R}` : `${CY}›${R}`;
-  s += `${prompt} ${safeText(q)}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}\n`;
+  L.push(`${prompt} ${safeText(q)}${D}▏${R}${deep ? `  ${YE}${list.length} match${list.length === 1 ? '' : 'es'}${R}` : ''}`);
   const slice = list.slice(off, off + win);
-  if (!slice.length) s += `${D}  no match${R}\n`;
+  if (!slice.length) L.push(`${D}  no match${R}`);
   slice.forEach((it, i) => {
     const on = off + i === cur;
     const nm = safeText(it.name).slice(0, 50).padEnd(50);
@@ -667,13 +769,15 @@ function draw() {
     const age = Date.now() - it.mtime; // col0 recency dot: green<5m, orange<24h
     const dot = age < ACTIVE_MS ? `${G}●${R}` : age < RECENT_MS ? `${O}●${R}` : ' ';
     const om = it.open ? `${YE}▸${R}` : ' '; // col1 open marker: pick up where you left off
-    if (on) { const bar = `${nm}  ${meta} `.slice(0, cols - 2).padEnd(cols - 2); s += `${dot}${om}${INV}${bar}${R}\n`; }
-    else s += `${dot}${om}${nm}  ${D}${meta}${R}\n`;
+    if (on) { const bar = `${nm}  ${meta} `.slice(0, cols - 2).padEnd(cols - 2); L.push(`${dot}${om}${INV}${bar}${R}`); }
+    else L.push(`${dot}${om}${nm}  ${D}${meta}${R}`);
   });
+  for (let i = Math.max(1, slice.length); i < win; i++) L.push(''); // hold the rows open
   const below = list.length - (off + win);
-  if (below > 0) s += `${D} ↓ ${below} more — press ↓ to reveal${R}\n`; // attached to the list
-  s += prev.join('\n') + '\n';                                          // then the session details
-  out.write(s);
+  // The show-more row is always reserved, for the same reason.
+  L.push(below > 0 ? `${D} ↓ ${below} more — press ↓ to reveal${R}` : '');
+  L.push(...prev);                                                      // then the session details
+  out.write(CLR + fitFrame(L, cols, rows));
   flash = ''; // shown for this frame only; the next redraw (keypress or 2s tick) repaints without it
 }
 
@@ -792,7 +896,11 @@ process.stdin.on('keypress', (str, key) => {
   else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += 12; } draw(); ensureDetail(); } // reveal more
   else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
   else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
-  else if (key.name === 'backspace') { q = q.slice(0, -1); deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  // ⌥⌫ arrives as meta+backspace and ^w does the same job; ⌘⌫ sends ^u in every terminal that
+  // binds it (Ghostty ships `super+backspace=text:\x15`) and clears the query outright.
+  else if ((key.meta && key.name === 'backspace') || (key.ctrl && key.name === 'w')) { q = q.slice(0, dropWord(q)); requery(); }
+  else if (key.ctrl && key.name === 'u') { q = ''; requery(); }
+  else if (key.name === 'backspace') { q = q.slice(0, -1); requery(); }
   else if (key.name === 'return') {
     const p = list[cur]; if (!p) return;
     // Ghostty: open the session in a NEW window and keep sessio running as a launcher.

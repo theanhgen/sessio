@@ -41,6 +41,11 @@ pub struct Item {
     pub open: bool,
     pub open_reason: Option<OpenReason>,
 
+    /// Claude's away-recap, from the cheap tail read, so the preview has it before the lazy
+    /// full read lands. `detail` supersedes it once loaded.
+    pub recap: Option<String>,
+    pub recap_ts: Option<String>,
+
     pub title: Option<String>,
     pub name: String,
     pub project: String,
@@ -80,6 +85,8 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
             let name = title.clone().unwrap_or(first);
             let open = tail.open;
             let reason = tail.reason;
+            let recap = tail.recap;
+            let recap_ts = tail.recap_ts;
 
             let open = decay(open, reason, row.mtime, now_ms());
             let open_reason = if open { reason } else { None };
@@ -99,6 +106,8 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
                 ai: head.ai,
                 open,
                 open_reason,
+                recap,
+                recap_ts,
                 title,
                 name,
                 project: String::new(), // assigned below, once dir labels are known

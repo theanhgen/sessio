@@ -30,14 +30,14 @@ sessions
 
 ## What it does
 
-- **Project tabs** — sessions grouped by their working directory; `←`/`→` to switch, or `All`.
+- **Project tabs** — sessions grouped by their working directory; `←`/`→` to switch, or `All`. The list keeps a fixed height and the preview always starts on the same row, so switching tabs changes the text and nothing else.
 - **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, or the folder has uncommitted git changes). Open sessions are marked with an amber `▸` in any view.
-- **Type to filter** — instantly narrows by title, project, or first prompt. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching.
+- **Type to filter** — instantly narrows by title, project, or first prompt. `^w` (or `⌥⌫`) rubs out a word, `^u` (which is what `⌘⌫` sends) clears the query. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching.
 - **`^f` full-text search** — greps the full transcript body for a term, across *all* sessions on disk.
-- **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
-- **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h).
-- **Preview** — for the highlighted session: title, project, prompt count, git branch, the compact summary, first/last typed prompt, and Claude's last reply rendered as markdown (including fenced code blocks). `⇥` expands the reply.
-- **`↵` resume** — runs `claude --resume <id>` in that session's original working directory. Under **Ghostty**, it opens the session in a **new window** (`ghostty +new-window`) and leaves sessio running as a launcher, so you can fire off several sessions; in any other terminal it hands over the current window as before. Press **`^o`** instead to resume in **this** window (replacing sessio) even under Ghostty — the escape hatch when you don't want a new window.
+- **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). **A session you work in again comes back out on its own** — archiving records when you hid it, and anything written to afterwards is un-hidden on the next refresh. This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
+- **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h). A `◉` instead of `●` means a `claude` process is attached to that session *right now*.
+- **Preview** — for the highlighted session: title, project, prompt count, git branch, Claude's **recap** (the goal / state / whose-move paragraph it writes when you leave a session; the compact summary is shown when there is no recap), first/last typed prompt, and Claude's last reply rendered as markdown (including fenced code blocks). `⇥` expands the reply. A session whose recap says the next move is yours is marked as open.
+- **`↵` resume** — runs `claude --resume <id>` in that session's original working directory. If the session is **already running** (`◉`), sessio goes to it instead of starting a second `claude` on the same transcript: it raises that window where it can find it, and otherwise tells you the pid and tty and makes the duplicate an explicit second `↵`. Under **Ghostty**, it opens the session in a **new window** (`ghostty +new-window`) and leaves sessio running as a launcher, so you can fire off several sessions; in any other terminal it hands over the current window as before. Press **`^o`** instead to resume in **this** window (replacing sessio) even under Ghostty — the escape hatch when you don't want a new window.
 - **`?` help** — a full keybinding overlay; any key closes it.
 - **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
 
@@ -48,10 +48,12 @@ sessions
 | `←` / `→` | switch project tab |
 | `↑` / `↓` | move selection (`↓` reveals more) |
 | type | fuzzy-filter (ranked) by name / project / first prompt |
+| `^w` / `⌥⌫` | delete the last word of the query |
+| `^u` / `⌘⌫` | clear the whole query |
 | `^f` | full-text search the current query across all transcripts |
 | `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `⇥` / `^e` | expand / collapse the reply preview |
-| `↵` | resume the selected session in its directory (Ghostty: new window) |
+| `↵` | resume the selected session in its directory — or go to it if it's already running (Ghostty: new window) |
 | `^o` | resume in **this** window, replacing sessio (Ghostty escape hatch) |
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |

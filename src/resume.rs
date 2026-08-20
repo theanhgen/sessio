@@ -60,6 +60,56 @@ pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
     false // ghostty CLI not found / timed out / failed → caller resumes in place
 }
 
+/// Raise the terminal window already showing this session, so ↵ moves you to the running
+/// session instead of starting a second `claude` on the same transcript.
+///
+/// Ghostty exposes no way to target a window — `+new-window` is the only IPC action and it is not
+/// even supported on macOS — but its windows are ordinary accessibility objects, and Claude Code
+/// sets the terminal title to the session's name. So: match the title and `AXRaise`.
+///
+/// Reaches only a session that is its window's *current tab*: System Events enumerates windows,
+/// not tabs. `false` therefore means "couldn't find the window", never "not running".
+#[cfg(target_os = "macos")]
+pub fn focus_window_titled(name: &str) -> bool {
+    // A short name would match half the desktop. Claude's titles are sentences; anything this
+    // short is a first-prompt fallback that was never a window title anyway.
+    if name.chars().count() < 8 {
+        return false;
+    }
+    const SCRIPT: &str = r#"on run argv
+  set target to item 1 of argv
+  tell application "System Events"
+    if not (exists process "Ghostty") then return "noproc"
+    tell process "Ghostty"
+      repeat with w in windows
+        if (name of w as text) contains target then
+          perform action "AXRaise" of w
+          set frontmost to true
+          return "ok"
+        end if
+      end repeat
+    end tell
+  end tell
+  return "nomatch"
+end run"#;
+
+    // `name` is passed as argv, never interpolated into the script, so a session title cannot
+    // become AppleScript.
+    Command::new("osascript")
+        .args(["-e", SCRIPT, name])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map(|o| o.stdout.starts_with(b"ok"))
+        .unwrap_or(false)
+}
+
+/// No accessibility API to lean on outside macOS; the caller falls back to the guard.
+#[cfg(not(target_os = "macos"))]
+pub fn focus_window_titled(_name: &str) -> bool {
+    false
+}
+
 /// Hand THIS terminal over to `claude --resume`, replacing sessio.
 ///
 /// Uses `exec` rather than spawn-and-wait: the process image is replaced, so there is no idle

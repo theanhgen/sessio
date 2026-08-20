@@ -121,6 +121,77 @@ def run_case(cols, rows, keys, label, quits_itself=False):
 
 
 DOWN, UP, LEFT, RIGHT = b"\x1b[B", b"\x1b[A", b"\x1b[D", b"\x1b[C"
+
+SGR = re.compile(r"\x1b\[[0-9;]*m")
+CUP = re.compile(r"\x1b\[(\d+);(\d+)H")
+
+
+def render(raw, cols, rows):
+    """Replay the output into a screen grid, honouring absolute cursor moves."""
+    screen = [[" "] * cols for _ in range(rows)]
+    r = c = i = 0
+    while i < len(raw):
+        m = CUP.match(raw, i)
+        if m:
+            r, c = int(m.group(1)) - 1, int(m.group(2)) - 1
+            i = m.end()
+            continue
+        m = SGR.match(raw, i) or ANSI.match(raw, i)
+        if m:
+            i = m.end()
+            continue
+        ch = raw[i]
+        if ch == "\n":
+            r, c = r + 1, 0
+        elif ch == "\r":
+            c = 0
+        elif ch == "\x1b":
+            i += 1
+            continue
+        elif 0 <= r < rows and 0 <= c < cols:
+            screen[r][c] = ch
+            c += 1
+        i += 1
+    return ["".join(x).rstrip() for x in screen]
+
+
+def rule_row(raw, cols, rows):
+    """1-indexed screen row of the preview's ─── separator, or None."""
+    for n, line in enumerate(render(raw, cols, rows), 1):
+        if line.startswith("─" * 10):
+            return n
+    return None
+
+
+def layout_is_stable(cols=110, rows=40, tabs=8):
+    """Walking the project tabs must not move the preview.
+
+    The split used to be derived from content — how many sessions the tab holds, how long the
+    highlighted reply is — so every ←/→ shifted the separator and everything under it.
+    """
+    print(f"[layout holds still across tabs] {cols}x{rows}")
+    failures = []
+    s = Session(cols, rows)
+    try:
+        time.sleep(2.0)
+        seen = []
+        for _ in range(tabs):
+            s.send(RIGHT)
+            time.sleep(0.5)
+            seen.append(rule_row(s.text(), cols, rows))
+        found = [r for r in seen if r is not None]
+        check(len(found) >= 2, f"the preview rule is drawn ({seen})", failures)
+        check(len(set(found)) <= 1, f"rule stays on one row across tabs (saw {sorted(set(found))})",
+              failures)
+        s.send(b"\x03")
+        s.proc.wait(timeout=4)
+    except subprocess.TimeoutExpired:
+        check(False, "exits within the timeout", failures)
+    finally:
+        s.close()
+    return failures
+
+
 CASES = [
     (80, 24, [DOWN, DOWN, UP, RIGHT, LEFT], "navigate", False),
     (80, 24, [b"?", b"x"], "help overlay opens and any key closes", False),
@@ -129,6 +200,9 @@ CASES = [
     (60, 15, [DOWN, b"\t"], "narrow terminal", False),
     (200, 60, [DOWN, RIGHT], "wide terminal", False),
     (80, 24, [b"s", b"e", b"s", b"\x7f"], "type-to-filter then backspace", False),
+    # ^w / ⌥⌫ rub out a word, ^u (what ⌘⌫ sends) clears the query.
+    (80, 24, [b"m", b"y", b" ", b"b", b"i", b"t", b"\x17", b"\x1b\x7f", b"\x15"],
+     "word-delete and clear-query", False),
     # esc with no active content search quits — a distinct exit path, so assert it restores too.
     (80, 24, [b"z", b"\x1b"], "esc quits and restores the terminal", True),
 ]
@@ -137,6 +211,7 @@ if __name__ == "__main__":
     if not os.path.exists(BIN):
         sys.exit(f"binary not found: {BIN} (cargo build --release)")
     all_failures = []
+    all_failures += layout_is_stable()
     for case in CASES:
         all_failures += run_case(*case)
     print()

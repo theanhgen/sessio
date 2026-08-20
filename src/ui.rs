@@ -38,7 +38,8 @@ pub mod theme {
 
 const REFRESH: Duration = Duration::from_secs(2);
 const MIN_LIST: usize = 3;
-const DEFAULT_LIST: usize = 6;
+/// Rows the preview keeps whatever the list wants, so ↓ can never squeeze it to nothing.
+const MIN_PREVIEW: usize = 8;
 const PAGE: usize = 12;
 
 fn dim() -> Style {
@@ -46,7 +47,7 @@ fn dim() -> Style {
 }
 
 enum Msg {
-    Items(Vec<Item>),
+    Items(Vec<Item>, crate::live::LiveMap),
     Detail { key: String, mtime: i64, detail: Box<Detail> },
     Search { gen: u64, query: String, files: Option<HashSet<PathBuf>> },
 }
@@ -73,6 +74,10 @@ struct App {
     search_gen: u64,
     details: HashMap<String, (i64, Detail)>,
     detail_inflight: HashSet<String>,
+    /// Sessions with a `claude` process attached right now, by session id.
+    live: crate::live::LiveMap,
+    /// Session the user has been warned about and may now resume anyway.
+    confirm: Option<String>,
     tx: Sender<Msg>,
 }
 
@@ -137,6 +142,14 @@ impl App {
         });
     }
 
+    /// Every edit to the query invalidates the content search and the scroll position.
+    fn requery(&mut self) {
+        self.deep = None;
+        self.search_gen += 1;
+        self.reset_position();
+        self.ensure_detail();
+    }
+
     fn reset_position(&mut self) {
         self.cur = 0;
         self.off = 0;
@@ -165,8 +178,9 @@ fn apply_detail(it: &mut Item, d: Detail) {
 }
 
 pub fn run() -> io::Result<()> {
-    let archive = Archive::load();
+    let mut archive = Archive::load();
     let items = model::load(&[]);
+    archive.release_reactivated(items.iter().map(|i| (i.key.as_str(), i.id.as_str(), i.mtime)));
     if items.is_empty() {
         println!("No sessions found.");
         return Ok(());
@@ -194,6 +208,8 @@ pub fn run() -> io::Result<()> {
         search_gen: 0,
         details: HashMap::new(),
         detail_inflight: HashSet::new(),
+        live: crate::live::scan(),
+        confirm: None,
         tx: tx.clone(),
     };
 
@@ -247,7 +263,8 @@ fn event_loop(
             let extra = app.deep.as_ref().map(|d| d.files.clone()).unwrap_or_default();
             std::thread::spawn(move || {
                 let items = model::load(&extra);
-                let _ = tx2.send(Msg::Items(items));
+                // Same worker: one `ps` per refresh, off the input path.
+                let _ = tx2.send(Msg::Items(items, crate::live::scan()));
             });
         }
 
@@ -264,8 +281,9 @@ fn event_loop(
 
         while let Ok(msg) = rx.try_recv() {
             match msg {
-                Msg::Items(new_items) => {
+                Msg::Items(new_items, live) => {
                     refreshing = false;
+                    app.live = live;
                     absorb_items(app, new_items);
                 }
                 Msg::Detail { key, mtime, detail } => {
@@ -318,6 +336,17 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
             }
         }
     }
+    // A session you archived but have since worked in again is not one you are done with.
+    let freed = {
+        let (archive, items) = (&mut app.archive, &app.items);
+        archive.release_reactivated(
+            items.iter().map(|i| (i.key.as_str(), i.id.as_str(), i.mtime)),
+        )
+    };
+    if freed > 0 {
+        let s = if freed == 1 { "" } else { "s" };
+        app.flash = format!("↩ {freed} archived session{s} back — active again");
+    }
     app.tabs = model::tabs_for(&app.items, &app.archive);
     app.p_idx = active_tab
         .and_then(|name| app.tabs.iter().position(|t| *t == name))
@@ -340,6 +369,12 @@ fn handle_key(
     k: KeyEvent,
 ) -> io::Result<Flow> {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+
+    // "↵ again to open it twice" means the *very next* key. Moving, typing or switching tabs is
+    // not consent to start a second process on a live transcript.
+    if k.code != KeyCode::Enter {
+        app.confirm = None;
+    }
 
     if ctrl && k.code == KeyCode::Char('c') {
         return Ok(Flow::Quit);
@@ -416,12 +451,25 @@ fn handle_key(
             app.reset_position();
             app.ensure_detail();
         }
+        // ⌥⌫ (which arrives as alt+backspace) and ^w rub out a word; ⌘⌫ sends ^u in every
+        // terminal that binds it, and clears the query outright.
+        KeyCode::Backspace if k.modifiers.contains(KeyModifiers::ALT) => {
+            let kept = drop_word(&app.q);
+            app.q.truncate(kept);
+            app.requery();
+        }
+        KeyCode::Char('w') if ctrl => {
+            let kept = drop_word(&app.q);
+            app.q.truncate(kept);
+            app.requery();
+        }
+        KeyCode::Char('u') if ctrl => {
+            app.q.clear();
+            app.requery();
+        }
         KeyCode::Backspace => {
             app.q.pop();
-            app.deep = None;
-            app.search_gen += 1;
-            app.reset_position();
-            app.ensure_detail();
+            app.requery();
         }
         KeyCode::Enter => {
             if let Some(i) = app.selected() {
@@ -430,6 +478,28 @@ fn handle_key(
                     app.items[i].id.clone(),
                     app.items[i].name.clone(),
                 );
+                // Already running? Resuming would point a second `claude` at the same transcript
+                // and both would append to it. Go to the session instead — and if we can't find
+                // its window, say where it is and make the duplicate an explicit second ↵.
+                let running = app.live.get(&id).cloned();
+                if let EnterAction::GoToRunning = enter_action(
+                    running.is_some(),
+                    app.confirm.as_deref() == Some(id.as_str()),
+                ) {
+                    let live = running.expect("GoToRunning implies a live process");
+                    if resume::focus_window_titled(&name) {
+                        let short: String = name.chars().take(40).collect();
+                        app.flash = format!("↗ focused \"{short}\" — already running");
+                    } else {
+                        app.confirm = Some(id.clone());
+                        app.flash = format!(
+                            "already running ({}) — ↵ again to open it twice",
+                            running_where(&live)
+                        );
+                    }
+                    return Ok(Flow::Continue);
+                }
+                app.confirm = None;
                 // Ghostty: open in a NEW window and keep sessio running as a launcher.
                 if resume::in_ghostty() {
                     if let Some(dir) = cwd.as_deref() {
@@ -451,14 +521,52 @@ fn handle_key(
         }
         KeyCode::Char(c) if !ctrl && !k.modifiers.contains(KeyModifiers::ALT) && c >= ' ' => {
             app.q.push(c);
-            app.deep = None;
-            app.search_gen += 1;
-            app.reset_position();
-            app.ensure_detail();
+            app.requery();
         }
         _ => {}
     }
     Ok(Flow::Continue)
+}
+
+/// Byte length of `q` with its last word removed: trailing separators first, then the word.
+///
+/// Separators are whitespace and the punctuation that shows up in project paths and session
+/// titles, so one ⌥⌫ over `mybit/tooling` leaves `mybit/`.
+fn drop_word(q: &str) -> usize {
+    let sep = |c: char| c.is_whitespace() || matches!(c, '/' | '-' | '_' | '.' | ':' | ',');
+    let trimmed = q.trim_end_matches(sep);
+    match trimmed.rfind(sep) {
+        Some(i) => i + trimmed[i..].chars().next().map_or(1, char::len_utf8),
+        None => 0,
+    }
+}
+
+/// What ↵ should do for the highlighted session.
+#[derive(Debug, PartialEq, Eq)]
+enum EnterAction {
+    /// Nothing is attached: resume as usual.
+    Resume,
+    /// A `claude` is already on this transcript — go to it rather than starting a second one.
+    GoToRunning,
+    /// The user pressed ↵ again on the session they were warned about. Their call.
+    ResumeAnyway,
+}
+
+fn enter_action(is_live: bool, confirmed: bool) -> EnterAction {
+    match (is_live, confirmed) {
+        (false, _) => EnterAction::Resume,
+        (true, false) => EnterAction::GoToRunning,
+        (true, true) => EnterAction::ResumeAnyway,
+    }
+}
+
+/// Where the running process is, for a user who has to find it themselves.
+fn running_where(live: &crate::live::Live) -> String {
+    if live.tty.is_empty() {
+        format!("pid {}", live.pid)
+    } else {
+        format!("pid {} · {}", live.pid, live.tty)
+    }
 }
 
 /// Replace sessio with `claude --resume`. The terminal is restored *first* — `exec` never
@@ -493,74 +601,143 @@ fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let sel = view.get(app.cur).copied();
 
     let tabs = tab_bar(app, cols);
-    // Reply is capped so the preview never scrolls the frame off; ⇥ expands it to fill,
-    // keeping at least MIN_LIST rows of list.
+
+    // The split is decided by the terminal, never by what is in the tab or what the highlighted
+    // session's preview happens to contain. Deriving it from content — the number of rows this
+    // tab holds, how long this reply is — moved the separator and everything under it every time
+    // you pressed ←/→, which reads as the UI wandering on its own.
+    let chrome = 1 + tabs.len() + 1; // header, tab bar, query
+    let body = rows.saturating_sub(chrome + 1); // and the always-present "↓ more" row
+    let ceiling = body.saturating_sub(MIN_PREVIEW).max(MIN_LIST);
+    let want = if app.expand { MIN_LIST } else { app.limit };
+    let slots = want.clamp(MIN_LIST, ceiling).min(body.max(1));
+    app.limit = app.limit.min(ceiling); // ↓ may not grow the list past its share
+
+    let preview_box = body.saturating_sub(slots);
     let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
-    let reserved = if app.expand { MIN_LIST } else { DEFAULT_LIST };
-    let budget = rows as i64
-        - (1 + tabs.len() as i64 + 1 + 1)
-        - base as i64
-        - 2
-        - reserved as i64;
-    let reply_max = budget.max(1) as usize;
+    let reply_max = preview_box.saturating_sub(base).max(1);
     let prev = sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default();
 
-    let overhead = 1 + tabs.len() + 1 + prev.len() + 1;
-    let max_fit = rows.saturating_sub(overhead).max(3);
-    if app.limit > max_fit {
-        app.limit = max_fit;
-    }
-    // Never hide an ACTIVE (green) session behind "show more".
-    let now = model::now_ms();
-    let active_count = view.iter().filter(|&&i| now - app.items[i].mtime < ACTIVE_MS).count();
-    let win = app.limit.max(active_count).min(max_fit).min(view.len());
     if app.cur < app.off {
         app.off = app.cur;
     }
-    if win > 0 && app.cur >= app.off + win {
-        app.off = app.cur - win + 1;
+    if slots > 0 && app.cur >= app.off + slots {
+        app.off = app.cur - slots + 1;
     }
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows + 4);
-    lines.push(header(app));
+    lines.push(header(app, cols));
     lines.extend(tabs);
     lines.push(query_line(app, view.len()));
 
-    for (n, &i) in view.iter().skip(app.off).take(win).enumerate() {
+    let mut shown = 0;
+    for (n, &i) in view.iter().skip(app.off).take(slots).enumerate() {
         lines.push(row_line(app, &app.items[i], app.off + n == app.cur, cols));
+        shown += 1;
     }
-    let below = view.len() as i64 - (app.off + win) as i64;
-    if below > 0 {
-        lines.push(Line::from(Span::styled(
+    if shown == 0 {
+        lines.push(Line::from(Span::styled("  no match", dim())));
+        shown = 1;
+    }
+    for _ in shown..slots {
+        lines.push(Line::from("")); // hold the row open so nothing below it shifts
+    }
+    // The show-more row is always reserved, for the same reason.
+    let below = view.len() as i64 - (app.off + slots) as i64;
+    lines.push(if below > 0 {
+        Line::from(Span::styled(
             format!(" ↓ {below} more — press ↓ to reveal"),
             dim(),
-        )));
-    }
+        ))
+    } else {
+        Line::from("")
+    });
     lines.extend(prev);
 
     f.render_widget(Paragraph::new(lines), area);
 }
 
-fn header(app: &App) -> Line<'static> {
-    let hint = if search::rg_path().is_some() { "^f search-in-text · " } else { "" };
-    let arch = if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
-        "^a unarchive · "
+/// One hint in the key bar. `p` is how expendable it is: the bar sheds the highest `p` first.
+struct Seg {
+    p: u8,
+    t: &'static str,
+    accent: bool,
+}
+
+const SEP: &str = " · ";
+const SEP_W: usize = 3;
+
+/// Widest prefix of the bar that fits `cols`, shedding whole hints rather than clipping one
+/// mid-word. Separate from `header` so it can be tested without an `App`.
+fn fit_segments(segs: &[Seg], cols: usize) -> Vec<&Seg> {
+    let mut cut = 5u8;
+    loop {
+        let keep: Vec<&Seg> = segs.iter().filter(|s| s.p <= cut).collect();
+        let w: usize = keep
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.t))
+            .sum::<usize>()
+            + SEP_W * keep.len().saturating_sub(1);
+        if w <= cols || cut == 0 {
+            return keep;
+        }
+        cut -= 1;
+    }
+}
+
+
+fn header(app: &App, cols: usize) -> Line<'static> {
+    // The full bar is ~136 columns under Ghostty. Anything narrower would be clipped mid-word by
+    // the paragraph, so drop the least essential hints instead. `? help` is p0 — it reveals
+    // everything that was dropped — and the resume key is p1 because it is the whole point.
+    let mut segs: Vec<Seg> = vec![
+        Seg { p: 3, t: "←→ project", accent: false },
+        Seg { p: 3, t: "↑↓ move", accent: false },
+        Seg { p: 4, t: "type", accent: false },
+    ];
+    if search::rg_path().is_some() {
+        segs.push(Seg { p: 5, t: "^f search-in-text", accent: false });
+    }
+    segs.push(if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
+        Seg { p: 5, t: "^a unarchive", accent: false }
     } else {
-        "^a archive · "
-    };
-    let exp = if app.expand { "⇥ collapse · " } else { "⇥ expand-reply · " };
-    let res = if resume::in_ghostty() { "↵ new-window · ^o same-window · " } else { "↵ resume · " };
-    let mut spans = vec![Span::styled(
-        format!("←→ project · ↑↓ move · type · {hint}{arch}{exp}{res}? help · esc quit · "),
-        dim(),
-    )];
-    spans.push(Span::styled("live", Style::default().fg(theme::ACCENT)));
-    if !app.flash.is_empty() {
+        Seg { p: 5, t: "^a archive", accent: false }
+    });
+    segs.push(if app.expand {
+        Seg { p: 4, t: "⇥ collapse", accent: true }
+    } else {
+        Seg { p: 4, t: "⇥ expand-reply", accent: false }
+    });
+    if resume::in_ghostty() {
+        segs.push(Seg { p: 1, t: "↵ new-window", accent: false });
+        segs.push(Seg { p: 2, t: "^o same-window", accent: false });
+    } else {
+        segs.push(Seg { p: 1, t: "↵ resume", accent: false });
+    }
+    segs.push(Seg { p: 0, t: "? help", accent: false });
+    segs.push(Seg { p: 2, t: "esc quit", accent: false });
+    segs.push(Seg { p: 5, t: "live", accent: true });
+
+    // A flash is why you pressed the key; the hints are always there. So the message is budgeted
+    // first and the bar shrinks around it — otherwise "already running (pid …)" is clipped to
+    // "already runni" and the keypress looks like it did nothing.
+    let flash = sanitize(&app.flash);
+    let flash_w = if flash.is_empty() { 0 } else { UnicodeWidthStr::width(flash.as_str()) + 2 };
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (i, seg) in fit_segments(&segs, cols.saturating_sub(flash_w))
+        .into_iter()
+        .enumerate()
+    {
+        if i > 0 {
+            spans.push(Span::styled(SEP, dim()));
+        }
+        let style = if seg.accent { Style::default().fg(theme::ACCENT) } else { dim() };
+        spans.push(Span::styled(seg.t, style));
+    }
+    if !flash.is_empty() {
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(
-            sanitize(&app.flash),
-            Style::default().fg(theme::ACTIVE),
-        ));
+        spans.push(Span::styled(flash, Style::default().fg(theme::ACTIVE)));
     }
     Line::from(spans)
 }
@@ -613,7 +790,11 @@ fn query_line(app: &App, matches: usize) -> Line<'static> {
 
 fn row_line(app: &App, it: &Item, selected: bool, cols: usize) -> Line<'static> {
     let age = model::now_ms() - it.mtime;
-    let (dot, dot_style) = if age < ACTIVE_MS {
+    // A filled ring means a `claude` process is attached right now, which is a stronger claim
+    // than the recency dot: the transcript was written recently vs. the session is *open*.
+    let (dot, dot_style) = if app.live.contains_key(&it.id) {
+        ("◉", Style::default().fg(theme::ACTIVE))
+    } else if age < ACTIVE_MS {
         ("●", Style::default().fg(theme::ACTIVE))
     } else if age < RECENT_MS {
         ("●", Style::default().fg(theme::RECENT))
@@ -628,7 +809,6 @@ fn row_line(app: &App, it: &Item, selected: bool, cols: usize) -> Line<'static> 
         it.branch.as_deref().map(|b| format!(" · {}", sanitize(b))).unwrap_or_default()
     );
     let name = sanitize(it.display_name());
-    let _ = app;
 
     let mut spans = vec![
         Span::styled(dot.to_string(), dot_style),
@@ -699,9 +879,42 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         )));
     }
 
+    if let Some(live) = app.live.get(&it.id) {
+        let where_ = if live.tty.is_empty() {
+            format!("pid {}", live.pid)
+        } else {
+            format!("pid {} · {}", live.pid, live.tty)
+        };
+        lines.push(Line::from(vec![
+            Span::styled("◉ running", Style::default().fg(theme::ACTIVE)),
+            Span::styled(format!(" · {where_} · ↵ goes to it"), dim()),
+        ]));
+    }
+
     let detail = it.detail.as_ref();
 
-    if let Some(summary) = detail.and_then(|d| d.summary.as_ref()) {
+    // The recap is newer, shorter and says whose move it is — prefer it over the compact
+    // summary. The full read supersedes the tail read once it lands.
+    let recap = detail
+        .and_then(|d| d.recap.as_deref())
+        .or(it.recap.as_deref());
+    let recap_ts = detail
+        .and_then(|d| d.recap_ts.as_deref())
+        .or(it.recap_ts.as_deref());
+
+    if let Some(recap) = recap {
+        let mark = recap_ts
+            .map(|t| format!(" · {}{}", stamp(t), rel(t)))
+            .unwrap_or_default();
+        let mut spans = vec![Span::styled("recap", Style::default().fg(theme::REPLY))];
+        if !mark.is_empty() {
+            spans.push(Span::styled(mark, dim()));
+        }
+        lines.push(Line::from(spans));
+        for l in md_lines(recap, w.saturating_sub(2)).into_iter().take(4) {
+            lines.push(quote(l));
+        }
+    } else if let Some(summary) = detail.and_then(|d| d.summary.as_ref()) {
         let stamp = detail
             .and_then(|d| d.summary_ts.as_deref())
             .map(|t| format!(" · {}{}", stamp(t), rel(t)))
@@ -791,13 +1004,26 @@ fn help_lines() -> Vec<Line<'static>> {
         ]));
     }
     v.extend([
-        Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive the selected session")]),
+        Line::from(vec![Span::styled("^w ⌥⌫", key), Span::raw("  delete the last word of the query")]),
+        Line::from(vec![Span::styled("^u ⌘⌫", key), Span::raw("  clear the whole query")]),
+        Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
-        Line::from(vec![Span::styled("↵", key), Span::raw("      resume (Ghostty: new window, sessio stays open; else in place)")]),
+        Line::from(vec![Span::styled("↵", key), Span::raw("      resume — or go to it if ◉ (Ghostty: new window, sessio stays open)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in this window (replaces sessio)")]),
         Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
         Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
         Line::from(vec![Span::styled("^c", key), Span::raw("     quit")]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("◉", Style::default().fg(theme::ACTIVE)),
+            Span::raw("      a claude process is attached to this session right now"),
+        ]),
+        Line::from(vec![
+            Span::styled("●", Style::default().fg(theme::ACTIVE)),
+            Span::raw("      written in the last 5 minutes ("),
+            Span::styled("●", Style::default().fg(theme::RECENT)),
+            Span::raw(" in the last 24h)"),
+        ]),
         Line::from(""),
         Line::from(Span::styled("press any key to close", dim())),
     ]);
@@ -932,5 +1158,106 @@ mod tests {
         assert!(ago(now).ends_with('m'));
         assert!(ago(now - 7_200_000).ends_with('h'));
         assert!(ago(now - 3 * 86_400_000).ends_with('d'));
+    }
+
+    fn bar() -> Vec<Seg> {
+        vec![
+            Seg { p: 3, t: "←→ project", accent: false },
+            Seg { p: 3, t: "↑↓ move", accent: false },
+            Seg { p: 4, t: "type", accent: false },
+            Seg { p: 5, t: "^f search-in-text", accent: false },
+            Seg { p: 5, t: "^a archive", accent: false },
+            Seg { p: 4, t: "⇥ expand-reply", accent: false },
+            Seg { p: 1, t: "↵ new-window", accent: false },
+            Seg { p: 2, t: "^o same-window", accent: false },
+            Seg { p: 0, t: "? help", accent: false },
+            Seg { p: 2, t: "esc quit", accent: false },
+            Seg { p: 5, t: "live", accent: true },
+        ]
+    }
+
+    fn rendered(cols: usize) -> String {
+        fit_segments(&bar(), cols)
+            .into_iter()
+            .map(|s| s.t)
+            .collect::<Vec<_>>()
+            .join(SEP)
+    }
+
+    /// The bug this replaces: the bar was emitted whole, wrapped on any window narrower than
+    /// ~136 columns, and pushed the frame past the terminal height.
+    #[test]
+    fn the_key_bar_never_exceeds_the_terminal_width() {
+        for cols in 8..200 {
+            let w = UnicodeWidthStr::width(rendered(cols).as_str());
+            assert!(w <= cols, "{cols} cols rendered {w}");
+        }
+    }
+
+    #[test]
+    fn word_delete_takes_one_word_at_a_time() {
+        let q = "mybit tooling";
+        assert_eq!(&q[..drop_word(q)], "mybit ");
+        assert_eq!(&q[..drop_word("mybit ")], "");
+        assert_eq!(&q[..drop_word("single")], "");
+        assert_eq!(&q[..drop_word("")], "");
+    }
+
+    #[test]
+    fn word_delete_treats_path_punctuation_as_a_boundary() {
+        let q = "mybit/tooling";
+        assert_eq!(&q[..drop_word(q)], "mybit/");
+        let q = "a-b-c";
+        assert_eq!(&q[..drop_word(q)], "a-b-");
+    }
+
+    #[test]
+    fn word_delete_never_splits_a_character() {
+        // The returned length is a byte index; slicing at it must not panic on multi-byte input.
+        for q in ["ěščř žluť", "日本語 テスト", "…  x"] {
+            let _ = &q[..drop_word(q)];
+        }
+    }
+
+    #[test]
+    fn enter_resumes_only_when_nothing_is_attached() {
+        assert_eq!(enter_action(false, false), EnterAction::Resume);
+        // A stale confirm on a session that is no longer running must not change anything.
+        assert_eq!(enter_action(false, true), EnterAction::Resume);
+    }
+
+    #[test]
+    fn enter_on_a_running_session_goes_to_it_rather_than_duplicating() {
+        assert_eq!(enter_action(true, false), EnterAction::GoToRunning);
+    }
+
+    #[test]
+    fn a_second_enter_is_consent_to_open_it_twice() {
+        assert_eq!(enter_action(true, true), EnterAction::ResumeAnyway);
+    }
+
+    #[test]
+    fn the_warning_names_somewhere_to_look() {
+        let l = crate::live::Live { pid: 68227, tty: "ttys013".into() };
+        assert_eq!(running_where(&l), "pid 68227 · ttys013");
+        let headless = crate::live::Live { pid: 7, tty: String::new() };
+        assert_eq!(running_where(&headless), "pid 7");
+    }
+
+    #[test]
+    fn a_wide_terminal_keeps_every_hint() {
+        assert_eq!(fit_segments(&bar(), 200).len(), bar().len());
+    }
+
+    #[test]
+    fn help_survives_the_narrowest_bar() {
+        assert!(rendered(6).contains("? help"));
+    }
+
+    #[test]
+    fn hints_are_shed_from_the_most_expendable_end() {
+        let narrow = rendered(80);
+        assert!(narrow.contains("↵ new-window"), "resume is the point: {narrow}");
+        assert!(!narrow.contains("^f search-in-text"), "p5 sheds first: {narrow}");
     }
 }

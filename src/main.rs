@@ -3,6 +3,7 @@
 mod cta;
 mod discover;
 mod git;
+mod live;
 mod md;
 mod model;
 mod parse;
