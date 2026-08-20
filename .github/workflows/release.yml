@@ -27,8 +27,13 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             os: macos-14
+          # Built on the arm64 image, not macos-13: that is GitHub's last Intel image, its queue
+          # runs to tens of minutes, and it is on the way out. Apple's toolchain cross-compiles
+          # x86_64 from arm64 natively, so only the test and smoke steps are given up — both of
+          # which the aarch64-apple-darwin job already runs against the same source.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-14
+            cross: true
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu

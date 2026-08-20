@@ -158,7 +158,7 @@
       <div class="card"><h3><span class="i">▸</span>Pick up work</h3><p>The <span class="mono">open</span> tab surfaces unanswered prompts, next-step requests, and recent projects with uncommitted changes.</p></div>
       <div class="card"><h3><span class="i">^a</span>Archive locally</h3><p>Hide sessions you are done with without touching Claude’s transcript files. A session you work in again un-hides itself on the next refresh.</p></div>
       <div class="card"><h3><span class="i">●</span>Live &amp; recent</h3><p>Refreshes every 2s. A running session floats up with a <span class="c-green">green</span> dot; recent ones stay <span class="c-orange">orange</span>.</p></div>
-      <div class="card"><h3><span class="i">◉</span>Never resume twice</h3><p>A <span class="c-green">◉</span> means a <span class="mono">claude</span> is attached right now. <kbd>↵</kbd> goes to that session instead of pointing a second <span class="mono">claude</span> at the same transcript.</p></div>
+      <div class="card"><h3><span class="i">◉</span>Never resume twice</h3><p>A <span class="c-green">◉</span> means a <span class="mono">claude</span> is attached right now. <kbd>↵</kbd> stops instead of pointing a second one at the same transcript — raising that window when it can, naming the pid and tty when the session sits in a background tab no terminal exposes.</p></div>
       <div class="card"><h3><span class="i">¶</span>Rendered preview</h3><p>Title, branch, prompt count, Claude’s away-recap of where things stand, first/last prompt, and its last reply as markdown.</p></div>
       <div class="card"><h3><span class="i">↵</span>Resume where you left off</h3><p>Runs <span class="mono">claude --resume</span> in the original directory. Under Ghostty, <kbd>↵</kbd> opens a new window; <kbd>^o</kbd> keeps the current one.</p></div>
       <div class="card"><h3><span class="i">⌁</span>Native binary</h3><p>Rust, no runtime dependencies. A cold scan of 300 sessions takes about 40ms, so nothing is cached and nothing goes stale.</p></div>
@@ -177,7 +177,7 @@
       <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across all transcripts</td></tr>
       <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session locally</td></tr>
       <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Expand / collapse the reply preview</td></tr>
-      <tr><td class="k"><kbd>↵</kbd></td><td>Resume selected session — or go to it if it is already running (Ghostty: new window)</td></tr>
+      <tr><td class="k"><kbd>↵</kbd></td><td>Resume selected session — or, if it is already running, go to it instead of opening it twice (Ghostty: new window)</td></tr>
       <tr><td class="k"><kbd>^o</kbd></td><td>Resume in this window, including under Ghostty</td></tr>
       <tr><td class="k"><kbd>?</kbd></td><td>Toggle the full keybinding help</td></tr>
       <tr><td class="k"><kbd>esc</kbd></td><td>Clear content search, then quit</td></tr>

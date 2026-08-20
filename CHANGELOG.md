@@ -1,10 +1,21 @@
 # Changelog
 
-## 1.0.0-alpha.2 - 2026-08-20
+## 1.0.0-alpha.3 - 2026-08-20
 
 Prerelease. Published under the `alpha` dist-tag — `npm i -g sessio` still installs 0.3.x.
 Install it with `npm i -g sessio@alpha`.
 
+- Fixed the flash message lasting about 120ms. It was cleared after one frame, which in the JS
+  reference meant a keypress or the 2s tick, but this loop redraws on every 120ms input poll —
+  so `already running — ↵ again to open it twice`, the entire answer to pressing `↵` on a live
+  session, was repainted away before it could be read and the feature looked dead. Flashes are
+  now timed, and the consent they ask for expires with them: `↵ again` means again now.
+- Said plainly, in the README and on the site, that a session in a background tab cannot be
+  raised. No terminal exposes its tabs — Ghostty's entire external surface is `+new-window`,
+  `+new-tab` and `+toggle-quick-terminal` — so with several sessions per window the pid-and-tty
+  answer is the common case, not the fallback.
+- Build x86_64-apple-darwin by cross-compiling on the arm64 runner. macos-13 is GitHub's last
+  Intel image and its queue runs to tens of minutes, which blocked releases outright.
 - Rewrote sessio in Rust and ship it as a prebuilt binary per platform; the npm package is now
   a launcher that picks the right one. Node is needed to install, not to run. The original JS
   implementation is kept in `legacy/` as the reference `scripts/oracle.sh` diffs the port

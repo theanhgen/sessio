@@ -37,6 +37,10 @@ pub mod theme {
 }
 
 const REFRESH: Duration = Duration::from_secs(2);
+/// How long a flash stays on screen. It has to be a duration, not a frame: this loop redraws on
+/// every 120ms input poll, and a message cleared after one frame — as the JS reference does, where
+/// a frame is a keypress or the 2s tick — was gone before anyone could read it.
+const FLASH: Duration = Duration::from_secs(5);
 const MIN_LIST: usize = 3;
 /// Rows the preview keeps whatever the list wants, so ↓ can never squeeze it to nothing.
 const MIN_PREVIEW: usize = 8;
@@ -70,6 +74,8 @@ struct App {
     expand: bool,
     help: bool,
     flash: String,
+    /// When the current flash stops being shown. `None` means there is nothing to expire.
+    flash_until: Option<Instant>,
     deep: Option<Deep>,
     search_gen: u64,
     details: HashMap<String, (i64, Detail)>,
@@ -82,6 +88,12 @@ struct App {
 }
 
 impl App {
+    /// Say something back about the key just pressed, and keep saying it long enough to be read.
+    fn say(&mut self, msg: String) {
+        self.flash = msg;
+        self.flash_until = Some(Instant::now() + FLASH);
+    }
+
     fn archived(&self, it: &Item) -> bool {
         self.archive.contains(&it.key, &it.id)
     }
@@ -204,6 +216,7 @@ pub fn run() -> io::Result<()> {
         expand: false,
         help: false,
         flash: String::new(),
+        flash_until: None,
         deep: None,
         search_gen: 0,
         details: HashMap::new(),
@@ -252,8 +265,15 @@ fn event_loop(
     let mut refreshing = false;
 
     loop {
+        if flash_expired(Instant::now(), app.flash_until) {
+            app.flash.clear();
+            app.flash_until = None;
+            // The warning and the consent it asks for run out together: "↵ again" has to mean
+            // again *now*, not an hour later with the message long gone and the session still
+            // marked as one the user already agreed to open twice.
+            app.confirm = None;
+        }
         term.draw(|f| draw(f, app))?;
-        app.flash.clear(); // shown for one frame only
 
         // Live refresh: rescan every 2s on a worker so input never stalls behind the scan.
         if !refreshing && last_refresh.elapsed() >= REFRESH {
@@ -299,7 +319,7 @@ fn event_loop(
                         continue; // a newer query superseded this search
                     }
                     match files {
-                        None => app.flash = "content search failed".into(),
+                        None => app.say("content search failed".into()),
                         Some(files) => {
                             let root = discover::projects_root();
                             let keys = files
@@ -345,7 +365,7 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
     };
     if freed > 0 {
         let s = if freed == 1 { "" } else { "s" };
-        app.flash = format!("↩ {freed} archived session{s} back — active again");
+        app.say(format!("↩ {freed} archived session{s} back — active again"));
     }
     app.tabs = model::tabs_for(&app.items, &app.archive);
     app.p_idx = active_tab
@@ -402,7 +422,7 @@ fn handle_key(
                 let gen = app.search_gen;
                 let term_q = app.q.clone();
                 let tx = app.tx.clone();
-                app.flash = "searching…".into();
+                app.say("searching…".into());
                 std::thread::spawn(move || {
                     let root = discover::projects_root();
                     let files = search::content_search(&term_q, &root);
@@ -489,13 +509,13 @@ fn handle_key(
                     let live = running.expect("GoToRunning implies a live process");
                     if resume::focus_window_titled(&name) {
                         let short: String = name.chars().take(40).collect();
-                        app.flash = format!("↗ focused \"{short}\" — already running");
+                        app.say(format!("↗ focused \"{short}\" — already running"));
                     } else {
                         app.confirm = Some(id.clone());
-                        app.flash = format!(
+                        app.say(format!(
                             "already running ({}) — ↵ again to open it twice",
                             running_where(&live)
-                        );
+                        ));
                     }
                     return Ok(Flow::Continue);
                 }
@@ -505,7 +525,7 @@ fn handle_key(
                     if let Some(dir) = cwd.as_deref() {
                         if resume::ghostty_launch(std::path::Path::new(dir), &id) {
                             let short: String = name.chars().take(40).collect();
-                            app.flash = format!("↗ opened \"{short}\" in a new window");
+                            app.say(format!("↗ opened \"{short}\" in a new window"));
                             return Ok(Flow::Continue);
                         }
                     }
@@ -550,6 +570,11 @@ enum EnterAction {
     GoToRunning,
     /// The user pressed ↵ again on the session they were warned about. Their call.
     ResumeAnyway,
+}
+
+/// Whether a flash set to run until `until` is done by `now`.
+fn flash_expired(now: Instant, until: Option<Instant>) -> bool {
+    until.is_some_and(|t| now >= t)
 }
 
 fn enter_action(is_live: bool, confirmed: bool) -> EnterAction {
@@ -1234,6 +1259,25 @@ mod tests {
     #[test]
     fn a_second_enter_is_consent_to_open_it_twice() {
         assert_eq!(enter_action(true, true), EnterAction::ResumeAnyway);
+    }
+
+    #[test]
+    fn a_flash_outlives_the_frame_that_drew_it() {
+        // The regression this guards: the loop redraws on every 120ms input poll, so clearing the
+        // flash after one draw — what the JS reference does, where a frame is a keypress or the 2s
+        // tick — put "↵ again to open it twice" on screen for about a tenth of a second. Long
+        // enough to repaint, far too short to read, which is indistinguishable from ↵ doing
+        // nothing at all.
+        let set_at = Instant::now();
+        let until = Some(set_at + FLASH);
+
+        assert!(FLASH >= Duration::from_secs(3), "a message this long needs seconds, not frames");
+        assert!(!flash_expired(set_at, until), "gone on the frame it was set");
+        assert!(!flash_expired(set_at + Duration::from_millis(120), until), "gone after one poll");
+        assert!(!flash_expired(set_at + FLASH - Duration::from_millis(1), until));
+        assert!(flash_expired(set_at + FLASH, until));
+        // Nothing to show is not something to expire.
+        assert!(!flash_expired(set_at, None));
     }
 
     #[test]
