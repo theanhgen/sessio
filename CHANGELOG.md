@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-alpha.6 - 2026-08-20
+
+- Fixed `sessions` doing nothing at all when installed from npm. The launcher only ran when the
+  path it was invoked by matched its own, compared without resolving symlinks — and npm installs
+  the command as a symlink into `node_modules`, so the check was false for every install and the
+  process exited 0 in silence. Importing the module and running the binary directly both worked,
+  which is exactly why the tests and the release workflow missed it; both now go through the
+  linked command instead, and the release runs the launcher's tests before publishing.
+
 ## 1.0.0-alpha.5 - 2026-08-20
 
 Prerelease. Published under the `alpha` dist-tag — `npm i -g sessio` still installs 0.3.x.

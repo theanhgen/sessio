@@ -101,6 +101,12 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
+      # The build jobs prove the binary works; nothing proved the launcher did. alpha.5 published
+      # a `sessions` command that exited 0 without running anything, because the only path never
+      # exercised — the bin symlink npm installs — is the one every user types.
+      - name: Test the launcher
+        run: npm test
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts

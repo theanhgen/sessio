@@ -1,6 +1,6 @@
 [package]
 name = "sessio"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 edition = "2021"
 rust-version = "1.82"
 description = "Interactive terminal browser to find and resume past Claude Code sessions."

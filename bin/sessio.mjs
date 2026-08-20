@@ -188,8 +188,20 @@ async function update() {
 
 // Only launch when run directly. The version helpers above are exported for unit tests, and
 // importing this file must not start a TUI or exit the test runner.
-const isMain =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// Both sides have to be resolved through symlinks: npm links the command as
+// node_modules/.bin/sessions -> ../sessio/bin/sessio.mjs, and Node reports that symlink in
+// argv[1] while import.meta.url is already the real file. Comparing them unresolved made this
+// false for every npm install, so `sessions` exited 0 having done nothing at all.
+const isMain = (() => {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const self = fileURLToPath(import.meta.url);
+  try {
+    return fs.realpathSync(invoked) === fs.realpathSync(self);
+  } catch {
+    return path.resolve(invoked) === self;
+  }
+})();
 
 if (isMain) {
   const argv = process.argv.slice(2);
