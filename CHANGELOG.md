@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0-alpha.8 - 2026-08-20
+
+- Rebuilt the preview around a label gutter. `recap`, `first`, `last` and `reply` used to spend a
+  whole row each announcing themselves before their content began underneath; the labels now sit
+  right-aligned beside the first line of what they label, so every row carries text and all of it
+  shares one left edge.
+- Capped prose at 90 columns. It was wrapped to the full terminal width, so a 200-column window
+  rendered a 198-character measure and the eye had no way back to the start of the next line —
+  the layout got worse the more room you gave it. Past the cap, width goes to a second column
+  (recap beside the thread) and then to margin.
+- Gave the title its own line, with whether the session is running pushed to the far edge, and
+  demoted the fact chain to one quiet line beneath: locators first, how the title was come by
+  last. One time format throughout — `22m`, `3h` — where three used to compete within four lines.
+
 ## 1.0.0-alpha.7 - 2026-08-20
 
 - `↵` on a running session now focuses the right **split**, not just the right window. A window

@@ -1,6 +1,6 @@
 {
   "name": "sessio",
-  "version": "1.0.0-alpha.7",
+  "version": "1.0.0-alpha.8",
   "description": "Interactive terminal browser to find and resume past Claude Code sessions.",
   "keywords": [
     "claude",
@@ -22,11 +22,11 @@
     "smoke": "python3 scripts/smoke-tui.py"
   },
   "optionalDependencies": {
-    "sessio-darwin-arm64": "1.0.0-alpha.7",
-    "sessio-darwin-x64": "1.0.0-alpha.7",
-    "sessio-linux-arm64": "1.0.0-alpha.7",
-    "sessio-linux-x64": "1.0.0-alpha.7",
-    "sessio-linux-x64-musl": "1.0.0-alpha.7"
+    "sessio-darwin-arm64": "1.0.0-alpha.8",
+    "sessio-darwin-x64": "1.0.0-alpha.8",
+    "sessio-linux-arm64": "1.0.0-alpha.8",
+    "sessio-linux-x64": "1.0.0-alpha.8",
+    "sessio-linux-x64-musl": "1.0.0-alpha.8"
   },
   "files": [
     "bin/",

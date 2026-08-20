@@ -422,6 +422,7 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
 
 // --- picker ---
 const out = process.stdout;
+const I = '\x1b[3m'; // italic — the recap body, as Claude Code prints it
 const D = '\x1b[2m', CY = '\x1b[36m', YE = '\x1b[33m', G = '\x1b[32m', O = '\x1b[38;5;208m', V = '\x1b[38;5;141m', B = '\x1b[1m', INV = '\x1b[7m', R = '\x1b[0m', CLR = '\x1b[2J\x1b[H';
 const ACTIVE_MS = 5 * 60 * 1000;        // green dot: active (written in last 5 min)
 const RECENT_MS = 24 * 60 * 60 * 1000;  // orange dot: recent (last 24h, but not active)
@@ -529,7 +530,10 @@ function mdLines(text, width) {
   while (out.length && out[out.length - 1] === '') out.pop();
   return out;
 }
-let q = '', cur = 0, off = 0, pIdx = 0, limit = 12, expand = false; // limit = rows before "show more"; expand = full reply
+// Rows of list before "↓ more". Small on purpose: the preview is the reason you are looking at
+// the list at all, and 23 titles you have to scan is not more useful than 6 plus a count.
+const PAGE = 6;
+let q = '', cur = 0, off = 0, pIdx = 0, limit = PAGE, expand = false; // limit = rows before "show more"; expand = full reply
 let deep = null; // {query, ids:Set} when a content search is active
 let searchGen = 0; // bumped on every query change / search; stale async rg results are dropped
 let help = false;  // full-screen keybinding overlay (toggled by ?)
@@ -628,7 +632,7 @@ function dropWord(q) {
 
 /** Every edit to the query invalidates the content search and the scroll position. */
 function requery() {
-  deep = null; searchGen++; cur = 0; off = 0; limit = 12;
+  deep = null; searchGen++; cur = 0; off = 0; limit = PAGE;
   draw(); ensureDetail();
 }
 
@@ -646,33 +650,64 @@ function tabBar() {
   return lines;
 }
 
+const COL_GAP = 2;   // columns between the two prompt columns
+const MIN_COL = 24;  // below this a column is too cramped to read, so the pair stays stacked
+/** One row of the first/last pair; the left cell is padded so the right column always starts
+ *  at the same screen column. */
+function twoCol(left, right, colw) {
+  if (!right) return left;
+  const vis = stripAnsi(left).length;
+  const padded = vis >= colw ? clipLine(left, colw) : left + ' '.repeat(colw - vis);
+  return padded + ' '.repeat(COL_GAP) + clipLine(right, colw);
+}
+
 function preview(it, width, replyMax = 6) {
   if (!it) return [];
   const w = Math.min(width, out.columns || 80);
   const rule = D + '─'.repeat(w) + R;
   const kind = it.custom ? `${YE}named${R}` : it.ai ? `${D}auto-named${R}` : `${D}unnamed${R}`;
   const lines = [rule];
-  lines.push(`${CY}${safeText(it.name)}${R}  ${kind}`);
   const prompts = it._loaded ? ` · ${it.count} prompt${it.count === 1 ? '' : 's'}` : ''; // count needs the lazy read
-  lines.push(`${D}${safeText(it.project)} · ${ago(it.mtime)} ago${prompts} · ${sizeFmt(it.size)}${it.branch ? ' · ' + safeText(it.branch) : ''}${R}`);
+  // Title and provenance on one line: they are one fact about the session, and the row they used
+  // to cost is worth more to the reply below.
+  lines.push(`${CY}${safeText(it.name)}${R}  ${kind}${D} · ${safeText(it.project)} · ${ago(it.mtime)} ago${prompts} · ${sizeFmt(it.size)}${it.branch ? ' · ' + safeText(it.branch) : ''}${R}`);
   if (it.open) lines.push(`${YE}▸ pick up${R}${D} · ${it.openWhy || 'unfinished'}${R}`);
   if (isArchived(it)) lines.push(`${D}🗄 archived · hidden from other tabs · ^a to unarchive${R}`);
   if (deep) lines.push(`${YE}✓ contains "${safeText(deep.query)}"${R}`);
   const rel = (iso) => iso ? ` [${ago(new Date(iso).getTime())}]` : '';
   const quote = (l) => `${D}│${R} ${l}`; // blockquote gutter marks rendered-markdown blocks apart from plain prompts
   if (it.recap) { // the recap is newer, shorter and says whose move it is — prefer it
-    lines.push(`${V}recap${R}${D}${it.recapTs ? ` · ${ts(it.recapTs).trim()}${rel(it.recapTs)}` : ''}${R}`);
-    mdLines(it.recap, w - 2).slice(0, 4).forEach((l) => lines.push(quote(l)));
+    // Styled the way Claude Code renders a recap — ※ marker, italic body, no quote gutter — so it
+    // reads as Claude summarising itself rather than as another block of reply.
+    lines.push(`${V}※ ${B}recap${R}${D}${it.recapTs ? ` · ${ts(it.recapTs).trim()}${rel(it.recapTs)}` : ''}${R}`);
+    // Inline markdown emits its own resets, which would end the italic mid-line; re-open it after
+    // each one so the whole body stays slanted.
+    mdLines(it.recap, w - 2).slice(0, 4)
+      .forEach((l) => lines.push(`  ${I}${l.split(R).join(R + I)}${R}`));
   } else if (it.summary) {
     lines.push(`${D}summary${it.summaryTs ? ` · ${ts(it.summaryTs).trim()}${rel(it.summaryTs)}` : ''}${R}`);
     mdLines(it.summary, w - 2).slice(0, 4).forEach((l) => lines.push(quote(l)));
   }
-  lines.push(`${D}first · ${ts(it.firstTs).trim()}${rel(it.firstTs)}${R}`);
-  wrap(it.first, w, 2).forEach((l) => lines.push(l));
-  if (!it._loaded) lines.push(`${D}…${R}`); // detail (last/reply/summary) still loading
-  if (it.count > 1) {
-    lines.push(`${D}last · ${ts(it.lastTs).trim()}${rel(it.lastTs)}${R}`);
-    wrap(it.last, w, 2).forEach((l) => lines.push(l));
+  // First and last prompt side by side: they are the two ends of the same thread, and reading
+  // "what I asked" against "where it got to" is the whole point of the pair. Stacked, they were
+  // four rows and you had to hold the first one in your head.
+  const firstHead = `first · ${ts(it.firstTs).trim()}${rel(it.firstTs)}`;
+  const lastHead = it.count > 1 ? `last · ${ts(it.lastTs).trim()}${rel(it.lastTs)}` : null;
+  if (lastHead && w >= 2 * MIN_COL + COL_GAP) {
+    const colw = Math.floor((w - COL_GAP) / 2);
+    const left = wrap(it.first, colw, 2), right = wrap(it.last, colw, 2);
+    lines.push(`${D}${twoCol(firstHead, lastHead, colw)}${R}`);
+    for (let i = 0; i < Math.max(left.length, right.length); i++) {
+      lines.push(twoCol(left[i] || '', right[i] || '', colw));
+    }
+  } else {
+    lines.push(`${D}${firstHead}${R}`);
+    wrap(it.first, w, 2).forEach((l) => lines.push(l));
+    if (!it._loaded) lines.push(`${D}…${R}`); // detail (last/reply/summary) still loading
+    if (lastHead) {
+      lines.push(`${D}${lastHead}${R}`);
+      wrap(it.last, w, 2).forEach((l) => lines.push(l));
+    }
   }
   if (it.reply && replyMax > 0) { // Claude's last response — where the session ended up
     lines.push(`${V}reply${R}${D} · ${ts(it.replyTs).trim()}${rel(it.replyTs)}${R}`);
@@ -859,7 +894,7 @@ process.stdin.on('keypress', (str, key) => {
   else if (help) { help = false; draw(); }        // any key closes the help overlay (^c handled above)
   else if (str === '?') { help = true; draw(); }  // open help (before the type-to-filter catch-all)
   else if (key.name === 'escape') {
-    if (deep) { deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); } // first esc clears content search
+    if (deep) { deep = null; searchGen++; cur = 0; off = 0; limit = PAGE; draw(); ensureDetail(); } // first esc clears content search
     else { clearInterval(timer); out.write(CLR); process.exit(0); }  // second esc quits
   }
   else if (key.ctrl && key.name === 'f') {                     // run content search on current query (async)
@@ -875,7 +910,7 @@ process.stdin.on('keypress', (str, key) => {
         items = matched;
         projects = tabsFor(items);
         pIdx = 0;
-        cur = 0; off = 0; limit = 12; draw(); ensureDetail();
+        cur = 0; off = 0; limit = PAGE; draw(); ensureDetail();
       });
     }
   }
@@ -893,9 +928,9 @@ process.stdin.on('keypress', (str, key) => {
   }
   else if (key.name === 'tab' || (key.ctrl && key.name === 'e')) { expand = !expand; draw(); } // expand/collapse the reply
   else if (key.name === 'up') { cur = Math.max(0, cur - 1); draw(); ensureDetail(); }
-  else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += 12; } draw(); ensureDetail(); } // reveal more
-  else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
-  else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (key.name === 'down') { if (cur < list.length - 1) { cur++; if (cur >= limit) limit += PAGE; } draw(); ensureDetail(); } // reveal more
+  else if (key.name === 'left') { pIdx = (pIdx - 1 + projects.length) % projects.length; cur = 0; off = 0; limit = PAGE; draw(); ensureDetail(); }
+  else if (key.name === 'right') { pIdx = (pIdx + 1) % projects.length; cur = 0; off = 0; limit = PAGE; draw(); ensureDetail(); }
   // ⌥⌫ arrives as meta+backspace and ^w does the same job; ⌘⌫ sends ^u in every terminal that
   // binds it (Ghostty ships `super+backspace=text:\x15`) and clears the query outright.
   else if ((key.meta && key.name === 'backspace') || (key.ctrl && key.name === 'w')) { q = q.slice(0, dropWord(q)); requery(); }
@@ -914,5 +949,5 @@ process.stdin.on('keypress', (str, key) => {
   else if (key.ctrl && key.name === 'o') { // force resume in THIS window, even under Ghostty
     const p = list[cur]; if (p) resumeInPlace(p);
   }
-  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; searchGen++; cur = 0; off = 0; limit = 12; draw(); ensureDetail(); }
+  else if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { q += str; deep = null; searchGen++; cur = 0; off = 0; limit = PAGE; draw(); ensureDetail(); }
 });

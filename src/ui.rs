@@ -44,7 +44,9 @@ const FLASH: Duration = Duration::from_secs(5);
 const MIN_LIST: usize = 3;
 /// Rows the preview keeps whatever the list wants, so ↓ can never squeeze it to nothing.
 const MIN_PREVIEW: usize = 8;
-const PAGE: usize = 12;
+/// Rows of list before "↓ more". Small on purpose: the preview is the reason you are looking at
+/// the list at all, and 23 titles you have to scan is not more useful than 6 plus a count.
+const PAGE: usize = 6;
 
 fn dim() -> Style {
     Style::default().fg(theme::DIM)
@@ -507,7 +509,7 @@ fn handle_key(
                     app.confirm.as_deref() == Some(id.as_str()),
                 ) {
                     let live = running.expect("GoToRunning implies a live process");
-                    if resume::focus_window_titled(&name) {
+                    if focus_enabled() && resume::focus_window_titled(&name) {
                         let short: String = name.chars().take(40).collect();
                         app.say(format!("↗ focused \"{short}\" — already running"));
                     } else {
@@ -559,6 +561,21 @@ fn drop_word(q: &str) -> usize {
         Some(i) => i + trimmed[i..].chars().next().map_or(1, char::len_utf8),
         None => 0,
     }
+}
+
+/// Whether ↵ may try to raise the running session's window.
+///
+/// Off by default, because raising cannot be made to land. Measured on Ghostty: `AXRaise` alone
+/// puts the target at z-position 2 — never 1, since slot 1 is the key window and under Ghostty
+/// that is sessio's own, which stays running as a launcher. Adding `set frontmost to true` makes
+/// macOS promote whatever it considers the app's main window instead, so each ↵ shuffles the
+/// stack and a different unrelated window surfaces: the "it cycles through all the windows"
+/// report. Setting `AXMain` first does not change that.
+///
+/// The guard below is the part that carries the value and is always right, so that is what runs.
+/// `SESSIO_FOCUS=1` opts back in for anyone working on making the raise behave.
+fn focus_enabled() -> bool {
+    std::env::var_os("SESSIO_FOCUS").is_some_and(|v| v != "0" && !v.is_empty())
 }
 
 /// What ↵ should do for the highlighted session.
@@ -835,6 +852,7 @@ fn row_line(app: &App, it: &Item, selected: bool, cols: usize) -> Line<'static> 
     );
     let name = sanitize(it.display_name());
 
+
     let mut spans = vec![
         Span::styled(dot.to_string(), dot_style),
         Span::styled(open_marker.to_string(), Style::default().fg(theme::NAMED)),
@@ -850,165 +868,213 @@ fn row_line(app: &App, it: &Item, selected: bool, cols: usize) -> Line<'static> 
     Line::from(spans)
 }
 
+/// Where a gutter-labelled block's text starts. The label sits right-aligned in front of it, so
+/// `recap`, `first` and `reply` all line their content up on one left edge and no row is spent on
+/// a label alone.
+const GUTTER: usize = 12;
+/// Prose stops being readable long before a wide terminal runs out of room, so the measure is
+/// capped rather than filled: a 200-column window used to wrap the recap at 198 and leave the eye
+/// no way back to the start of the next line.
+const MEASURE: usize = 90;
+/// Below this a gutter column has no room left for words.
+const MIN_PROSE: usize = 28;
+
 fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'static>> {
     let w = width.max(1);
     let mut lines: Vec<Line> = vec![Line::from(Span::styled("─".repeat(w), dim()))];
 
-    let kind = if it.custom.is_some() {
-        Span::styled("named", Style::default().fg(theme::NAMED))
-    } else if it.ai.is_some() {
-        Span::styled("auto-named", dim())
-    } else {
-        Span::styled("unnamed", dim())
-    };
-    lines.push(Line::from(vec![
-        Span::styled(sanitize(it.display_name()), Style::default().fg(theme::ACCENT)),
-        Span::raw("  "),
-        kind,
-    ]));
+    // The title owns its line, with the one fact that is not about the past — whether it is
+    // running right now — pushed to the far edge where it cannot be mistaken for metadata.
+    let title = sanitize(it.display_name());
+    let mut head = vec![Span::styled(title.clone(), Style::default().fg(theme::ACCENT))];
+    if let Some(live) = app.live.get(&it.id) {
+        let right = format!("◉ running · {}", running_where(live));
+        let used = UnicodeWidthStr::width(title.as_str()) + UnicodeWidthStr::width(right.as_str());
+        if used + 2 <= w {
+            head.push(Span::raw(" ".repeat(w - used)));
+            head.push(Span::styled("◉ running", Style::default().fg(theme::ACTIVE)));
+            head.push(Span::styled(format!(" · {}", running_where(live)), dim()));
+        }
+    }
+    lines.push(Line::from(head));
 
+    // Where it is, in one quiet line: the locators lead, and how the title was come by trails,
+    // because it is the least actionable thing here. The age lives on the list row already.
+    let kind = if it.custom.is_some() {
+        "named"
+    } else if it.ai.is_some() {
+        "auto-named"
+    } else {
+        "unnamed"
+    };
     let prompts = match it.prompt_count() {
         Some(c) => format!(" · {c} prompt{}", if c == 1 { "" } else { "s" }),
         None => String::new(),
     };
-    lines.push(Line::from(Span::styled(
-        format!(
-            "{} · {} ago{prompts} · {}{}",
-            sanitize(&it.project),
-            ago(it.mtime),
-            size_fmt(it.size),
-            it.branch.as_deref().map(|b| format!(" · {}", sanitize(b))).unwrap_or_default()
-        ),
-        dim(),
-    )));
+    let facts = format!(
+        "{}{}{prompts} · {} · {kind}",
+        sanitize(&it.project),
+        it.branch.as_deref().map(|b| format!(" · {}", sanitize(b))).unwrap_or_default(),
+        size_fmt(it.size),
+    );
+    lines.push(Line::from(vec![Span::raw("   "), Span::styled(facts, dim())]));
 
     if it.open {
         lines.push(Line::from(vec![
+            Span::raw("   "),
             Span::styled("▸ pick up", Style::default().fg(theme::NAMED)),
-            Span::styled(
-                format!(" · {}", it.open_why().unwrap_or("unfinished")),
-                dim(),
-            ),
+            Span::styled(format!(" · {}", it.open_why().unwrap_or("unfinished")), dim()),
         ]));
     }
     if app.archived(it) {
-        lines.push(Line::from(Span::styled(
-            "🗄 archived · hidden from other tabs · ^a to unarchive",
-            dim(),
-        )));
-    }
-    if let Some(d) = &app.deep {
-        lines.push(Line::from(Span::styled(
-            format!("✓ contains \"{}\"", sanitize(&d.query)),
-            Style::default().fg(theme::NAMED),
-        )));
-    }
-
-    if let Some(live) = app.live.get(&it.id) {
-        let where_ = if live.tty.is_empty() {
-            format!("pid {}", live.pid)
-        } else {
-            format!("pid {} · {}", live.pid, live.tty)
-        };
         lines.push(Line::from(vec![
-            Span::styled("◉ running", Style::default().fg(theme::ACTIVE)),
-            Span::styled(format!(" · {where_} · ↵ goes to it"), dim()),
+            Span::raw("   "),
+            Span::styled("🗄 archived · hidden from other tabs · ^a to unarchive", dim()),
         ]));
     }
+    if let Some(d) = &app.deep {
+        lines.push(Line::from(vec![
+            Span::raw("   "),
+            Span::styled(
+                format!("✓ contains \"{}\"", sanitize(&d.query)),
+                Style::default().fg(theme::NAMED),
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
 
     let detail = it.detail.as_ref();
 
     // The recap is newer, shorter and says whose move it is — prefer it over the compact
     // summary. The full read supersedes the tail read once it lands.
-    let recap = detail
-        .and_then(|d| d.recap.as_deref())
-        .or(it.recap.as_deref());
-    let recap_ts = detail
-        .and_then(|d| d.recap_ts.as_deref())
-        .or(it.recap_ts.as_deref());
+    let recap = detail.and_then(|d| d.recap.as_deref()).or(it.recap.as_deref());
+    let recap_ts = detail.and_then(|d| d.recap_ts.as_deref()).or(it.recap_ts.as_deref());
 
+    // Two columns once there is room for two readable ones. The recap and the thread answer
+    // different questions — where it got to, and what was actually said — so side by side you
+    // read one against the other instead of scrolling one out of view to reach the other.
+    let (two, colw, prose) = columns(w);
+
+    let mut recap_block: Vec<Line> = Vec::new();
     if let Some(recap) = recap {
-        let mark = recap_ts
-            .map(|t| format!(" · {}{}", stamp(t), rel(t)))
-            .unwrap_or_default();
-        let mut spans = vec![Span::styled("recap", Style::default().fg(theme::REPLY))];
-        if !mark.is_empty() {
-            spans.push(Span::styled(mark, dim()));
-        }
-        lines.push(Line::from(spans));
-        for l in md_lines(recap, w.saturating_sub(2)).into_iter().take(4) {
-            lines.push(quote(l));
-        }
+        let body: Vec<Line> = md_lines(recap, prose).into_iter().take(6).map(italic).collect();
+        recap_block = gutter_block(
+            &format!("recap {}", recap_ts.map(since).unwrap_or_default()),
+            Style::default().fg(theme::REPLY).add_modifier(Modifier::BOLD),
+            body,
+        );
     } else if let Some(summary) = detail.and_then(|d| d.summary.as_ref()) {
-        let stamp = detail
-            .and_then(|d| d.summary_ts.as_deref())
-            .map(|t| format!(" · {}{}", stamp(t), rel(t)))
-            .unwrap_or_default();
-        lines.push(Line::from(Span::styled(format!("summary{stamp}"), dim())));
-        for l in md_lines(summary, w.saturating_sub(2)).into_iter().take(4) {
-            lines.push(quote(l));
-        }
+        let body: Vec<Line> = md_lines(summary, prose).into_iter().take(6).map(italic).collect();
+        let ts = detail.and_then(|d| d.summary_ts.as_deref()).map(since).unwrap_or_default();
+        recap_block = gutter_block(&format!("summary {ts}"), dim(), body);
     }
 
-    lines.push(Line::from(Span::styled(
-        format!(
-            "first · {}{}",
-            it.first_ts.as_deref().map(stamp).unwrap_or_default(),
-            it.first_ts.as_deref().map(rel).unwrap_or_default()
-        ),
+    let mut thread: Vec<Line> = Vec::new();
+    thread.extend(gutter_block(
+        &format!("first {}", it.first_ts.as_deref().map(since).unwrap_or_default()),
         dim(),
-    )));
-    for l in wrap_plain(it.first.as_deref().unwrap_or(""), w, 2) {
-        lines.push(Line::from(l));
+        wrap_plain(it.first.as_deref().unwrap_or(""), prose, 2)
+            .into_iter()
+            .map(Line::from)
+            .collect(),
+    ));
+    if let Some(d) = detail.filter(|d| d.count > 1) {
+        thread.extend(gutter_block(
+            &format!("last {}", d.last_ts.as_deref().map(since).unwrap_or_default()),
+            dim(),
+            wrap_plain(d.last.as_deref().unwrap_or(""), prose, 2)
+                .into_iter()
+                .map(Line::from)
+                .collect(),
+        ));
     }
-
     if detail.is_none() {
-        lines.push(Line::from(Span::styled("…", dim()))); // detail still loading
+        thread.push(Line::from(Span::styled("…", dim()))); // detail still loading
     }
-
     if let Some(d) = detail {
-        if d.count > 1 {
-            let stamp_s = d
-                .last_ts
-                .as_deref()
-                .map(|t| format!("{}{}", stamp(t), rel(t)))
-                .unwrap_or_default();
-            lines.push(Line::from(Span::styled(format!("last · {stamp_s}"), dim())));
-            for l in wrap_plain(d.last.as_deref().unwrap_or(""), w, 2) {
-                lines.push(Line::from(l));
-            }
-        }
         if let Some(reply) = &d.reply {
             if reply_max > 0 {
-                let stamp_s = d
-                    .reply_ts
-                    .as_deref()
-                    .map(|t| format!("{}{}", stamp(t), rel(t)))
-                    .unwrap_or_default();
-                lines.push(Line::from(vec![
-                    Span::styled("reply", Style::default().fg(theme::REPLY)),
-                    Span::styled(format!(" · {stamp_s}"), dim()),
-                ]));
-                let rl = md_lines(reply, w.saturating_sub(2));
+                let rl = md_lines(reply, prose);
                 let total = rl.len();
-                for l in rl.into_iter().take(reply_max) {
-                    lines.push(quote(l));
-                }
+                let mut body: Vec<Line> = rl.into_iter().take(reply_max).collect();
                 if total > reply_max {
-                    lines.push(quote(Line::from(Span::styled("… ⇥ for full", dim()))));
+                    body.push(Line::from(Span::styled("… ⇥ for full", dim())));
                 }
+                thread.extend(gutter_block(
+                    &format!("reply {}", d.reply_ts.as_deref().map(since).unwrap_or_default()),
+                    Style::default().fg(theme::REPLY),
+                    body,
+                ));
             }
         }
+    }
+
+    if two && !recap_block.is_empty() {
+        lines.extend(join_cols(recap_block, thread, colw));
+    } else {
+        lines.extend(recap_block);
+        lines.extend(thread);
     }
     lines
 }
 
-/// Blockquote gutter, marking rendered markdown apart from plain prompt text.
-fn quote(l: Line<'static>) -> Line<'static> {
-    let mut spans = vec![Span::styled("│", dim()), Span::raw(" ")];
-    spans.extend(l.spans);
-    Line::from(spans)
+/// How the preview divides a terminal: room for two columns, how wide one is, and how much of
+/// that is prose. Capped both ways, so a wider window buys air rather than longer lines.
+fn columns(w: usize) -> (bool, usize, usize) {
+    let two = w >= 2 * (GUTTER + MIN_PROSE) + COL_GAP;
+    let colw =
+        if two { ((w - COL_GAP) / 2).min(GUTTER + MEASURE) } else { w.min(GUTTER + MEASURE) };
+    (two, colw, colw.saturating_sub(GUTTER).max(1))
 }
+
+/// A labelled block: the label right-aligned in the gutter beside the first row, every row after
+/// it starting at the same column.
+fn gutter_block(label: &str, style: Style, body: Vec<Line<'static>>) -> Vec<Line<'static>> {
+    body.into_iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let mut spans = if i == 0 {
+                vec![Span::styled(fit_right(label, GUTTER - 2), style), Span::raw("  ")]
+            } else {
+                vec![Span::raw(" ".repeat(GUTTER))]
+            };
+            spans.extend(l.spans);
+            Line::from(spans)
+        })
+        .collect()
+}
+
+/// Right-align inside `w`, dropping from the left when it does not fit.
+fn fit_right(s: &str, w: usize) -> String {
+    let used = UnicodeWidthStr::width(s);
+    if used >= w {
+        return fit_width(s, w).trim_end().to_string();
+    }
+    format!("{}{}", " ".repeat(w - used), s)
+}
+
+fn spans_width(spans: &[Span]) -> usize {
+    spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum()
+}
+
+/// Two already-wrapped blocks side by side, the left padded so the right starts at one column on
+/// every row.
+fn join_cols(left: Vec<Line<'static>>, right: Vec<Line<'static>>, colw: usize) -> Vec<Line<'static>> {
+    (0..left.len().max(right.len()))
+        .map(|i| {
+            let mut spans = left.get(i).map(|l| l.spans.clone()).unwrap_or_default();
+            if let Some(r) = right.get(i) {
+                let pad = colw.saturating_sub(spans_width(&spans)) + COL_GAP;
+                spans.push(Span::raw(" ".repeat(pad)));
+                spans.extend(r.spans.clone());
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
+
+
+
 
 fn help_lines() -> Vec<Line<'static>> {
     let key = Style::default().fg(theme::ACCENT);
@@ -1033,7 +1099,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^u ⌘⌫", key), Span::raw("  clear the whole query")]),
         Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
-        Line::from(vec![Span::styled("↵", key), Span::raw("      resume — or go to it if ◉ (Ghostty: new window, sessio stays open)")]),
+        Line::from(vec![Span::styled("↵", key), Span::raw("      resume (◉ = already running: ↵ says where, ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in this window (replaces sessio)")]),
         Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
         Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
@@ -1078,23 +1144,29 @@ fn size_fmt(b: u64) -> String {
     }
 }
 
-/// `12 Aug 09:31` in local time.
-fn stamp(iso: &str) -> String {
-    use chrono::{DateTime, Local};
-    match iso.parse::<DateTime<chrono::Utc>>() {
-        Ok(t) => t.with_timezone(&Local).format("%-d %b %H:%M").to_string(),
-        Err(_) => String::new(),
-    }
+
+/// How long ago an ISO timestamp was, in the units the list uses: `22m`, `3h`, `2d`.
+///
+/// One time format for the whole preview. It used to carry three — `1m ago` in the head,
+/// `20 Aug 18:07 [22m]` on the recap, `20 Aug 17:02 [1h]` on the prompts — all dim, all competing,
+/// all saying the same kind of thing.
+fn since(iso: &str) -> String {
+    crate::parse::parse_iso_ms(iso).map(ago).unwrap_or_default()
 }
 
-/// The bracketed relative age beside an absolute timestamp: ` [5m]`.
-/// The JS prints no "ago" here — the word appears only in the metadata line.
-fn rel(iso: &str) -> String {
-    match crate::parse::parse_iso_ms(iso) {
-        Some(ms) => format!(" [{}]", ago(ms)),
-        None => String::new(),
-    }
+/// A recap body line: italic, the way Claude Code prints one. The gutter supplies the indent.
+fn italic(l: Line<'static>) -> Line<'static> {
+    Line::from(
+        l.spans
+            .into_iter()
+            .map(|sp| Span::styled(sp.content, sp.style.add_modifier(Modifier::ITALIC)))
+            .collect::<Vec<_>>(),
+    )
 }
+
+
+/// Columns between the two prompt columns.
+const COL_GAP: usize = 2;
 
 fn fit_width(s: &str, w: usize) -> String {
     let mut out = String::new();
@@ -1217,6 +1289,80 @@ mod tests {
             let w = UnicodeWidthStr::width(rendered(cols).as_str());
             assert!(w <= cols, "{cols} cols rendered {w}");
         }
+    }
+
+    #[test]
+    fn a_recap_body_is_italic_throughout() {
+        let l = italic(Line::from(vec![
+            Span::raw("plain "),
+            Span::styled("code", Style::default().fg(theme::CODE)),
+        ]));
+        for sp in l.spans.iter() {
+            assert!(
+                sp.style.add_modifier.contains(Modifier::ITALIC),
+                "every span stays italic, including pre-styled ones: {sp:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_wider_terminal_buys_air_not_longer_lines() {
+        // The bug this pins: prose was wrapped at the full width, so a 200-column window rendered
+        // a 198-character measure and the eye lost its way back to the next line. Past the cap,
+        // extra width goes to the second column and then to margin.
+        for w in [40usize, 80, 120, 200, 400, 1000] {
+            let (_, colw, prose) = columns(w);
+            assert!(prose <= MEASURE, "{w} cols gave a {prose}-wide measure");
+            assert!(colw <= w, "{w} cols gave a {colw}-wide column");
+        }
+
+        let (two, _, narrow) = columns(80);
+        assert!(!two, "80 columns has room for one readable column, not two");
+        assert!(narrow > 20, "a single column still has to hold words: {narrow}");
+
+        let (two, colw, _) = columns(200);
+        assert!(two, "200 columns fits two");
+        assert!(2 * colw + COL_GAP <= 200, "two columns must fit side by side");
+
+        assert_eq!(columns(1000).2, MEASURE, "capped, however wide the window");
+    }
+
+    #[test]
+    fn a_block_spends_no_row_on_its_label() {
+        let body = vec![Line::from(Span::raw("one")), Line::from(Span::raw("two"))];
+        let out = gutter_block("recap 22m", dim(), body);
+
+        assert_eq!(out.len(), 2, "the label rides the first row rather than taking its own");
+        assert!(out[0].spans[0].content.ends_with("recap 22m"), "label in the gutter");
+        assert_eq!(
+            spans_width(&out[0].spans[..2]),
+            GUTTER,
+            "content starts at the gutter column"
+        );
+        assert_eq!(out[1].spans[0].content, " ".repeat(GUTTER), "and stays there");
+    }
+
+    #[test]
+    fn the_right_column_starts_at_one_column_on_every_row() {
+        let left = vec![Line::from(Span::raw("short")), Line::from(Span::raw("much longer line"))];
+        let right = vec![Line::from(Span::raw("a")), Line::from(Span::raw("b"))];
+        let joined = join_cols(left, right, 20);
+
+        let starts: Vec<usize> = joined
+            .iter()
+            .map(|l| {
+                let n = l.spans.len();
+                spans_width(&l.spans[..n - 1])
+            })
+            .collect();
+        assert_eq!(starts[0], starts[1], "ragged left content must not shift the right column");
+    }
+
+    #[test]
+    fn one_time_format_for_the_whole_preview() {
+        // Three formats used to sit within four lines of each other. `since` is the only one now.
+        assert_eq!(since("not a timestamp"), "");
+        assert!(!since("2026-08-20T18:07:00.000Z").contains('['), "no bracketed second format");
     }
 
     #[test]
