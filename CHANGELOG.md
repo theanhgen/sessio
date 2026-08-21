@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.0-alpha.9 - 2026-08-21
+
+- **Corrects what alpha.7 and alpha.8 claimed about `↵` on a running session.** The README and the
+  website said sessio raises that session's window, and walks the splits when the window is showing
+  a different one. It does not: the raise is off unless `SESSIO_FOCUS=1` is set, so what actually
+  happens is the guard — sessio names the pid and tty and makes the duplicate an explicit second
+  `↵`. The docs described the intent; this describes the behaviour.
+- Turned the raise off by default, because it cannot be made to land. Measured on Ghostty by
+  reading window z-order before and after: `AXRaise` alone puts the target at position 2 and never
+  1, since position 1 is the key window and under Ghostty that is sessio's own, which stays running
+  as a launcher. Adding `set frontmost to true` makes macOS promote whatever *it* considers the
+  app's main window — neither the target nor the previous front — so every press reshuffles the
+  stack and a different unrelated window comes forward. Setting `AXMain` first does not override
+  it. That reshuffling was the "it cycles through all the windows" report. `SESSIO_FOCUS=1` opts
+  back in for anyone working on the mechanism; the split walk from alpha.7 rides on the same gate.
+- Dropped the claim that `↵` opens a new window under Ghostty. `ghostty +new-window` answers
+  `+new-window is not supported on this platform` on macOS, so that path has never run there and
+  `↵` has always handed over the current window. The claim predates the Rust port.
+
 ## 1.0.0-alpha.8 - 2026-08-20
 
 - Rebuilt the preview around a label gutter. `recap`, `first`, `last` and `reply` used to spend a
