@@ -1186,15 +1186,41 @@ fn fit_width(s: &str, w: usize) -> String {
 /// Plain-text word wrap with an ellipsis when it overflows `max_lines`.
 /// Port of `wrap()` at bin/sessio.mjs:197.
 fn wrap_plain(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+    // A budget of zero still buys one line: the tail below has always guaranteed one, and the
+    // call sites render whatever comes back. It also keeps `max_lines - 1` in range.
+    let max_lines = max_lines.max(1);
     let clean = sanitize(text);
     let words: Vec<&str> = clean.split_whitespace().collect();
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
-    for w in &words {
+    // Whether anything was left behind, tracked as it happens. Inferring it afterwards by
+    // comparing the input against the joined output cannot be made exact: a hard-split word makes
+    // the output longer than the text it came from, in bytes and in display width alike.
+    let mut cleared = false;
+    let mut consumed = 0;
+    for (i, w) in words.iter().enumerate() {
+        consumed = i + 1;
         let cand = if cur.is_empty() { w.to_string() } else { format!("{cur} {w}") };
         if UnicodeWidthStr::width(cand.as_str()) > width {
-            lines.push(std::mem::take(&mut cur));
+            // Only break a line that has something on it — an empty `cur` here means the word
+            // alone overruns the measure, and pushing it would spend a line on a blank.
+            if !cur.is_empty() {
+                lines.push(std::mem::take(&mut cur));
+            }
             cur = w.to_string();
+            // A word with no break in it — a URL, a path, a base64 blob — has nowhere to wrap,
+            // so cut it at the measure. Whole, it reaches `Line::from` unclipped and spills
+            // across the label gutter.
+            while lines.len() < max_lines && UnicodeWidthStr::width(cur.as_str()) > width {
+                let head = fit_width(&cur, width).trim_end().to_string();
+                if head.is_empty() {
+                    cur.clear(); // the measure holds no glyph of it at all
+                    cleared = true;
+                    break;
+                }
+                cur = cur[head.len()..].to_string();
+                lines.push(head);
+            }
         } else {
             cur = cand;
         }
@@ -1203,10 +1229,12 @@ fn wrap_plain(text: &str, width: usize, max_lines: usize) -> Vec<String> {
         }
     }
     if !cur.is_empty() && lines.len() < max_lines {
-        lines.push(cur);
+        lines.push(std::mem::take(&mut cur));
     }
-    let full = words.join(" ");
-    if lines.len() == max_lines && full.len() > lines.join(" ").len() {
+    // `cur` still holding text here means the budget ran out before it could be pushed. The
+    // width guard is for the zero-width measure, which has no room for the ellipsis itself.
+    let dropped = cleared || !cur.is_empty() || consumed < words.len();
+    if width > 0 && lines.len() == max_lines && dropped {
         let last = lines[max_lines - 1].clone();
         lines[max_lines - 1] = format!("{}…", fit_width(&last, width.saturating_sub(1)).trim_end());
     }
@@ -1241,6 +1269,61 @@ mod tests {
     #[test]
     fn wrap_plain_of_empty_text_is_one_blank_line() {
         assert_eq!(wrap_plain("", 20, 2), vec![String::new()]);
+    }
+
+    /// #5: a prompt that is one unbroken token — a URL, a path, a base64 blob. It used to come
+    /// back as a blank line plus the whole 78-column token, which spills across the gutter.
+    #[test]
+    fn wrap_plain_hard_splits_a_lone_oversized_token() {
+        let url = "https://github.com/theanhgen/sessio/blob/main/src/ui.rs#L1188-verylongfragment";
+        let out = wrap_plain(url, 10, 2);
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert!(!out[0].is_empty(), "no line may be spent on a blank: {out:?}");
+        for l in &out {
+            assert!(UnicodeWidthStr::width(l.as_str()) <= 10, "{l:?}");
+        }
+        assert!(out[1].ends_with('…'), "overflow must be marked: {:?}", out[1]);
+    }
+
+    /// The shape that hid #5: with a word after it, the ellipsis path already fired.
+    #[test]
+    fn wrap_plain_still_clips_an_oversized_token_between_words() {
+        let out = wrap_plain("short averyveryverylongtokenindeed tail", 10, 2);
+        assert_eq!(out, vec!["short", "averyvery…"]);
+    }
+
+    /// #6: `lines[max_lines - 1]` underflowed. The tail has always guaranteed a line, so a
+    /// budget of zero still yields one.
+    #[test]
+    fn wrap_plain_with_no_line_budget_yields_one_line() {
+        let out = wrap_plain("anything at all", 10, 0);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(UnicodeWidthStr::width(out[0].as_str()) <= 10, "{out:?}");
+    }
+
+    #[test]
+    fn wrap_plain_splits_wide_glyphs_on_display_width() {
+        for text in ["日本語日本語日本語日本語", "🎉🎉🎉🎉🎉🎉🎉🎉"] {
+            let out = wrap_plain(text, 7, 2);
+            assert!(out.len() <= 2, "{out:?}");
+            for l in &out {
+                assert!(UnicodeWidthStr::width(l.as_str()) <= 7, "{l:?}");
+            }
+        }
+    }
+
+    /// Hard-splitting a word inserts separators the original never had, so the joined output can
+    /// be as wide as the text it came from while still having lost the tail. Comparing the two —
+    /// in bytes or in display width — cannot see that; only tracking the loss can.
+    #[test]
+    fn wrap_plain_marks_a_loss_the_joined_width_cannot_see() {
+        // "abc def ghi" is exactly as wide as "abcdefghijk", yet "jk" is gone.
+        assert_eq!(wrap_plain("abcdefghijk", 3, 3), vec!["abc", "def", "gh…"]);
+    }
+
+    #[test]
+    fn wrap_plain_at_zero_width_is_one_blank_line() {
+        assert_eq!(wrap_plain("anything at all", 0, 2), vec![String::new()]);
     }
 
     #[test]
