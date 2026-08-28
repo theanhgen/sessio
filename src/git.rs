@@ -102,6 +102,18 @@ fn run_status(cwd: &str) -> bool {
         return false;
     };
 
+    // Drain the pipe while waiting, not after: a working tree dirty enough to fill the OS pipe
+    // buffer blocks `git` on write, so a child polled with nobody reading never exits and every
+    // such repo would time out and read as clean.
+    let mut stdout = child.stdout.take();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut out = String::new();
+        let read = stdout.as_mut().and_then(|s| s.read_to_string(&mut out).ok());
+        let _ = tx.send(read.map(|_| out));
+    });
+
     let deadline = Instant::now() + TIMEOUT;
     loop {
         match child.try_wait() {
@@ -114,6 +126,8 @@ fn run_status(cwd: &str) -> bool {
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
+                // Not joined: killing the child closes the pipe and the reader ends on its own,
+                // and TIMEOUT must bound this call whatever the reader is doing.
                 return false;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
@@ -121,10 +135,12 @@ fn run_status(cwd: &str) -> bool {
         }
     }
 
-    use std::io::Read;
-    let mut out = String::new();
-    match child.stdout.as_mut().map(|s| s.read_to_string(&mut out)) {
-        Some(Ok(_)) => !out.trim().is_empty(),
+    // Collected on the same deadline as the wait, never joined. The child exiting does not by
+    // itself close the write end — a grandchild that inherited the descriptor holds it open, and
+    // read_to_string waits for EOF, not for the child. `git status` is not known to leave one
+    // behind, but TIMEOUT is the promise this function makes and nothing here may outlast it.
+    match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(Some(out)) => !out.trim().is_empty(),
         _ => false,
     }
 }
@@ -152,6 +168,53 @@ mod tests {
             let _ = dirty(&format!("/nonexistent/sessio/bulk/{i}"));
         }
         assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    /// A fresh scratch directory, named per-test so parallel tests don't collide.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sessio-git-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir is writable");
+        dir
+    }
+
+    #[test]
+    fn output_past_the_pipe_buffer_is_still_dirty_and_never_hits_the_deadline() {
+        // Regression: stdout was only read after the child exited, so a repo whose porcelain
+        // output overflowed the pipe (16-64 KB) deadlocked, timed out, and reported clean.
+        let dir = scratch("dirty");
+        let path = dir.to_str().expect("temp path is utf-8");
+        let init = Command::new("git")
+            .args(["-C", path, "init", "-q"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        assert!(matches!(init, Ok(s) if s.success()), "git init failed");
+        // Long names rather than many files: ~250 KB of porcelain from only 1200 stats.
+        let pad = "n".repeat(200);
+        for i in 0..1200 {
+            std::fs::write(dir.join(format!("{i:04}{pad}")), b"x").expect("write scratch file");
+        }
+
+        let start = Instant::now();
+        let result = run_status(path);
+        let elapsed = start.elapsed();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(result, "a repo full of untracked files must read as dirty");
+        assert!(
+            elapsed < TIMEOUT / 2,
+            "took {elapsed:?}: still on the deadline path, not a real read"
+        );
+    }
+
+    #[test]
+    fn a_directory_outside_any_repo_is_clean() {
+        // git exits non-zero here; that must stay "clean", not an error the caller sees.
+        let dir = scratch("norepo");
+        let result = run_status(dir.to_str().expect("temp path is utf-8"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!result);
     }
 
     #[test]
