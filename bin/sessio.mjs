@@ -128,6 +128,18 @@ const writable = (p) => {
   try { fs.accessSync(p, fs.constants.W_OK); return true; } catch { return false; }
 };
 
+/**
+ * True when `child` is `parent` or lives inside it.
+ *
+ * The separators matter: a bare startsWith also matches a sibling that merely shares the textual
+ * prefix, so /usr/lib/node_modules-old/sessio read as living under /usr/lib/node_modules and
+ * `--update` would have run `npm i -g` against a checkout it does not own.
+ */
+export function isUnder(child, parent) {
+  const p = path.resolve(parent);
+  return (path.resolve(child) + path.sep).startsWith(p.endsWith(path.sep) ? p : p + path.sep);
+}
+
 function latestVersion(name, timeoutMs) {
   return new Promise((resolve) => {
     // Full packument (abbreviated form) — the /<name>/latest endpoint returns empty on npm, so
@@ -169,7 +181,7 @@ async function update() {
   const gRoot = (() => {
     try { return spawnSync('npm', ['root', '-g'], { encoding: 'utf8', timeout: 5000 }).stdout.trim(); } catch { return ''; }
   })();
-  if (!gRoot || !path.resolve(PKG_ROOT).startsWith(path.resolve(gRoot))) {
+  if (!gRoot || !isUnder(PKG_ROOT, gRoot)) {
     process.stdout.write(`sessio ${latest} available (you have ${cur}) — run: npm i -g ${pkg.name}\n`);
     return;
   }
