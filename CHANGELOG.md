@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.0-alpha.10 - 2026-08-28
+
+- **A repository too dirty to fit in a pipe was reported clean.** `git status --porcelain` was
+  spawned with a piped stdout that nothing read until the child had exited — so once the output
+  passed the OS pipe buffer (16 KB and up on macOS), git blocked on write, could never exit, and
+  the 2-second timeout classified it as clean. Measured: 12,000 untracked files, 194 KB of
+  porcelain, reported clean in exactly the timeout. The repos most likely to trip it are a large
+  tree mid-refactor or a directory full of untracked build output — exactly the ones where the
+  `⏸ open` tab's "you left work here" is most true. The pipe is now drained while waiting, and the
+  result comes back on the same deadline rather than on an unbounded join.
+- **A prompt that was one unbroken token overran the preview's measure.** A URL, an absolute path
+  or a base64 blob came back as a blank line plus the whole token — 78 columns against a 10-column
+  measure — and spilled across the label gutter alpha.8 introduced. Two faults compounded: a line
+  was spent on a blank before the oversized word was taken, and the truncation guard compared byte
+  lengths, where the joined output is *longer* than the input it came from, so the ellipsis never
+  fired. With a trailing word it did fire, which is why the obvious test case passed. Such a word
+  is now hard-split at the measure, and whether anything was dropped is tracked as it happens
+  instead of inferred by comparing input against output — a comparison that cannot be made exact
+  in bytes or in display width, since hard-splitting inserts separators the original never had.
+- `wrap_plain` no longer panics on a zero line budget. Nothing reaches it — both call sites pass a
+  literal 2 — but it is the same expression as the fix above, and the helper gave no hint that 0
+  was forbidden.
+- `sessions --update` no longer mistakes a prefix-sibling of the npm root for the global install.
+  A package root of `/opt/homebrew/lib/node_modules-old/sessio` matched `…/lib/node_modules` under
+  a bare prefix test, and the command would have run `npm i -g` against a checkout it does not own.
+
 ## 1.0.0-alpha.9 - 2026-08-21
 
 - **Corrects what alpha.7 and alpha.8 claimed about `↵` on a running session.** The README and the
