@@ -909,6 +909,7 @@ fn fit_segments(segs: &[Seg], cols: usize) -> Vec<&Seg> {
 
 
 fn header(app: &App, cols: usize, panel: bool) -> Line<'static> {
+    let waiting = app.live.values().filter(|l| l.needs_you()).count();
     // The full bar is ~136 columns under Ghostty. Anything narrower would be clipped mid-word by
     // the paragraph, so drop the least essential hints instead. `? help` is p0 — it reveals
     // everything that was dropped — and the resume key is p1 because it is the whole point.
@@ -941,6 +942,15 @@ fn header(app: &App, cols: usize, panel: bool) -> Line<'static> {
         segs.push(Seg { p: 1, t: "↵ resume", accent: false });
     }
     segs.push(Seg { p: 2, t: "^r reply", accent: false });
+    // Never shed: a session waiting on you is the most urgent thing the bar can say, so it
+    // outranks every hint including `? help`.
+    if waiting > 0 {
+        segs.push(Seg {
+            p: 0,
+            t: if waiting == 1 { "◆ 1 waiting on you" } else { "◆ several waiting on you" },
+            accent: true,
+        });
+    }
     segs.push(Seg { p: 0, t: "? help", accent: false });
     segs.push(Seg { p: 2, t: "esc quit", accent: false });
     segs.push(Seg { p: 5, t: "live", accent: true });
@@ -1107,7 +1117,11 @@ fn compose_line(text: &str) -> Line<'static> {
 /// stronger claim than recency â the transcript was written recently vs. the session is *open*.
 fn dot_for(app: &App, it: &Item) -> (&'static str, Style) {
     let age = model::now_ms() - it.mtime;
-    if app.live.contains_key(&it.id) {
+    // A session waiting on you outranks every other thing a dot can say. It is the only state
+    // that is *your* move, and the only one that gets worse the longer it goes unseen.
+    if app.live.get(&it.id).is_some_and(crate::live::Live::needs_you) {
+        ("◆", Style::default().fg(theme::NAMED).add_modifier(Modifier::BOLD))
+    } else if app.live.contains_key(&it.id) {
         ("◉", Style::default().fg(theme::ACTIVE))
     } else if age < ACTIVE_MS {
         ("●", Style::default().fg(theme::ACTIVE))
@@ -2115,6 +2129,29 @@ mod tests {
         let _ = compose_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), false);
         assert!(app.sending.is_empty(), "whitespace is not a turn");
         assert!(app.draft.is_none(), "but the composer still closes");
+    }
+
+    /// A session parked on your answer outranks every other thing a dot can say.
+    #[test]
+    fn a_waiting_session_outranks_a_running_one() {
+        let mut app = fixture(&real_tabs());
+        let live = |status: &str| crate::live::Live {
+            pid: 4674,
+            tty: "ttys000".into(),
+            status: status.into(),
+            waiting_for: "input needed".into(),
+        };
+        let id = app.items[0].id.clone();
+
+        app.live.insert(id.clone(), live("busy"));
+        assert_eq!(dot_for(&app, &app.items[0]).0, "◉", "busy is just running");
+
+        app.live.insert(id.clone(), live("waiting"));
+        assert_eq!(dot_for(&app, &app.items[0]).0, "◆", "waiting gets its own mark");
+
+        // And the bar says so, at a priority nothing can shed it from.
+        let bar: String = header(&app, 60, true).spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(bar.contains("waiting on you"), "even a narrow bar says it: {bar:?}");
     }
 
     /// Eyeball it: `cargo test dump_the_dashboard -- --nocapture --ignored`.

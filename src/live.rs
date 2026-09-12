@@ -41,6 +41,17 @@ pub struct Live {
     pub waiting_for: String,
 }
 
+impl Live {
+    /// Whether this session has stopped and is waiting on a person.
+    ///
+    /// The one status worth interrupting someone for. `busy` needs nothing, `idle` needs nothing
+    /// yet, but `waiting` means a session is parked until you go and look at it — and a session
+    /// parked in a window you have forgotten is the failure this exists to catch.
+    pub fn needs_you(&self) -> bool {
+        self.status == "waiting"
+    }
+}
+
 /// Session id -> the process running it.
 pub type LiveMap = HashMap<String, Live>;
 
