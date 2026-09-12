@@ -11,15 +11,29 @@ repository = "https://github.com/theanhgen/sessio"
 name = "sessio"
 path = "src/main.rs"
 
+[lib]
+name = "sessio"
+path = "src/lib.rs"
+# rlib for the binary, cdylib for the wasm demo the site runs.
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
-# crossterm is used through ratatui's re-export so the two can never disagree on a version.
-ratatui = "0.29"
+# Only the pure parts of ratatui — Line, Span, Style — are needed to build a frame. The terminal
+# backend is a native-only concern, and crossterm does not compile for wasm at all.
+ratatui = { version = "0.29", default-features = false }
 unicode-width = "0.2"
 # local-time formatting for the preview timestamps
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
+# crossterm is used through ratatui's re-export so the two can never disagree on a version.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
 
 [profile.release]
 opt-level = 3

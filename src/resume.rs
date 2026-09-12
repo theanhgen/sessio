@@ -15,10 +15,10 @@ pub fn in_ghostty() -> bool {
 /// The command runs through a *login* shell on purpose: a GUI-launched Ghostty can have a
 /// minimal PATH, and `-e claude` would exec directly and fail to find claude/node. Homebrew et
 /// al. append to the login profile, which `-l` sources. Do not "simplify" this to a direct exec.
-pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
+/// The part both launch paths share: where to start, and what to run once there.
+fn launch_args(cwd: &Path, id: &str) -> Vec<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let args: Vec<String> = vec![
-        "+new-window".into(),
+    vec![
         format!("--working-directory={}", cwd.display()),
         "-e".into(),
         shell,
@@ -27,7 +27,46 @@ pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
         "exec claude --resume \"$1\"".into(),
         "sessio".into(), // $0 for the -c script
         id.to_string(),  // $1
-    ];
+    ]
+}
+
+/// macOS refuses `+new-window` outright — it answers "+new-window is not supported on this
+/// platform" and exits 1 — so every `↵` there fell through to handing over the current window
+/// while the key bar went on advertising a new one. Ghostty's own `--help` names the supported
+/// route: `open -na Ghostty.app --args …`.
+///
+/// `-n` is not optional. Without it macOS merely activates the running instance and drops the
+/// arguments on the floor — measured: the window comes forward and the command never runs — so a
+/// second instance is the price of a new window here.
+#[cfg(target_os = "macos")]
+fn ghostty_open_new(cwd: &Path, id: &str) -> bool {
+    for app in ["Ghostty.app", "/Applications/Ghostty.app"] {
+        let status = Command::new("open")
+            .arg("-na")
+            .arg(app)
+            .arg("--args")
+            .args(launch_args(cwd, id))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        // `open` reports only that LaunchServices accepted the launch, not that claude started —
+        // the login shell is what makes the latter likely, as on the CLI path.
+        if matches!(status, Ok(s) if s.success()) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ghostty_open_new(_cwd: &Path, _id: &str) -> bool {
+    false
+}
+
+pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
+    let mut args: Vec<String> = vec!["+new-window".into()];
+    args.extend(launch_args(cwd, id));
 
     for bin in [
         "ghostty",
@@ -57,7 +96,9 @@ pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
             }
         }
     }
-    false // ghostty CLI not found / timed out / failed → caller resumes in place
+    // The CLI could not do it — on macOS it never can. Try the route that works there before
+    // giving up and resuming in place.
+    ghostty_open_new(cwd, id)
 }
 
 /// Raise the terminal window already showing this session, so ↵ moves you to the running
@@ -178,6 +219,13 @@ pub fn focus_window_titled(_name: &str) -> bool {
 ///
 /// The caller MUST have restored the terminal (left the alternate screen, shown the cursor,
 /// disabled raw mode) before calling — after `exec` there is no code left to do it.
+/// Replacing this process with `claude` is a unix idea; wasm has no process to replace.
+#[cfg(target_arch = "wasm32")]
+pub fn resume_in_place(_cwd: Option<&Path>, _id: &str) -> std::io::Error {
+    std::io::Error::other("resume is not available in the browser")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn resume_in_place(cwd: Option<&Path>, id: &str) -> std::io::Error {
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new("claude");
