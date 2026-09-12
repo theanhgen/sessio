@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.0.0 - 2026-09-12
+
+The first stable release of the Rust rewrite, and the first version a plain `npm i -g sessio`
+installs. Every earlier 1.0 build sat on the `alpha` dist-tag while `latest` still pointed at the
+0.3 JavaScript line.
+
+- **The dashboard is a project panel and session tabs.** Projects run down the left, moved with
+  `↑↓`; the sessions in one are browser-style tabs on a single row, moved with `←→`. Each axis now
+  matches the shape of what it moves. The old horizontal strip cost `1 + however many rows it
+  wrapped to`, and that wrap moved every time the tab set changed, dragging the whole frame with
+  it. The panel appears only while the dashboard beside it still clears `BODY_MIN`; below that the
+  strip comes back, so the panel can never be the reason the preview starves. A focused tab shows
+  its whole title, the rest show two words, and the strip scrolls around the focused one rather
+  than wrapping.
+- **`^r` replies to a session without opening it.** `claude -p --resume` appends to the same
+  transcript, so the answer arrives in the preview on the next refresh and you never leave the
+  list. It refuses on a session that is already running — there is no safe way to put text into
+  the stdin of a `claude` someone is sitting in front of — and the first `^r` of a run warns that
+  this spends tokens before the second opens the composer.
+- **A session waiting on you is marked `◆`**, outranking the running `◉`, and the key bar carries
+  the count at a priority nothing can shed it from. `waiting` was already parsed from the registry
+  and then only shown to someone who tried to resume; it is the one status worth interrupting for.
+- **`↵` opens a new window on macOS.** `ghostty +new-window` answers "not supported on this
+  platform" and exits 1 there, so every `↵` fell through to handing over the current window while
+  the key bar went on advertising a new one. sessio now uses the route Ghostty's own `--help`
+  names: `open -na Ghostty.app --args …`. The `-n` is not optional — without it macOS activates
+  the running instance and silently drops the arguments.
+- **The preview is one column.** The split put the recap against the thread on the theory that you
+  would read one against the other, but there was never enough to split: the recap caps at six
+  lines and the reply runs to twenty, so the left column sat empty for most of the preview's
+  height. The prose measure now tracks the window instead of a flat 90 columns, which left a
+  181-column window three-quarters empty.
+- **Selections no longer reverse the terminal's colours.** That made every selection the same slab
+  of black — the panel and the tab strip indistinguishable, and on a light theme the heaviest
+  thing on screen. One hue now, with value carrying the hierarchy. Status glyphs keep their own
+  colour on the focused tab and take only its background; painting them in the selection's
+  foreground erased the very distinction the dot exists to draw.
+- **The website demo is sessio itself**, compiled to WebAssembly and calling the same
+  `frame_lines()` the terminal calls. The old site hand-wrote its terminal mock in HTML and it
+  drifted until it documented keys that no longer existed.
+
 ## 1.0.0-alpha.10 - 2026-08-28
 
 - **A repository too dirty to fit in a pipe was reported clean.** `git status --porcelain` was

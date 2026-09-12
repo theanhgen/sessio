@@ -1,6 +1,6 @@
 {
   "name": "sessio",
-  "version": "1.0.0-alpha.10",
+  "version": "1.0.0",
   "description": "Interactive terminal browser to find and resume past Claude Code sessions.",
   "keywords": [
     "claude",
