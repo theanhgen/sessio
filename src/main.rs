@@ -1,20 +1,7 @@
 //! sessio — find and resume past Claude Code sessions.
 
-mod cta;
-mod discover;
-mod git;
-mod live;
-mod md;
-mod model;
-mod parse;
-mod rank;
-mod resume;
-mod safety;
-mod search;
-mod store;
-mod ui;
-
-use model::Item;
+use sessio::{model, ui};
+use sessio::model::Item;
 
 /// The list row as the oracle compares it. Field names mirror the JS dump exactly.
 #[derive(serde::Serialize)]
@@ -81,8 +68,8 @@ USAGE:
   sessions --version
 
 KEYS:
-  ←/→ project · ↑/↓ move · type to filter · ^f search-in-text
-  ^a archive · ⇥ expand-reply · ↵ resume · ^o same-window · ? help · esc quit",
+  ↑/↓ project · ←/→ session · type to filter · ^f search-in-text
+  ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o same-window · ? help · esc quit",
         env!("CARGO_PKG_VERSION")
     );
 }

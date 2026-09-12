@@ -6,15 +6,24 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+
+// Everything below this line drives a terminal. The browser build keeps the dashboard and drops
+// the driver: crossterm does not compile for wasm at all, and there is nothing there to drive.
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::backend::CrosstermBackend;
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::crossterm::execute;
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::widgets::Paragraph;
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::Terminal;
 use unicode_width::UnicodeWidthStr;
 
@@ -34,6 +43,29 @@ pub mod theme {
     pub const ACTIVE: Color = Color::Green;
     pub const RECENT: Color = Color::Indexed(208);
     pub const REPLY: Color = Color::Indexed(141);
+
+    /// Selection backgrounds. Reversing the terminal's own colours made every selection the same
+    /// slab of black, so the panel and the tab strip could not be told apart at a glance — and on
+    /// a light theme it was the heaviest thing on screen.
+    ///
+    /// One hue, and value does the hierarchy: the session you are reading is plum, the project
+    /// that contains it is neutral. Two competing colours read as two things of equal weight,
+    /// which is not what they are — the panel is context, the tab is focus.
+    pub const PANEL_SEL: Color = Color::Indexed(238);
+    pub const TAB_SEL: Color = Color::Indexed(54);
+    /// Text on either of them, bright enough to read on both.
+    pub const ON_SEL: Color = Color::Indexed(255);
+}
+
+/// The highlight for the project the panel is sitting on.
+fn panel_selected() -> Style {
+    Style::default().bg(theme::PANEL_SEL).fg(theme::ON_SEL)
+}
+
+/// The highlight for the session tab in focus. A different hue from the panel's on purpose: two
+/// selections are on screen at once and they answer different questions.
+fn tab_selected() -> Style {
+    Style::default().bg(theme::TAB_SEL).fg(theme::ON_SEL).add_modifier(Modifier::BOLD)
 }
 
 const REFRESH: Duration = Duration::from_secs(2);
@@ -41,12 +73,14 @@ const REFRESH: Duration = Duration::from_secs(2);
 /// every 120ms input poll, and a message cleared after one frame — as the JS reference does, where
 /// a frame is a keypress or the 2s tick — was gone before anyone could read it.
 const FLASH: Duration = Duration::from_secs(5);
-const MIN_LIST: usize = 3;
-/// Rows the preview keeps whatever the list wants, so ↓ can never squeeze it to nothing.
-const MIN_PREVIEW: usize = 8;
-/// Rows of list before "↓ more". Small on purpose: the preview is the reason you are looking at
-/// the list at all, and 23 titles you have to scan is not more useful than 6 plus a count.
-const PAGE: usize = 6;
+/// The session tab strip is always exactly one row. Like a browser, tabs shrink as more open and
+/// then the strip scrolls — it never wraps onto a second row, so nothing below it ever moves.
+const TAB_ROW: usize = 1;
+/// No one tab may take more than this, however long its title — the focused tab is allowed to be
+/// the wide one, but not so wide that nothing is left to steer by.
+const TAB_MAX: usize = 44;
+/// Columns held back for the `‹N` / `+N›` counts when the strip scrolls.
+const MARKERS: usize = 12;
 
 fn dim() -> Style {
     Style::default().fg(theme::DIM)
@@ -56,6 +90,8 @@ enum Msg {
     Items(Vec<Item>, crate::live::LiveMap),
     Detail { key: String, mtime: i64, detail: Box<Detail> },
     Search { gen: u64, query: String, files: Option<HashSet<PathBuf>> },
+    /// A headless reply came back (or failed). `key` identifies the session it belongs to.
+    Replied { key: String, ok: bool, text: String },
 }
 
 struct Deep {
@@ -70,9 +106,7 @@ struct App {
     tabs: Vec<String>,
     q: String,
     cur: usize,
-    off: usize,
     p_idx: usize,
-    limit: usize,
     expand: bool,
     help: bool,
     flash: String,
@@ -86,6 +120,12 @@ struct App {
     live: crate::live::LiveMap,
     /// Session the user has been warned about and may now resume anyway.
     confirm: Option<String>,
+    /// The reply being typed, and the session it is addressed to. `None` when not replying.
+    draft: Option<(String, String)>, // (session id, text)
+    /// Sessions with a headless reply in flight, by id.
+    sending: HashSet<String>,
+    /// Whether the "this spends tokens" warning has been acknowledged this run.
+    reply_ok: bool,
     tx: Sender<Msg>,
 }
 
@@ -93,7 +133,17 @@ impl App {
     /// Say something back about the key just pressed, and keep saying it long enough to be read.
     fn say(&mut self, msg: String) {
         self.flash = msg;
-        self.flash_until = Some(Instant::now() + FLASH);
+        // `Instant::now()` is not implemented on wasm32-unknown-unknown and panics outright. The
+        // browser has no event loop expiring these anyway — `flash_expired` runs only in the
+        // terminal — so there it simply has no deadline.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.flash_until = Some(Instant::now() + FLASH);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.flash_until = None;
+        }
     }
 
     fn archived(&self, it: &Item) -> bool {
@@ -149,11 +199,19 @@ impl App {
         if !self.detail_inflight.insert(key.clone()) {
             return;
         }
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            let d = crate::parse::detail(&file);
-            let _ = tx.send(Msg::Detail { key, mtime, detail: Box::new(d) });
-        });
+        // The read happens on a worker so the input path never waits on a multi-megabyte file.
+        // The browser has neither threads nor the file, and does not need them: the demo's
+        // details are already attached to its items, so a miss here has no answer to wait for.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                let d = crate::parse::detail(&file);
+                let _ = tx.send(Msg::Detail { key, mtime, detail: Box::new(d) });
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = (key, mtime, file);
     }
 
     /// Every edit to the query invalidates the content search and the scroll position.
@@ -166,8 +224,50 @@ impl App {
 
     fn reset_position(&mut self) {
         self.cur = 0;
-        self.off = 0;
-        self.limit = PAGE;
+    }
+
+    /// The projects are a column, so they move on ↑↓; the sessions move on ←→. Kept here rather
+    /// than inline in `handle_key` so the mapping can be tested without standing up a Terminal.
+    fn step_project(&mut self, delta: isize) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let n = self.tabs.len() as isize;
+        self.p_idx = ((self.p_idx as isize + delta).rem_euclid(n)) as usize;
+        self.reset_position();
+        self.ensure_detail();
+    }
+
+    fn step_session(&mut self, delta: isize) {
+        if delta < 0 {
+            self.cur = self.cur.saturating_sub(delta.unsigned_abs());
+        } else if self.cur + 1 < self.view().len() {
+            self.cur += 1;
+        }
+        self.ensure_detail();
+    }
+
+    /// Open the reply composer on the highlighted session, or say why it cannot be opened.
+    fn begin_reply(&mut self) {
+        let Some(i) = self.selected() else { return };
+        let (id, name) = (self.items[i].id.clone(), self.items[i].name.clone());
+        if let Some(live) = self.live.get(&id) {
+            // The guard ↵ already uses: there is no safe way to put text into the stdin of a
+            // `claude` someone is sitting in front of.
+            let where_ = running_where(live);
+            self.say(format!("that session is running — {where_} · answer it there"));
+        } else if self.sending.contains(&id) {
+            self.say("still waiting on the last reply".into());
+        } else if !self.reply_ok {
+            // Once per run: this spends tokens from a list, with no turn-by-turn to watch.
+            self.reply_ok = true;
+            self.say(format!(
+                "^r sends a turn to \"{}\" and spends tokens — ^r again to write it",
+                first_words(&name, 4)
+            ));
+        } else {
+            self.draft = Some((id, String::new()));
+        }
     }
 
     fn rebuild_tabs(&mut self) {
@@ -191,6 +291,7 @@ fn apply_detail(it: &mut Item, d: Detail) {
     it.detail = Some(d);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run() -> io::Result<()> {
     let mut archive = Archive::load();
     let items = model::load(&[]);
@@ -212,9 +313,7 @@ pub fn run() -> io::Result<()> {
         tabs,
         q: String::new(),
         cur: 0,
-        off: 0,
         p_idx: 0,
-        limit: PAGE,
         expand: false,
         help: false,
         flash: String::new(),
@@ -225,6 +324,9 @@ pub fn run() -> io::Result<()> {
         detail_inflight: HashSet::new(),
         live: crate::live::scan(),
         confirm: None,
+        draft: None,
+        sending: HashSet::new(),
+        reply_ok: false,
         tx: tx.clone(),
     };
 
@@ -234,6 +336,7 @@ pub fn run() -> io::Result<()> {
     result
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
     let mut out = io::stdout();
@@ -250,12 +353,14 @@ fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     Ok(term)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn restore(term: &mut Terminal<CrosstermBackend<Stdout>>) {
     let _ = disable_raw_mode();
     let _ = execute!(term.backend_mut(), LeaveAlternateScreen);
     let _ = term.show_cursor();
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn event_loop(
     term: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -340,12 +445,25 @@ fn event_loop(
                         }
                     }
                 }
+                Msg::Replied { key, ok, text } => {
+                    app.sending.remove(&key);
+                    // Force the next draw to re-read the transcript: the reply is in the file
+                    // now, and the cached detail is one turn out of date.
+                    app.details.remove(&key);
+                    app.ensure_detail();
+                    app.say(if ok {
+                        format!("↩ replied · {}", first_words(&text, 8))
+                    } else {
+                        format!("reply failed · {}", first_words(&text, 10))
+                    });
+                }
             }
         }
     }
 }
 
 /// Swap in a refreshed list, preserving the highlighted session, active tab and search.
+#[cfg(not(target_arch = "wasm32"))]
 fn absorb_items(app: &mut App, new_items: Vec<Item>) {
     let sel_key = app.selected().map(|i| app.items[i].key.clone());
     let active_tab = app.tabs.get(app.p_idx).cloned();
@@ -380,17 +498,25 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
     app.ensure_detail();
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum Flow {
     Continue,
     Quit,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn handle_key(
     term: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     k: KeyEvent,
 ) -> io::Result<Flow> {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+
+    // While the composer is open it takes every key, so typing a reply cannot also filter the
+    // list, archive a session, or walk the tabs out from under what you are answering.
+    if app.draft.is_some() {
+        return compose_key(app, k, ctrl);
+    }
 
     // "↵ again to open it twice" means the *very next* key. Moving, typing or switching tabs is
     // not consent to start a second process on a live transcript.
@@ -439,40 +565,21 @@ fn handle_key(
                 app.rebuild_tabs();
                 let len = app.view().len();
                 app.cur = app.cur.min(len.saturating_sub(1));
-                app.off = 0;
                 app.ensure_detail();
             }
         }
+        // A bare `r` cannot open the composer: plain letters filter the list, and "r" is the
+        // first character of plenty of things worth searching for.
+        KeyCode::Char('r') if ctrl => app.begin_reply(),
         KeyCode::Tab => app.expand = !app.expand,
         KeyCode::Char('e') if ctrl => app.expand = !app.expand,
-        KeyCode::Up => {
-            app.cur = app.cur.saturating_sub(1);
-            app.ensure_detail();
-        }
-        KeyCode::Down => {
-            let len = app.view().len();
-            if app.cur + 1 < len {
-                app.cur += 1;
-                if app.cur >= app.limit {
-                    app.limit += PAGE; // reveal more
-                }
-            }
-            app.ensure_detail();
-        }
-        KeyCode::Left => {
-            if !app.tabs.is_empty() {
-                app.p_idx = (app.p_idx + app.tabs.len() - 1) % app.tabs.len();
-            }
-            app.reset_position();
-            app.ensure_detail();
-        }
-        KeyCode::Right => {
-            if !app.tabs.is_empty() {
-                app.p_idx = (app.p_idx + 1) % app.tabs.len();
-            }
-            app.reset_position();
-            app.ensure_detail();
-        }
+        // Each axis matches the shape of the thing it moves: the projects are a column, so they
+        // take ↑↓, and the sessions take ←→. This holds whichever layout is on screen — a key
+        // that changed meaning when the window got narrow would be worse than a mismatched arrow.
+        KeyCode::Up => app.step_project(-1),
+        KeyCode::Down => app.step_project(1),
+        KeyCode::Left => app.step_session(-1),
+        KeyCode::Right => app.step_session(1),
         // ⌥⌫ (which arrives as alt+backspace) and ^w rub out a word; ⌘⌫ sends ^u in every
         // terminal that binds it, and clears the query outright.
         KeyCode::Backspace if k.modifiers.contains(KeyModifiers::ALT) => {
@@ -554,6 +661,86 @@ fn handle_key(
 ///
 /// Separators are whitespace and the punctuation that shows up in project paths and session
 /// titles, so one ⌥⌫ over `mybit/tooling` leaves `mybit/`.
+/// Keys while the reply composer is open. Esc abandons the draft, ↵ sends it, everything else
+/// types. Deliberately small: this is a one-line composer, not an editor.
+#[cfg(not(target_arch = "wasm32"))]
+fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
+    let Some((id, text)) = app.draft.clone() else { return Ok(Flow::Continue) };
+    match k.code {
+        KeyCode::Esc => {
+            app.draft = None;
+            app.say("reply discarded".into());
+        }
+        KeyCode::Enter => {
+            let body = text.trim().to_string();
+            app.draft = None;
+            if body.is_empty() {
+                app.say("nothing to send".into());
+            } else {
+                send_reply(app, &id, &body);
+            }
+        }
+        KeyCode::Backspace if k.modifiers.contains(KeyModifiers::ALT) => {
+            let kept = drop_word(&text);
+            app.draft = Some((id, text[..kept].to_string()));
+        }
+        KeyCode::Char('w') if ctrl => {
+            let kept = drop_word(&text);
+            app.draft = Some((id, text[..kept].to_string()));
+        }
+        KeyCode::Char('u') if ctrl => app.draft = Some((id, String::new())),
+        KeyCode::Backspace => {
+            let mut t = text;
+            t.pop();
+            app.draft = Some((id, t));
+        }
+        KeyCode::Char(c) if !ctrl && !k.modifiers.contains(KeyModifiers::ALT) && c >= ' ' => {
+            let mut t = text;
+            t.push(c);
+            app.draft = Some((id, t));
+        }
+        _ => {}
+    }
+    Ok(Flow::Continue)
+}
+
+/// Send one turn to a session without opening it: `claude -p --resume <id>` appends to the same
+/// transcript, so the next refresh shows the answer in the list you are still standing in.
+///
+/// On a worker, always. It takes as long as Claude takes to think, and the TUI still has to
+/// redraw, refresh and respond to keys while it does.
+#[cfg(not(target_arch = "wasm32"))]
+fn send_reply(app: &mut App, id: &str, body: &str) {
+    let Some(i) = app.items.iter().position(|it| it.id == id) else { return };
+    let (key, cwd) = (app.items[i].key.clone(), app.items[i].cwd.clone());
+    app.sending.insert(id.to_string());
+    app.say(format!("⏳ sending to \"{}\" …", first_words(&app.items[i].name, 4)));
+
+    let (tx, id, body) = (app.tx.clone(), id.to_string(), body.to_string());
+    std::thread::spawn(move || {
+        let mut cmd = std::process::Command::new("claude");
+        cmd.arg("-p").arg("--resume").arg(&id).arg(&body);
+        if let Some(dir) = cwd.as_deref() {
+            cmd.current_dir(dir);
+        }
+        let out = cmd.output();
+        let msg = match out {
+            Ok(o) if o.status.success() => Msg::Replied {
+                key,
+                ok: true,
+                text: crate::safety::sanitize(&String::from_utf8_lossy(&o.stdout)),
+            },
+            Ok(o) => Msg::Replied {
+                key,
+                ok: false,
+                text: crate::safety::sanitize(&String::from_utf8_lossy(&o.stderr)),
+            },
+            Err(e) => Msg::Replied { key, ok: false, text: e.to_string() },
+        };
+        let _ = tx.send(msg);
+    });
+}
+
 fn drop_word(q: &str) -> usize {
     let sep = |c: char| c.is_whitespace() || matches!(c, '/' | '-' | '_' | '.' | ':' | ',');
     let trimmed = q.trim_end_matches(sep);
@@ -604,15 +791,25 @@ fn enter_action(is_live: bool, confirmed: bool) -> EnterAction {
 
 /// Where the running process is, for a user who has to find it themselves.
 fn running_where(live: &crate::live::Live) -> String {
-    if live.tty.is_empty() {
-        format!("pid {}", live.pid)
-    } else {
-        format!("pid {} · {}", live.pid, live.tty)
+    let mut s = format!("pid {}", live.pid);
+    if !live.tty.is_empty() {
+        s.push_str(&format!(" · {}", live.tty));
     }
+    // What it is doing, when the registry has said. Tells the user whether the window they are
+    // being sent to is mid-turn or sitting there wanting something from them — and `waiting` is
+    // the one status worth acting on, so it carries its reason.
+    if !live.status.is_empty() {
+        s.push_str(&format!(" · {}", live.status));
+        if !live.waiting_for.is_empty() {
+            s.push_str(&format!(" · {}", live.waiting_for));
+        }
+    }
+    s
 }
 
 /// Replace sessio with `claude --resume`. The terminal is restored *first* — `exec` never
 /// returns, so there is no later opportunity to undo raw mode.
+#[cfg(not(target_arch = "wasm32"))]
 fn hand_over(term: &mut Terminal<CrosstermBackend<Stdout>>, cwd: Option<&str>, id: &str) -> ! {
     restore(term);
     let path = cwd.map(std::path::Path::new);
@@ -626,14 +823,19 @@ fn hand_over(term: &mut Terminal<CrosstermBackend<Stdout>>, cwd: Option<&str>, i
 
 // ---------- rendering ----------
 
+#[cfg(not(target_arch = "wasm32"))]
 fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let area = f.area();
-    let cols = area.width as usize;
-    let rows = area.height as usize;
+    let lines = frame_lines(app, area.width as usize, area.height as usize);
+    f.render_widget(Paragraph::new(lines), area);
+}
 
+/// The whole dashboard as lines, given a terminal size. Split out of `draw` so the frame can be
+/// built without a `Frame` — the tests render it directly, and so does the wasm build, which has
+/// a browser instead of a terminal but the same dashboard to draw.
+fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     if app.help {
-        f.render_widget(Paragraph::new(help_lines()), area);
-        return;
+        return help_lines();
     }
 
     let view = app.view();
@@ -642,61 +844,35 @@ fn draw(f: &mut ratatui::Frame, app: &mut App) {
     }
     let sel = view.get(app.cur).copied();
 
-    let tabs = tab_bar(app, cols);
+    // The panel is carved off the left first, so everything below measures itself against the
+    // width that is actually left rather than the terminal's.
+    let side = sidebar(app, cols);
+    let cols = cols - side.map(|w| w + SIDE_GAP).unwrap_or(0);
+    let tabs = if side.is_some() { Vec::new() } else { tab_bar(app, cols) };
 
-    // The split is decided by the terminal, never by what is in the tab or what the highlighted
-    // session's preview happens to contain. Deriving it from content — the number of rows this
-    // tab holds, how long this reply is — moved the separator and everything under it every time
-    // you pressed ←/→, which reads as the UI wandering on its own.
-    let chrome = 1 + tabs.len() + 1; // header, tab bar, query
-    let body = rows.saturating_sub(chrome + 1); // and the always-present "↓ more" row
-    let ceiling = body.saturating_sub(MIN_PREVIEW).max(MIN_LIST);
-    let want = if app.expand { MIN_LIST } else { app.limit };
-    let slots = want.clamp(MIN_LIST, ceiling).min(body.max(1));
-    app.limit = app.limit.min(ceiling); // ↓ may not grow the list past its share
-
-    let preview_box = body.saturating_sub(slots);
+    // The chrome is a fixed height: header, project strip (none beside a panel), search, and the
+    // one-row session tab strip. Nothing here is derived from what the highlighted session
+    // contains, so the preview under it never moves as you walk the tabs.
+    let chrome = 1 + tabs.len() + 1 + TAB_ROW + usize::from(app.draft.is_some());
+    let preview_box = rows.saturating_sub(chrome);
     let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
     let reply_max = preview_box.saturating_sub(base).max(1);
     let prev = sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default();
 
-    if app.cur < app.off {
-        app.off = app.cur;
-    }
-    if slots > 0 && app.cur >= app.off + slots {
-        app.off = app.cur - slots + 1;
-    }
-
     let mut lines: Vec<Line> = Vec::with_capacity(rows + 4);
-    lines.push(header(app, cols));
+    lines.push(header(app, cols, side.is_some()));
     lines.extend(tabs);
     lines.push(query_line(app, view.len()));
-
-    let mut shown = 0;
-    for (n, &i) in view.iter().skip(app.off).take(slots).enumerate() {
-        lines.push(row_line(app, &app.items[i], app.off + n == app.cur, cols));
-        shown += 1;
+    lines.push(session_tabs(app, &view, cols));
+    if let Some((_, text)) = &app.draft {
+        lines.push(compose_line(text));
     }
-    if shown == 0 {
-        lines.push(Line::from(Span::styled("  no match", dim())));
-        shown = 1;
-    }
-    for _ in shown..slots {
-        lines.push(Line::from("")); // hold the row open so nothing below it shifts
-    }
-    // The show-more row is always reserved, for the same reason.
-    let below = view.len() as i64 - (app.off + slots) as i64;
-    lines.push(if below > 0 {
-        Line::from(Span::styled(
-            format!(" ↓ {below} more — press ↓ to reveal"),
-            dim(),
-        ))
-    } else {
-        Line::from("")
-    });
     lines.extend(prev);
 
-    f.render_widget(Paragraph::new(lines), area);
+    match side {
+        Some(w) => join_side(side_panel(app, w, rows), lines, w),
+        None => lines,
+    }
 }
 
 /// One hint in the key bar. `p` is how expendable it is: the bar sheds the highest `p` first.
@@ -705,6 +881,10 @@ struct Seg {
     t: &'static str,
     accent: bool,
 }
+
+/// Marks the filter row as a search field rather than a blank line. An emoji, like the `⏸` and
+/// `🗄` already in the tab bar, so it reads as one at a glance.
+const SEARCH_ICON: &str = "🔍";
 
 const SEP: &str = " · ";
 const SEP_W: usize = 3;
@@ -728,15 +908,19 @@ fn fit_segments(segs: &[Seg], cols: usize) -> Vec<&Seg> {
 }
 
 
-fn header(app: &App, cols: usize) -> Line<'static> {
+fn header(app: &App, cols: usize, panel: bool) -> Line<'static> {
     // The full bar is ~136 columns under Ghostty. Anything narrower would be clipped mid-word by
     // the paragraph, so drop the least essential hints instead. `? help` is p0 — it reveals
     // everything that was dropped — and the resume key is p1 because it is the whole point.
-    let mut segs: Vec<Seg> = vec![
-        Seg { p: 3, t: "←→ project", accent: false },
-        Seg { p: 3, t: "↑↓ move", accent: false },
-        Seg { p: 4, t: "type", accent: false },
-    ];
+    //
+    // The panel takes columns off this bar, enough at some widths to lose `^f`, `^a` and `live`.
+    // So it also takes the `↑↓` hint off it: the panel labels that key itself, right above the
+    // column it moves through, which is a better place for it than a bar of ten hints.
+    let mut segs: Vec<Seg> =
+        vec![Seg { p: 3, t: "←→ session", accent: false }, Seg { p: 4, t: "type", accent: false }];
+    if !panel {
+        segs.insert(0, Seg { p: 3, t: "↑↓ project", accent: false });
+    }
     if search::rg_path().is_some() {
         segs.push(Seg { p: 5, t: "^f search-in-text", accent: false });
     }
@@ -756,6 +940,7 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     } else {
         segs.push(Seg { p: 1, t: "↵ resume", accent: false });
     }
+    segs.push(Seg { p: 2, t: "^r reply", accent: false });
     segs.push(Seg { p: 0, t: "? help", accent: false });
     segs.push(Seg { p: 2, t: "esc quit", accent: false });
     segs.push(Seg { p: 5, t: "live", accent: true });
@@ -795,11 +980,7 @@ fn tab_bar(app: &App, cols: usize) -> Vec<Line<'static>> {
             lines.push(Line::from(std::mem::take(&mut cur)));
             w = 0;
         }
-        let style = if i == app.p_idx {
-            Style::default().add_modifier(Modifier::REVERSED)
-        } else {
-            dim()
-        };
+        let style = if i == app.p_idx { panel_selected() } else { dim() };
         cur.push(Span::styled(format!(" {label} "), style));
         w += vis;
     }
@@ -812,10 +993,90 @@ fn tab_bar(app: &App, cols: usize) -> Vec<Line<'static>> {
     lines
 }
 
+/// The widest the project panel may get, however long the project names are. Past this it is
+/// eating the list for names `fit_width` can abbreviate instead.
+const SIDE_MAX: usize = 22;
+/// Below this a project name is unreadable, so the panel is not worth its columns.
+const SIDE_MIN: usize = 10;
+/// The rule between the panel and the dashboard: `" │ "`.
+const SIDE_GAP: usize = 3;
+/// The narrowest dashboard worth drawing beside a panel. Below it the list rows lose their meta
+/// and the preview its measure, so the panel gives its columns back and the strip returns.
+const BODY_MIN: usize = 80;
+
+/// How wide the project panel should be, or `None` to keep the horizontal tab strip.
+///
+/// The panel buys vertical rows — the strip costs `1 + however many rows it wrapped to`, and that
+/// wrap moves every time the tab set changes, which drags the whole frame with it. It pays for
+/// them in columns, on every row, forever. That is only a good trade while the dashboard beside
+/// it is still a full-width dashboard; below `BODY_MIN` the strip comes back instead.
+fn sidebar(app: &App, cols: usize) -> Option<usize> {
+    let widest = app
+        .tabs
+        .iter()
+        .map(|t| UnicodeWidthStr::width(sanitize(t).as_str()))
+        .max()
+        .unwrap_or(0);
+    let w = (widest + 2).clamp(SIDE_MIN, SIDE_MAX);
+    (cols >= w + SIDE_GAP + BODY_MIN).then_some(w)
+}
+
+/// The project panel: a label, then one row per tab. When there are more projects than rows the
+/// list scrolls to keep the selected one on screen, and the label says where you are in it.
+fn side_panel(app: &App, w: usize, rows: usize) -> Vec<Line<'static>> {
+    let body = rows.saturating_sub(1);
+    let n = app.tabs.len();
+    let off =
+        if n <= body { 0 } else { app.p_idx.saturating_sub(body / 2).min(n - body) };
+    // The key bar drops `↑↓ project` while the panel is up, so the panel has to carry it.
+    let lead = if w >= 14 { " ↑↓ projects" } else { " projects" };
+    let label =
+        if n > body { format!("{lead} {}/{n}", app.p_idx + 1) } else { lead.to_string() };
+
+    let mut lines = vec![Line::from(Span::styled(fit_width(&label, w), dim()))];
+    for r in 0..body {
+        let Some(name) = app.tabs.get(off + r) else {
+            lines.push(Line::from("")); // hold the column open to the full height
+            continue;
+        };
+        let style = if off + r == app.p_idx { panel_selected() } else { dim() };
+        lines.push(Line::from(Span::styled(
+            fit_width(&format!(" {}", sanitize(name)), w),
+            style,
+        )));
+    }
+    lines
+}
+
+/// The panel down the left, the dashboard to its right, one rule between them on every row.
+fn join_side(
+    side: Vec<Line<'static>>,
+    body: Vec<Line<'static>>,
+    w: usize,
+) -> Vec<Line<'static>> {
+    (0..side.len().max(body.len()))
+        .map(|i| {
+            let mut spans = side.get(i).map(|l| l.spans.clone()).unwrap_or_default();
+            let pad = w.saturating_sub(spans_width(&spans));
+            spans.push(Span::raw(" ".repeat(pad)));
+            spans.push(Span::styled(" │ ", dim()));
+            if let Some(b) = body.get(i) {
+                spans.extend(b.spans.clone());
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
+
 fn query_line(app: &App, matches: usize) -> Line<'static> {
+    // Empty, this row read as a stray blank line. The glyph is what says it is a search field
+    // even with nothing typed in it — and which of the two searches is running.
     let mut spans = match &app.deep {
-        Some(_) => vec![Span::styled("content›", Style::default().fg(theme::NAMED))],
-        None => vec![Span::styled("›", Style::default().fg(theme::ACCENT))],
+        Some(_) => vec![
+            Span::styled(SEARCH_ICON, Style::default().fg(theme::NAMED)),
+            Span::styled(" content", Style::default().fg(theme::NAMED)),
+        ],
+        None => vec![Span::styled(SEARCH_ICON, Style::default().fg(theme::ACCENT))],
     };
     spans.push(Span::raw(" "));
     spans.push(Span::raw(sanitize(&app.q)));
@@ -830,11 +1091,23 @@ fn query_line(app: &App, matches: usize) -> Line<'static> {
     Line::from(spans)
 }
 
-fn row_line(app: &App, it: &Item, selected: bool, cols: usize) -> Line<'static> {
+/// The reply composer: one line, under the tabs and above the session it answers — so the
+/// question you are replying to is still on screen while you write it.
+fn compose_line(text: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" ↳ reply ", tab_selected()),
+        Span::raw(" "),
+        Span::raw(sanitize(text)),
+        Span::styled("▏", dim()),
+        Span::styled("   ↵ send · esc cancel", dim()),
+    ])
+}
+
+/// The recency dot: a filled ring means a `claude` process is attached right now, which is a
+/// stronger claim than recency â the transcript was written recently vs. the session is *open*.
+fn dot_for(app: &App, it: &Item) -> (&'static str, Style) {
     let age = model::now_ms() - it.mtime;
-    // A filled ring means a `claude` process is attached right now, which is a stronger claim
-    // than the recency dot: the transcript was written recently vs. the session is *open*.
-    let (dot, dot_style) = if app.live.contains_key(&it.id) {
+    if app.live.contains_key(&it.id) {
         ("◉", Style::default().fg(theme::ACTIVE))
     } else if age < ACTIVE_MS {
         ("●", Style::default().fg(theme::ACTIVE))
@@ -842,42 +1115,120 @@ fn row_line(app: &App, it: &Item, selected: bool, cols: usize) -> Line<'static> 
         ("●", Style::default().fg(theme::RECENT))
     } else {
         (" ", Style::default())
-    };
-    let open_marker = if it.open { "▸" } else { " " };
-    let meta = format!(
-        "{} · {} ago{}",
-        sanitize(&it.project),
-        ago(it.mtime),
-        it.branch.as_deref().map(|b| format!(" · {}", sanitize(b))).unwrap_or_default()
-    );
+    }
+}
+
+/// The first `n` words of a title, for a tab that is not the one being read.
+fn first_words(s: &str, n: usize) -> String {
+    s.split_whitespace().take(n).collect::<Vec<_>>().join(" ")
+}
+
+/// What a tab says: the whole title when it is the one in focus, two words when it is not. So
+/// the tab you are reading is legible and the rest are just enough to steer by.
+fn tab_label(it: &Item, active: bool) -> String {
     let name = sanitize(it.display_name());
-
-
-    let mut spans = vec![
-        Span::styled(dot.to_string(), dot_style),
-        Span::styled(open_marker.to_string(), Style::default().fg(theme::NAMED)),
-    ];
-    if selected {
-        let bar = fit_width(&format!("{name}  {meta} "), cols.saturating_sub(2));
-        spans.push(Span::styled(bar, Style::default().add_modifier(Modifier::REVERSED)));
+    if active {
+        name
     } else {
-        spans.push(Span::raw(name));
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(meta, dim()));
+        first_words(&name, 2)
+    }
+}
+
+/// The status glyphs a tab carries in front of its title: the recency dot and the pick-up mark.
+/// Only a tab with something to say spends a column saying it — reserving both slots on every tab
+/// left a gap in front of every title that had nothing to put in it.
+///
+/// They keep their own colour on the focused tab and take only its background. Painting them in
+/// the selection's foreground lost the very distinction they exist to draw: a running session and
+/// a stale one became the same white dot the moment you moved onto it.
+fn tab_marks(app: &App, it: &Item, sel: Option<Style>) -> Vec<Span<'static>> {
+    let on = |st: Style| match sel {
+        Some(s) => st.bg(s.bg.unwrap_or(theme::TAB_SEL)).add_modifier(Modifier::BOLD),
+        None => st,
+    };
+    let mut spans = Vec::new();
+    let (dot, dot_style) = dot_for(app, it);
+    if dot != " " {
+        spans.push(Span::styled(dot.to_string(), on(dot_style)));
+    }
+    if it.open {
+        spans.push(Span::styled("▸", on(Style::default().fg(theme::NAMED))));
+    }
+    spans
+}
+
+/// The sessions as browser tabs: one row, each tab as wide as what it has to say, the strip
+/// scrolling around the focused tab rather than wrapping. The dot survives at any width, because
+/// whether a session is running is the one fact worth a column even when the title is cut.
+fn session_tabs(app: &App, view: &[usize], cols: usize) -> Line<'static> {
+    if view.is_empty() {
+        return Line::from(Span::styled("  no sessions here", dim()));
+    }
+    let n = view.len();
+    let cur = app.cur.min(n - 1);
+
+    // A cell is dot + label + the rule that gives the tab an edge. One tab may not take the whole
+    // strip, however long its title, or there is nothing left to steer by.
+    let cell = |slot: usize| -> (String, usize) {
+        let it = &app.items[view[slot]];
+        let label = tab_label(it, slot == cur);
+        let label = fit_width(&label, UnicodeWidthStr::width(label.as_str()).min(TAB_MAX));
+        // label + the rule that closes the tab + whichever status marks it actually carries.
+        let w = UnicodeWidthStr::width(label.as_str())
+            + 1
+            + spans_width(&tab_marks(app, it, None));
+        (label, w)
+    };
+
+    // Grow outwards from the focused tab, alternating sides, while the row still has room.
+    let overflows = (0..n).map(|i| cell(i).1).sum::<usize>() > cols;
+    let budget = cols.saturating_sub(if overflows { MARKERS } else { 0 });
+    let (mut lo, mut hi, mut used) = (cur, cur, cell(cur).1);
+    loop {
+        let grew_right = hi + 1 < n && used + cell(hi + 1).1 <= budget;
+        if grew_right {
+            hi += 1;
+            used += cell(hi).1;
+        }
+        let grew_left = lo > 0 && used + cell(lo - 1).1 <= budget;
+        if grew_left {
+            lo -= 1;
+            used += cell(lo).1;
+        }
+        if !grew_right && !grew_left {
+            break;
+        }
+    }
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    if lo > 0 {
+        spans.push(Span::styled(format!("‹{lo} "), dim()));
+    }
+    for slot in lo..=hi {
+        let (label, _) = cell(slot);
+        let it = &app.items[view[slot]];
+        let style = if slot == cur { tab_selected() } else { dim() };
+        spans.extend(tab_marks(app, it, (slot == cur).then_some(style)));
+        spans.push(Span::styled(label, style));
+        spans.push(Span::styled("│", dim()));
+    }
+    if hi + 1 < n {
+        spans.push(Span::styled(format!(" +{}›", n - 1 - hi), dim()));
     }
     Line::from(spans)
 }
+
 
 /// Where a gutter-labelled block's text starts. The label sits right-aligned in front of it, so
 /// `recap`, `first` and `reply` all line their content up on one left edge and no row is spent on
 /// a label alone.
 const GUTTER: usize = 12;
-/// Prose stops being readable long before a wide terminal runs out of room, so the measure is
-/// capped rather than filled: a 200-column window used to wrap the recap at 198 and leave the eye
-/// no way back to the start of the next line.
-const MEASURE: usize = 90;
-/// Below this a gutter column has no room left for words.
-const MIN_PROSE: usize = 28;
+/// Prose stops being readable long before a very wide terminal runs out of room, so the measure
+/// is bounded — but it is bounded relative to the window rather than pinned to a constant. A flat
+/// 90-column cap left ~70 columns of a 181-column window empty and made the preview look broken;
+/// a flat "fill it" wraps a 300-column window at 288 and the eye loses its way back to the next
+/// line. This tracks the window and stops growing once the line is genuinely too long to scan.
+const MEASURE_MAX: usize = 140;
 
 fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'static>> {
     let w = width.max(1);
@@ -941,8 +1292,6 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
             ),
         ]));
     }
-    lines.push(Line::from(""));
-
     let detail = it.detail.as_ref();
 
     // The recap is newer, shorter and says whose move it is — prefer it over the compact
@@ -950,10 +1299,11 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     let recap = detail.and_then(|d| d.recap.as_deref()).or(it.recap.as_deref());
     let recap_ts = detail.and_then(|d| d.recap_ts.as_deref()).or(it.recap_ts.as_deref());
 
-    // Two columns once there is room for two readable ones. The recap and the thread answer
-    // different questions — where it got to, and what was actually said — so side by side you
-    // read one against the other instead of scrolling one out of view to reach the other.
-    let (two, colw, prose) = columns(w);
+    // One column. This used to split recap against thread, on the theory that you would read one
+    // against the other — but there is not enough here to split: the recap caps at six lines and
+    // the reply runs to twenty, so the left column sat empty for most of the preview's height
+    // while the right one did all the work.
+    let prose = prose_width(w);
 
     let mut recap_block: Vec<Line> = Vec::new();
     if let Some(recap) = recap {
@@ -969,62 +1319,60 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         recap_block = gutter_block(&format!("summary {ts}"), dim(), body);
     }
 
+    // Three things, and no more: where it got to, what it was for, and where you left off.
+    // A full turn-by-turn tail was tried here and read as a wall — you cannot skim eight
+    // alternating speakers, and the whole point of a preview is that it is skimmable.
     let mut thread: Vec<Line> = Vec::new();
-    thread.extend(gutter_block(
-        &format!("first {}", it.first_ts.as_deref().map(since).unwrap_or_default()),
-        dim(),
-        wrap_plain(it.first.as_deref().unwrap_or(""), prose, 2)
-            .into_iter()
-            .map(Line::from)
-            .collect(),
-    ));
-    if let Some(d) = detail.filter(|d| d.count > 1) {
+    if !app.expand {
         thread.extend(gutter_block(
-            &format!("last {}", d.last_ts.as_deref().map(since).unwrap_or_default()),
+            &format!("first {}", it.first_ts.as_deref().map(since).unwrap_or_default()),
             dim(),
-            wrap_plain(d.last.as_deref().unwrap_or(""), prose, 2)
+            wrap_plain(it.first.as_deref().unwrap_or(""), prose, 2)
                 .into_iter()
                 .map(Line::from)
                 .collect(),
         ));
+        if let Some(d) = detail.filter(|d| d.count > 1) {
+            thread.extend(gutter_block(
+                &format!("last {}", d.last_ts.as_deref().map(since).unwrap_or_default()),
+                dim(),
+                wrap_plain(d.last.as_deref().unwrap_or(""), prose, 2)
+                    .into_iter()
+                    .map(Line::from)
+                    .collect(),
+            ));
+        }
     }
     if detail.is_none() {
         thread.push(Line::from(Span::styled("…", dim()))); // detail still loading
     }
-    if let Some(d) = detail {
-        if let Some(reply) = &d.reply {
-            if reply_max > 0 {
-                let rl = md_lines(reply, prose);
-                let total = rl.len();
-                let mut body: Vec<Line> = rl.into_iter().take(reply_max).collect();
-                if total > reply_max {
-                    body.push(Line::from(Span::styled("… ⇥ for full", dim())));
-                }
-                thread.extend(gutter_block(
-                    &format!("reply {}", d.reply_ts.as_deref().map(since).unwrap_or_default()),
-                    Style::default().fg(theme::REPLY),
-                    body,
-                ));
+    if let Some(reply) = detail.and_then(|d| d.reply.as_ref()) {
+        if reply_max > 0 {
+            let rl = md_lines(reply, prose);
+            let total = rl.len();
+            let mut body: Vec<Line> = rl.into_iter().take(reply_max).collect();
+            if total > reply_max {
+                body.push(Line::from(Span::styled("… ⇥ for full", dim())));
             }
+            let ts = detail.and_then(|d| d.reply_ts.as_deref()).map(since).unwrap_or_default();
+            thread.extend(gutter_block(
+                &format!("reply {ts}"),
+                Style::default().fg(theme::REPLY),
+                body,
+            ));
         }
     }
 
-    if two && !recap_block.is_empty() {
-        lines.extend(join_cols(recap_block, thread, colw));
-    } else {
-        lines.extend(recap_block);
-        lines.extend(thread);
-    }
+    lines.extend(recap_block);
+    lines.extend(thread);
     lines
 }
 
-/// How the preview divides a terminal: room for two columns, how wide one is, and how much of
-/// that is prose. Capped both ways, so a wider window buys air rather than longer lines.
-fn columns(w: usize) -> (bool, usize, usize) {
-    let two = w >= 2 * (GUTTER + MIN_PROSE) + COL_GAP;
-    let colw =
-        if two { ((w - COL_GAP) / 2).min(GUTTER + MEASURE) } else { w.min(GUTTER + MEASURE) };
-    (two, colw, colw.saturating_sub(GUTTER).max(1))
+/// How wide the preview sets its prose, given the room it has: all of it, up to a measure that
+/// is still scannable. Narrow windows fill completely; wide ones fill to `MEASURE_MAX` and give
+/// the remainder back as margin rather than running a line the eye cannot track.
+fn prose_width(w: usize) -> usize {
+    w.saturating_sub(GUTTER).clamp(1, MEASURE_MAX)
 }
 
 /// A labelled block: the label right-aligned in the gutter beside the first row, every row after
@@ -1057,21 +1405,6 @@ fn spans_width(spans: &[Span]) -> usize {
     spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum()
 }
 
-/// Two already-wrapped blocks side by side, the left padded so the right starts at one column on
-/// every row.
-fn join_cols(left: Vec<Line<'static>>, right: Vec<Line<'static>>, colw: usize) -> Vec<Line<'static>> {
-    (0..left.len().max(right.len()))
-        .map(|i| {
-            let mut spans = left.get(i).map(|l| l.spans.clone()).unwrap_or_default();
-            if let Some(r) = right.get(i) {
-                let pad = colw.saturating_sub(spans_width(&spans)) + COL_GAP;
-                spans.push(Span::raw(" ".repeat(pad)));
-                spans.extend(r.spans.clone());
-            }
-            Line::from(spans)
-        })
-        .collect()
-}
 
 
 
@@ -1084,8 +1417,8 @@ fn help_lines() -> Vec<Line<'static>> {
             Span::styled(" — keys", dim()),
         ]),
         Line::from(""),
-        Line::from(vec![Span::styled("← →", key), Span::raw("    switch project tab")]),
-        Line::from(vec![Span::styled("↑ ↓", key), Span::raw("    move selection (↓ reveals more)")]),
+        Line::from(vec![Span::styled("↑ ↓", key), Span::raw("    switch project")]),
+        Line::from(vec![Span::styled("← →", key), Span::raw("    move session selection (→ reveals more)")]),
         Line::from(vec![Span::styled("type", key), Span::raw("   fuzzy-filter by name / project / first prompt")]),
     ];
     if search::rg_path().is_some() {
@@ -1098,6 +1431,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^w ⌥⌫", key), Span::raw("  delete the last word of the query")]),
         Line::from(vec![Span::styled("^u ⌘⌫", key), Span::raw("  clear the whole query")]),
         Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
+        Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
         Line::from(vec![Span::styled("↵", key), Span::raw("      resume (◉ = already running: ↵ says where, ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in this window (replaces sessio)")]),
@@ -1166,7 +1500,6 @@ fn italic(l: Line<'static>) -> Line<'static> {
 
 
 /// Columns between the two prompt columns.
-const COL_GAP: usize = 2;
 
 fn fit_width(s: &str, w: usize) -> String {
     let mut out = String::new();
@@ -1342,8 +1675,8 @@ mod tests {
 
     fn bar() -> Vec<Seg> {
         vec![
-            Seg { p: 3, t: "←→ project", accent: false },
-            Seg { p: 3, t: "↑↓ move", accent: false },
+            Seg { p: 3, t: "↑↓ project", accent: false },
+            Seg { p: 3, t: "←→ session", accent: false },
             Seg { p: 4, t: "type", accent: false },
             Seg { p: 5, t: "^f search-in-text", accent: false },
             Seg { p: 5, t: "^a archive", accent: false },
@@ -1366,6 +1699,463 @@ mod tests {
 
     /// The bug this replaces: the bar was emitted whole, wrapped on any window narrower than
     /// ~136 columns, and pushed the frame past the terminal height.
+    /// A dashboard with `tabs` projects, enough sessions to fill the list, and nothing lazily
+    /// loaded â everything the panel tests need and nothing that touches the disk.
+    fn fixture(tabs: &[&str]) -> App {
+        let item = |n: usize, project: &str| Item {
+            id: format!("id{n}"),
+            key: format!("key{n}"),
+            file: PathBuf::from("/dev/null"),
+            mtime: model::now_ms() - (n as i64 * 60_000),
+            size: 1024,
+            dir: project.into(),
+            first: Some("first prompt".into()),
+            first_ts: None,
+            cwd: Some(format!("/Users/x/{project}")),
+            branch: Some("main".into()),
+            custom: None,
+            ai: None,
+            open: n == 1,
+            open_reason: None,
+            recap: Some("Weighing a sidebar for the project tabs.".into()),
+            recap_ts: None,
+            title: None,
+            name: format!("session {n} in {project}"),
+            project: project.into(),
+            hay: format!("session {n} in {project} {project}"),
+            detail: None,
+        };
+        let projects: Vec<&str> = tabs.iter().copied().filter(|t| *t != ALL_TAB && *t != OPEN_TAB).collect();
+        // Always the same number of sessions, dealt round-robin across whatever projects there
+        // are: otherwise a test comparing list height across tab sets compares item counts.
+        let items = (0..12)
+            .map(|n| item(n + 1, projects[n % projects.len().max(1)]))
+            .collect();
+        let (tx, _rx) = mpsc::channel();
+        App {
+            items,
+            archive: Archive::default(),
+            tabs: tabs.iter().map(|t| t.to_string()).collect(),
+            q: String::new(),
+            cur: 0,
+            p_idx: 0,
+            expand: false,
+            help: false,
+            flash: String::new(),
+            flash_until: None,
+            deep: None,
+            search_gen: 0,
+            details: HashMap::new(),
+            detail_inflight: HashSet::new(),
+            live: crate::live::LiveMap::new(),
+            confirm: None,
+            draft: None,
+            sending: HashSet::new(),
+            reply_ok: false,
+            tx,
+        }
+    }
+
+    /// One more session in the same project, for the strip tests.
+    fn nth_item(n: usize) -> Item {
+        let mut it = fixture(&[ALL_TAB, "sessio"]).items.remove(0);
+        it.id = format!("id{n}");
+        it.key = format!("key{n}");
+        it.name = format!("Session number {n} with a fairly long title");
+        it.hay = it.name.clone();
+        it.mtime = model::now_ms() - (n as i64 * 60_000);
+        it
+    }
+
+    fn real_tabs() -> Vec<&'static str> {
+        vec![
+            ALL_TAB, OPEN_TAB, "lifelab", "sessio", "02-personal", "saint-gobain",
+            "marketplaces", "00-agent-plugins", "mybit", "zigani", "apify-lab", "Desktop",
+        ]
+    }
+
+    /// Render a whole frame and read it back as rows of text.
+    fn frame(app: &mut App, cols: u16, rows: u16) -> Vec<String> {
+        let mut term =
+            Terminal::new(ratatui::backend::TestBackend::new(cols, rows)).unwrap();
+        term.draw(|f| draw(f, app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..rows)
+            .map(|y| {
+                (0..cols).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_wide_terminal_puts_the_projects_down_the_side() {
+        let mut app = fixture(&real_tabs());
+        let rows = frame(&mut app, 136, 26);
+        assert!(rows[0].starts_with(" ↑↓ projects"), "panel is labelled: {:?}", rows[0]);
+        // One project per row, in order, down the left edge.
+        for (i, name) in real_tabs().iter().enumerate() {
+            assert!(
+                rows[i + 1].trim_start().starts_with(name),
+                "row {} should hold {name}: {:?}",
+                i + 1,
+                rows[i + 1]
+            );
+        }
+        // And the tabs are no longer spent on a row of their own up top.
+        assert!(rows[0].contains("? help"), "key bar sits beside the panel: {:?}", rows[0]);
+    }
+
+    /// The whole point of the panel: chrome stops growing with the tab set.
+    #[test]
+    fn the_panel_costs_the_same_chrome_however_many_projects_there_are() {
+        // Where the preview's rule lands is exactly header + tabs + query + list + the more-row.
+        let listed = |tabs: &[&str]| {
+            let mut app = fixture(tabs);
+            frame(&mut app, 136, 26)
+                .iter()
+                .position(|r| r.contains("────"))
+                .expect("the preview draws a rule")
+        };
+        let few = listed(&[ALL_TAB, "sessio", "lifelab"]);
+        let many = listed(&real_tabs());
+        assert_eq!(few, many, "the session list keeps its rows as projects pile up");
+    }
+
+    #[test]
+    fn a_narrow_terminal_keeps_the_horizontal_strip() {
+        let app = fixture(&real_tabs());
+        assert_eq!(sidebar(&app, 80), None, "80 columns cannot afford a panel");
+        assert!(sidebar(&app, 136).is_some(), "136 can");
+    }
+
+    /// The objection the panel had to answer: it must never be the reason the dashboard beside it
+    /// stops being a usable dashboard.
+    #[test]
+    fn the_panel_never_starves_the_dashboard() {
+        let app = fixture(&real_tabs());
+        for cols in 0..300 {
+            if let Some(w) = sidebar(&app, cols) {
+                let body = cols - w - SIDE_GAP;
+                assert!(body >= BODY_MIN, "{cols} cols left the dashboard only {body}");
+            }
+        }
+    }
+
+    #[test]
+    fn no_row_overflows_the_terminal() {
+        for cols in [60u16, 80, 100, 103, 120, 136, 200] {
+            let mut app = fixture(&real_tabs());
+            for (y, row) in frame(&mut app, cols, 26).iter().enumerate() {
+                let w = UnicodeWidthStr::width(row.trim_end());
+                assert!(w <= cols as usize, "{cols} cols, row {y} rendered {w}: {row:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_selected_project_stays_on_screen_when_the_panel_scrolls() {
+        let many: Vec<String> = (0..40).map(|i| format!("project-{i:02}")).collect();
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        let mut app = fixture(&refs);
+        for p_idx in 0..refs.len() {
+            app.p_idx = p_idx;
+            let panel = side_panel(&app, 18, 12);
+            assert!(
+                panel.iter().any(|l| l.spans.iter().any(|s| s.content.contains(&refs[p_idx]))),
+                "project {p_idx} fell off the panel"
+            );
+        }
+    }
+
+    /// What the panel actually buys and costs, as the project list grows.
+    /// `cargo test what_the_panel_costs -- --nocapture --ignored`
+    #[test]
+    #[ignore]
+    fn what_the_panel_costs() {
+        for n in [12usize, 14, 16, 20, 26] {
+            let names: Vec<String> = (0..n - 2).map(|i| format!("project-{i:02}")).collect();
+            let mut tabs = vec![ALL_TAB.to_string(), OPEN_TAB.to_string()];
+            tabs.extend(names);
+            let refs: Vec<&str> = tabs.iter().map(String::as_str).collect();
+            let app = fixture(&refs);
+            let strip = tab_bar(&app, 136).len();
+            let w = sidebar(&app, 136).expect("136 affords a panel");
+            let body = 136 - w - SIDE_GAP;
+            let hints = |cols, panel| {
+                header(&app, cols, panel)
+                    .spans
+                    .iter()
+                    .filter(|s| s.content.as_ref() != SEP)
+                    .count()
+            };
+            println!(
+                "{n:>3} tabs | strip {strip} row(s) -> panel saves {} | bar {body} cols, {} hints (strip: 136 cols, {} hints)",
+                strip,
+                hints(body, true),
+                hints(136, false),
+            );
+        }
+    }
+
+    /// The arrows match the shape of what they move, and a narrow window does not change that.
+    #[test]
+    fn up_down_walks_the_projects_and_left_right_the_sessions() {
+        let mut app = fixture(&real_tabs());
+        let sessions = app.view().len();
+        assert!(sessions > 2 && app.tabs.len() > 2, "fixture needs both to move through");
+
+        app.step_project(1);
+        assert_eq!(app.p_idx, 1, "↓ goes to the next project");
+        assert_eq!(app.cur, 0, "and starts that project at its first session");
+        app.step_project(-1);
+        assert_eq!(app.p_idx, 0, "↑ goes back");
+        app.step_project(-1);
+        assert_eq!(app.p_idx, app.tabs.len() - 1, "and wraps around the end");
+
+        app.p_idx = 0;
+        app.reset_position();
+        app.step_session(1);
+        assert_eq!(app.cur, 1, "→ goes to the next session");
+        assert_eq!(app.p_idx, 0, "and leaves the project alone");
+        app.step_session(-1);
+        assert_eq!(app.cur, 0, "← goes back");
+        app.step_session(-1);
+        assert_eq!(app.cur, 0, "and stops at the first rather than wrapping");
+    }
+
+    /// Browser rule one: the strip is one row, always. It must never wrap, however many tabs
+    /// are open — everything below it would move.
+    #[test]
+    fn the_tab_strip_is_always_exactly_one_row() {
+        for n in [1usize, 2, 8, 40, 200] {
+            let mut app = fixture(&real_tabs());
+            app.items = (0..n).map(|i| nth_item(i)).collect();
+            app.tabs = vec![ALL_TAB.to_string()];
+            app.p_idx = 0;
+            for cols in [60usize, 100, 181] {
+                let line = session_tabs(&app, &app.view(), cols);
+                let w = spans_width(&line.spans);
+                assert!(w <= cols, "{n} tabs at {cols} cols rendered {w}");
+            }
+        }
+    }
+
+    /// Browser rule two: the active tab is always on screen, and the strip says how many are
+    /// hidden off each end.
+    #[test]
+    fn the_active_tab_is_always_visible() {
+        let mut app = fixture(&real_tabs());
+        app.items = (0..40).map(nth_item).collect();
+        app.tabs = vec![ALL_TAB.to_string()];
+        app.p_idx = 0;
+        let view = app.view();
+        for cur in 0..view.len() {
+            app.cur = cur;
+            let line = session_tabs(&app, &view, 120);
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            let name = app.items[view[cur]].display_name();
+            let head: String = name.chars().take(8).collect();
+            assert!(text.contains(&head), "tab {cur} ({head}) fell off the strip: {text:?}");
+        }
+    }
+
+    /// The focused tab says everything; the rest say just enough to steer by.
+    #[test]
+    fn the_focused_tab_is_full_width_and_the_rest_are_two_words() {
+        let mut app = fixture(&real_tabs());
+        app.items = (0..6).map(nth_item).collect();
+        app.tabs = vec![ALL_TAB.to_string()];
+        app.p_idx = 0;
+        app.cur = 2;
+        let view = app.view();
+        let full = app.items[view[2]].display_name().to_string();
+        let text: String =
+            session_tabs(&app, &view, 181).spans.iter().map(|s| s.content.as_ref()).collect();
+
+        assert!(text.contains(&full), "the focused tab carries its whole title: {text:?}");
+        // Its neighbour is the same title, cut to two words.
+        let neighbour = app.items[view[3]].display_name().to_string();
+        let two = first_words(&neighbour, 2);
+        assert!(text.contains(&two), "an idle tab keeps two words: {text:?}");
+        assert!(!text.contains(&neighbour), "but not the whole title: {text:?}");
+    }
+
+    /// Moving focus re-sizes both tabs, and costs nothing below the strip.
+    #[test]
+    fn moving_focus_moves_which_tab_is_wide() {
+        let mut app = fixture(&real_tabs());
+        app.items = (0..6).map(nth_item).collect();
+        app.tabs = vec![ALL_TAB.to_string()];
+        app.p_idx = 0;
+        let view = app.view();
+        let strip = |app: &App| -> String {
+            session_tabs(app, &view, 181).spans.iter().map(|s| s.content.as_ref()).collect()
+        };
+        app.cur = 0;
+        let first = strip(&app);
+        app.cur = 1;
+        let second = strip(&app);
+        assert_ne!(first, second, "the wide tab follows the focus");
+        assert!(second.contains(app.items[view[1]].display_name()), "tab 1 opened up");
+        assert!(!second.contains(app.items[view[0]].display_name()), "tab 0 closed down");
+    }
+
+    /// The row that read as a stray blank line has to announce itself even when empty.
+    #[test]
+    fn the_search_row_shows_its_icon_when_empty() {
+        let mut app = fixture(&real_tabs());
+        let idle = frame(&mut app, 136, 26);
+        assert!(
+            idle.iter().any(|r| r.contains(SEARCH_ICON)),
+            "an empty search row still says it is a search row"
+        );
+
+        app.q = "sess".into();
+        let typed = frame(&mut app, 136, 26);
+        let row = typed.iter().find(|r| r.contains(SEARCH_ICON)).expect("the row survives typing");
+        assert!(row.contains("sess"), "and carries the query: {row:?}");
+
+        // It costs the same row either way, so nothing below it moves as you type.
+        let rule = |rows: &[String]| rows.iter().position(|r| r.contains("────"));
+        assert_eq!(rule(&idle), rule(&typed), "typing must not shift the frame");
+    }
+
+    /// The dot means something — running, active, stale — and the focused tab must not repaint
+    /// that meaning away.
+    #[test]
+    fn the_focused_tab_keeps_its_status_colours() {
+        let mut app = fixture(&real_tabs());
+        app.items = (0..3).map(nth_item).collect();
+        app.tabs = vec![ALL_TAB.to_string()];
+        app.p_idx = 0;
+        // An old session and a live one, so there are two different dots to tell apart.
+        app.items[1].mtime = model::now_ms() - 40 * 60 * 60 * 1000;
+        app.items[2].mtime = model::now_ms() - 60 * 60 * 1000; // orange: recent, not active
+        let view = app.view();
+
+        let dot_style = |cur: usize, slot: usize| {
+            let mut a = fixture(&real_tabs());
+            a.items = app.items.clone();
+            a.tabs = app.tabs.clone();
+            a.cur = cur;
+            tab_marks(&a, &a.items[view[slot]], (cur == slot).then_some(tab_selected()))
+                .first()
+                .map(|s| s.style)
+        };
+
+        let idle = dot_style(0, 2).expect("a recent session has a dot");
+        let focused = dot_style(2, 2).expect("and keeps it when focused");
+        assert_eq!(focused.fg, idle.fg, "the dot keeps its own colour when focused");
+        assert_eq!(focused.bg, Some(theme::TAB_SEL), "it only takes the selection's background");
+        assert_ne!(idle.fg, Some(theme::ON_SEL), "and was never the selection's foreground");
+    }
+
+    /// Two selections are on screen at once, so they must not look the same — and neither may be
+    /// a plain reverse of the terminal's own colours.
+    #[test]
+    fn the_panel_and_the_tab_strip_highlight_differently() {
+        let panel = panel_selected();
+        let tab = tab_selected();
+        assert_ne!(panel.bg, tab.bg, "the two selections need different backgrounds");
+        assert!(panel.bg.is_some() && tab.bg.is_some(), "both are explicit colours");
+        assert!(
+            !panel.add_modifier.contains(Modifier::REVERSED)
+                && !tab.add_modifier.contains(Modifier::REVERSED),
+            "neither reverses the terminal's colours any more"
+        );
+    }
+
+    /// The composer owns the keyboard while it is open, and gives it back on esc.
+    #[test]
+    fn the_composer_takes_every_key_until_it_is_dismissed() {
+        let mut app = fixture(&real_tabs());
+        let before = app.q.clone();
+        app.draft = Some(("id1".into(), String::new()));
+
+        let press = |app: &mut App, c: char| {
+            let _ = compose_key(app, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE), false);
+        };
+        for c in "yes go".chars() {
+            press(&mut app, c);
+        }
+        assert_eq!(app.draft.as_ref().unwrap().1, "yes go", "keys land in the draft");
+        assert_eq!(app.q, before, "and not in the filter");
+
+        let _ = compose_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), false);
+        assert!(app.draft.is_none(), "esc abandons it");
+    }
+
+    /// It must not offer to send into a session someone is already typing at.
+    #[test]
+    fn a_running_session_cannot_be_replied_to() {
+        let mut app = fixture(&real_tabs());
+        app.reply_ok = true;
+        let id = app.items[0].id.clone();
+        app.live.insert(
+            id.clone(),
+            crate::live::Live {
+                pid: 4674,
+                tty: "ttys000".into(),
+                status: "busy".into(),
+                waiting_for: String::new(),
+            },
+        );
+        app.cur = app.view().iter().position(|&i| app.items[i].id == id).unwrap();
+
+        app.begin_reply();
+        assert!(app.draft.is_none(), "no composer opens for a running session");
+        assert!(app.flash.contains("running"), "and it says why: {:?}", app.flash);
+    }
+
+    /// An empty draft must not spend a turn.
+    #[test]
+    fn an_empty_reply_is_not_sent() {
+        let mut app = fixture(&real_tabs());
+        app.draft = Some((app.items[0].id.clone(), "   ".into()));
+        let _ = compose_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), false);
+        assert!(app.sending.is_empty(), "whitespace is not a turn");
+        assert!(app.draft.is_none(), "but the composer still closes");
+    }
+
+    /// Eyeball it: `cargo test dump_the_dashboard -- --nocapture --ignored`.
+    #[test]
+    #[ignore]
+    fn dump_the_dashboard() {
+        let mut app = fixture(&real_tabs());
+        app.p_idx = 0;
+        // A session loaded the way a real one is: a recap, a first and last prompt, and a reply
+        // long enough to be the thing that sets the preview's height.
+        let reply = (1..=14)
+            .map(|i| format!("Line {i} of a reply that runs well past the recap beside it."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        app.items[0].detail = Some(crate::parse::Detail {
+            count: 5,
+            first: Some("pull down the most updated version please".into()),
+            last: Some("update it so i can run with sessio".into()),
+            reply: Some(reply),
+            recap: Some("Goal: try a sidebar layout for sessio's project tabs.".into()),
+            ..Default::default()
+        });
+        // Sizes worth eyeballing: override with SESSIO_DUMP_COLS=90,181
+        let sizes: Vec<(u16, u16)> = match std::env::var("SESSIO_DUMP_COLS") {
+            Ok(v) => v.split(',').filter_map(|c| c.trim().parse().ok()).map(|c| (c, 34)).collect(),
+            Err(_) => vec![(136, 34)],
+        };
+        if std::env::var("SESSIO_DUMP_REPLY").is_ok() {
+            app.draft = Some((app.items[0].id.clone(), "yes, start with the mock generator".into()));
+        }
+        for (cols, rows) in sizes {
+            println!("\n-- {cols}x{rows} --");
+            for (y, r) in frame(&mut app, cols, rows).iter().enumerate() {
+                let t = r.trim_end();
+                let tag =
+                    if t.chars().all(|c| c == ' ' || c == '\u{2502}') { "   <-- BLANK" } else { "" };
+                println!("{y:>2}|{t}|{tag}");
+            }
+        }
+    }
+
     #[test]
     fn the_key_bar_never_exceeds_the_terminal_width() {
         for cols in 8..200 {
@@ -1389,25 +2179,19 @@ mod tests {
     }
 
     #[test]
-    fn a_wider_terminal_buys_air_not_longer_lines() {
-        // The bug this pins: prose was wrapped at the full width, so a 200-column window rendered
-        // a 198-character measure and the eye lost its way back to the next line. Past the cap,
-        // extra width goes to the second column and then to margin.
-        for w in [40usize, 80, 120, 200, 400, 1000] {
-            let (_, colw, prose) = columns(w);
-            assert!(prose <= MEASURE, "{w} cols gave a {prose}-wide measure");
-            assert!(colw <= w, "{w} cols gave a {colw}-wide column");
+    fn the_measure_tracks_the_window_but_stays_scannable() {
+        // Two bugs, one test. Wrapping at the full width made a 400-column window render a
+        // 388-character line; pinning a flat 90 left a 181-column window three-quarters empty.
+        for w in [40usize, 80, 120, 181, 200, 400, 1000] {
+            let prose = prose_width(w);
+            assert!(prose <= w, "{w} cols gave a {prose}-wide measure");
+            assert!(prose <= MEASURE_MAX, "{w} cols gave a {prose}-wide measure");
         }
-
-        let (two, _, narrow) = columns(80);
-        assert!(!two, "80 columns has room for one readable column, not two");
-        assert!(narrow > 20, "a single column still has to hold words: {narrow}");
-
-        let (two, colw, _) = columns(200);
-        assert!(two, "200 columns fits two");
-        assert!(2 * colw + COL_GAP <= 200, "two columns must fit side by side");
-
-        assert_eq!(columns(1000).2, MEASURE, "capped, however wide the window");
+        assert!(prose_width(80) > 20, "a narrow window still has to hold words");
+        // The width the user actually runs: it must use appreciably more than the old flat cap.
+        // 90 was the old flat cap; a wide window must now use appreciably more than that.
+        assert!(prose_width(160) > 90, "a wide window fills: {} at 160 cols", prose_width(160));
+        assert_eq!(prose_width(1000), MEASURE_MAX, "but not without limit");
     }
 
     #[test]
@@ -1425,21 +2209,6 @@ mod tests {
         assert_eq!(out[1].spans[0].content, " ".repeat(GUTTER), "and stays there");
     }
 
-    #[test]
-    fn the_right_column_starts_at_one_column_on_every_row() {
-        let left = vec![Line::from(Span::raw("short")), Line::from(Span::raw("much longer line"))];
-        let right = vec![Line::from(Span::raw("a")), Line::from(Span::raw("b"))];
-        let joined = join_cols(left, right, 20);
-
-        let starts: Vec<usize> = joined
-            .iter()
-            .map(|l| {
-                let n = l.spans.len();
-                spans_width(&l.spans[..n - 1])
-            })
-            .collect();
-        assert_eq!(starts[0], starts[1], "ragged left content must not shift the right column");
-    }
 
     #[test]
     fn one_time_format_for_the_whole_preview() {
@@ -1511,10 +2280,20 @@ mod tests {
 
     #[test]
     fn the_warning_names_somewhere_to_look() {
-        let l = crate::live::Live { pid: 68227, tty: "ttys013".into() };
-        assert_eq!(running_where(&l), "pid 68227 · ttys013");
-        let headless = crate::live::Live { pid: 7, tty: String::new() };
-        assert_eq!(running_where(&headless), "pid 7");
+        let live = |pid, tty: &str, status: &str, waiting_for: &str| crate::live::Live {
+            pid,
+            tty: tty.into(),
+            status: status.into(),
+            waiting_for: waiting_for.into(),
+        };
+        assert_eq!(running_where(&live(68227, "ttys013", "", "")), "pid 68227 · ttys013");
+        assert_eq!(running_where(&live(7, "", "", "")), "pid 7");
+        assert_eq!(running_where(&live(7, "ttys001", "busy", "")), "pid 7 · ttys001 · busy");
+        // The one status the user has to do something about says what it needs.
+        assert_eq!(
+            running_where(&live(7, "ttys001", "waiting", "input needed")),
+            "pid 7 · ttys001 · waiting · input needed"
+        );
     }
 
     #[test]
@@ -1532,5 +2311,251 @@ mod tests {
         let narrow = rendered(80);
         assert!(narrow.contains("↵ new-window"), "resume is the point: {narrow}");
         assert!(!narrow.contains("^f search-in-text"), "p5 sheds first: {narrow}");
+    }
+}
+
+
+// ---------- the browser demo ----------
+
+/// The dashboard, running in a browser instead of a terminal.
+///
+/// This exists so the website demo cannot lie. The previous site hand-wrote its terminal mock in
+/// HTML and it drifted the moment the layout changed — by the time anyone noticed, it documented
+/// keys that no longer existed. Here the page calls the same `frame_lines` the terminal does,
+/// against fixture sessions, so a layout change shows up on the site the next time it is built or
+/// it does not show up at all.
+#[cfg(target_arch = "wasm32")]
+pub mod demo {
+    use super::*;
+    use std::cell::RefCell;
+    use wasm_bindgen::prelude::*;
+
+    thread_local! {
+        static APP: RefCell<App> = RefCell::new(build());
+    }
+
+    /// A fixed clock, so the demo's ages read the same on every visit.
+    const NOW: i64 = 1_788_000_000_000;
+
+    fn item(n: usize, project: &str, name: &str, ago_min: i64, open: bool) -> Item {
+        Item {
+            id: format!("demo-{n}"),
+            key: format!("demo-{n}"),
+            file: std::path::PathBuf::new(),
+            mtime: NOW - ago_min * 60_000,
+            size: 8_000 + (n as u64) * 5_300,
+            dir: project.into(),
+            first: Some("where did we get to with the limiter?".into()),
+            first_ts: None,
+            cwd: Some(format!("~/code/{project}")),
+            branch: Some(if n % 3 == 0 { "main" } else { "feat/limiter" }.into()),
+            custom: None,
+            ai: Some(name.into()),
+            open,
+            open_reason: open.then_some(crate::parse::OpenReason::CallToAction),
+            recap: None,
+            recap_ts: None,
+            title: Some(name.into()),
+            name: name.into(),
+            project: project.into(),
+            hay: format!("{name} {project}").to_lowercase(),
+            detail: None,
+        }
+    }
+
+    fn build() -> App {
+        crate::model::DEMO_NOW.store(NOW, std::sync::atomic::Ordering::Relaxed);
+        let rows: &[(&str, &str, i64, bool)] = &[
+            ("api", "add rate limiting to auth routes", 2, true),
+            ("api", "refactor the cache layer", 41, false),
+            ("web-app", "fix login redirect loop", 180, true),
+            ("web-app", "dark mode tokens", 900, false),
+            ("cli-tool", "ship the release workflow", 1500, false),
+            ("docs", "write onboarding docs", 2600, false),
+        ];
+        let mut items: Vec<Item> =
+            rows.iter().enumerate().map(|(n, r)| item(n, r.0, r.1, r.2, r.3)).collect();
+
+        items[0].recap = Some(
+            "Limiter is in and tested; the Retry-After header still needs a decision on units. \
+             Next action is yours."
+                .into(),
+        );
+        items[0].detail = Some(crate::parse::Detail {
+            count: 14,
+            first: Some("where did we get to with the limiter?".into()),
+            last: Some("use seconds, and document it".into()),
+            reply: Some(
+                "Added a token-bucket limiter on the login and signup routes; over-limit \
+                 requests now return **429** with a `Retry-After`.\n\nThe remaining decision is \
+                 units — seconds is what every client library already expects, so unless you \
+                 want HTTP-date for a specific consumer I'd use that.\n\nWant me to wire the \
+                 same limiter into the password-reset route while I'm here?"
+                    .into(),
+            ),
+            recap: items[0].recap.clone(),
+            ..Default::default()
+        });
+
+        let archive = Archive::default();
+        let tabs = crate::model::tabs_for(&items, &archive);
+        let (tx, _rx) = mpsc::channel();
+        // The receiver is dropped on purpose: nothing in the browser sends on this channel.
+        App {
+            items,
+            archive,
+            tabs,
+            q: String::new(),
+            cur: 0,
+            p_idx: 0,
+            expand: false,
+            help: false,
+            flash: String::new(),
+            flash_until: None,
+            deep: None,
+            search_gen: 0,
+            details: HashMap::new(),
+            detail_inflight: HashSet::new(),
+            live: crate::live::LiveMap::new(),
+            confirm: None,
+            draft: None,
+            sending: HashSet::new(),
+            reply_ok: false,
+            tx,
+        }
+    }
+
+    /// xterm-256 to CSS. The palette is a formula, not a table: 16 fixed colours, then a
+    /// 6×6×6 cube, then a 24-step grey ramp.
+    fn css(c: ratatui::style::Color) -> Option<String> {
+        use ratatui::style::Color as C;
+        let hex = |r: u8, g: u8, b: u8| format!("#{r:02x}{g:02x}{b:02x}");
+        let indexed = |i: u8| -> String {
+            const BASE: [(u8, u8, u8); 16] = [
+                (0, 0, 0), (128, 0, 0), (0, 128, 0), (128, 128, 0),
+                (0, 0, 128), (128, 0, 128), (0, 128, 128), (192, 192, 192),
+                (128, 128, 128), (255, 0, 0), (0, 255, 0), (255, 255, 0),
+                (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255),
+            ];
+            const STEP: [u8; 6] = [0, 95, 135, 175, 215, 255];
+            match i {
+                0..=15 => { let (r, g, b) = BASE[i as usize]; hex(r, g, b) }
+                16..=231 => {
+                    let n = i - 16;
+                    hex(STEP[(n / 36) as usize], STEP[((n % 36) / 6) as usize], STEP[(n % 6) as usize])
+                }
+                _ => { let v = 8 + 10 * (i - 232); hex(v, v, v) }
+            }
+        };
+        Some(match c {
+            C::Reset => return None,
+            C::Rgb(r, g, b) => hex(r, g, b),
+            C::Indexed(i) => indexed(i),
+            C::Black => indexed(0),
+            C::Red => indexed(9),
+            C::Green => indexed(10),
+            C::Yellow => indexed(11),
+            C::Blue => indexed(12),
+            C::Magenta => indexed(13),
+            C::Cyan => indexed(14),
+            C::White => indexed(15),
+            C::Gray => indexed(7),
+            C::DarkGray => indexed(8),
+            C::LightRed => indexed(9),
+            C::LightGreen => indexed(10),
+            C::LightYellow => indexed(11),
+            C::LightBlue => indexed(12),
+            C::LightMagenta => indexed(13),
+            C::LightCyan => indexed(14),
+        })
+    }
+
+    fn escape(s: &str) -> String {
+        s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    }
+
+    /// One frame of the real dashboard, as HTML.
+    #[wasm_bindgen]
+    pub fn render(cols: usize, rows: usize) -> String {
+        APP.with(|a| {
+            let mut app = a.borrow_mut();
+            let mut out = String::with_capacity(cols * rows * 12);
+            for line in frame_lines(&mut app, cols, rows) {
+                for sp in line.spans {
+                    let mut style = String::new();
+                    if let Some(fg) = sp.style.fg.and_then(css) {
+                        style.push_str(&format!("color:{fg};"));
+                    }
+                    if let Some(bg) = sp.style.bg.and_then(css) {
+                        style.push_str(&format!("background:{bg};"));
+                    }
+                    if sp.style.add_modifier.contains(Modifier::BOLD) {
+                        style.push_str("font-weight:700;");
+                    }
+                    if sp.style.add_modifier.contains(Modifier::ITALIC) {
+                        style.push_str("font-style:italic;");
+                    }
+                    let text = escape(sp.content.as_ref());
+                    if style.is_empty() {
+                        out.push_str(&text);
+                    } else {
+                        out.push_str(&format!("<span style=\"{style}\">{text}</span>"));
+                    }
+                }
+                out.push('\n');
+            }
+            out
+        })
+    }
+
+    /// A keypress from the page. Names match the terminal's keys; unknown ones are ignored, so
+    /// the page can forward anything without having to know what the dashboard supports.
+    #[wasm_bindgen]
+    pub fn key(name: &str) {
+        APP.with(|a| {
+            let mut app = a.borrow_mut();
+            match name {
+                "ArrowUp" => app.step_project(-1),
+                "ArrowDown" => app.step_project(1),
+                "ArrowLeft" => app.step_session(-1),
+                "ArrowRight" => app.step_session(1),
+                "Tab" => app.expand = !app.expand,
+                "?" => app.help = !app.help,
+                "Escape" => {
+                    if app.draft.is_some() {
+                        app.draft = None;
+                    } else if !app.q.is_empty() {
+                        app.q.clear();
+                        app.requery();
+                    } else {
+                        app.help = false;
+                    }
+                }
+                "Backspace" => {
+                    if let Some((id, mut t)) = app.draft.take() {
+                        t.pop();
+                        app.draft = Some((id, t));
+                    } else {
+                        app.q.pop();
+                        app.requery();
+                    }
+                }
+                "^r" => app.begin_reply(),
+                _ => {
+                    let mut ch = name.chars();
+                    if let (Some(c), None) = (ch.next(), ch.next()) {
+                        if c >= ' ' {
+                            if let Some((id, mut t)) = app.draft.take() {
+                                t.push(c);
+                                app.draft = Some((id, t));
+                            } else {
+                                app.q.push(c);
+                                app.requery();
+                            }
+                        }
+                    }
+                }
+            }
+        })
     }
 }

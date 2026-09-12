@@ -11,7 +11,7 @@ use crate::store::Archive;
 
 pub const OPEN_TAB: &str = "⏸ open";
 pub const ARCHIVED_TAB: &str = "🗄 archived";
-pub const ALL_TAB: &str = "All";
+pub const ALL_TAB: &str = "⌂ everything";
 
 /// "Claude asked / proposed next" is a weak signal — most replies offer a next step — so it
 /// only keeps a session open while it is recent. Unanswered prompts and git WIP count at any age.
@@ -279,6 +279,17 @@ fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
     collected.into_iter().map(|(_, h, t)| (h, t)).collect()
 }
 
+/// `SystemTime::now()` panics on `wasm32-unknown-unknown`, and a demo wants a fixed clock
+/// anyway: the fixture ages have to read the same on every visit.
+#[cfg(target_arch = "wasm32")]
+pub fn now_ms() -> i64 {
+    DEMO_NOW.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub static DEMO_NOW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

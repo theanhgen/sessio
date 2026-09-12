@@ -1,0 +1,11 @@
+# What GitHub's language bar should count as *this project's* code.
+#
+# sessio is Rust. The JavaScript that remains is not implementation: `legacy/` is the original JS
+# implementation, kept frozen as a differential test oracle (scripts/oracle.sh runs both and diffs
+# `--dump-json`), and `lib/` is the handful of helpers it imports. Neither ships, neither is
+# maintained, and counting them made the repo read as 27% JavaScript.
+legacy/** linguist-vendored
+lib/** linguist-vendored
+
+# wasm-bindgen output for the website demo — generated, never hand-edited.
+docs/demo/** linguist-generated
