@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **sessio opens on the project you launched it from.** Run `sessions` inside a folder that has
+  sessions — or a subfolder of one — and the panel starts on that project instead of
+  `⌂ everything`. The walk up stops before `~`, so a folder with no sessions of its own still
+  opens on everything rather than on whatever was once started in your home directory.
+
 ## 1.0.0 - 2026-09-12
 
 The first stable release of the Rust rewrite, and the first version a plain `npm i -g sessio`

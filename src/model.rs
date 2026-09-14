@@ -215,6 +215,60 @@ mod tests {
         assert!(!decay(false, None, NOW, NOW));
     }
 
+    fn at(cwd: &str, project: &str) -> Item {
+        Item {
+            id: project.into(),
+            key: format!("{project}/{project}.jsonl"),
+            file: PathBuf::new(),
+            mtime: NOW,
+            size: 0,
+            dir: project.into(),
+            first: Some("hi".into()),
+            first_ts: None,
+            cwd: Some(cwd.into()),
+            branch: None,
+            custom: None,
+            ai: None,
+            open: false,
+            open_reason: None,
+            recap: None,
+            recap_ts: None,
+            title: None,
+            name: "hi".into(),
+            project: project.into(),
+            hay: String::new(),
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn launching_inside_a_project_opens_on_it() {
+        let items = vec![
+            at("/Users/me", "me"),
+            at("/Users/me/code/sessio", "sessio"),
+            at("/Users/me/code/mybit", "mybit"),
+        ];
+        let tabs: Vec<String> = [ALL_TAB, "me", "sessio", "mybit"].map(String::from).to_vec();
+        let home = Some(Path::new("/Users/me"));
+        let pick = |dir: &str| tab_for_dir(&items, &tabs, Path::new(dir), home);
+
+        assert_eq!(pick("/Users/me/code/mybit"), Some(3), "exact folder");
+        assert_eq!(pick("/Users/me/code/sessio/src/"), Some(2), "a subfolder opens on its project");
+        assert_eq!(pick("/Users/me"), Some(1), "home itself, when launched there");
+        assert_eq!(pick("/Users/me/Downloads"), None, "never climbs to home");
+        assert_eq!(pick("/opt/elsewhere"), None);
+    }
+
+    #[test]
+    fn a_folder_whose_sessions_are_all_archived_has_no_tab_to_open() {
+        let items = vec![at("/Users/me/code/gone", "gone")];
+        let tabs: Vec<String> = vec![ALL_TAB.into()];
+        assert_eq!(
+            tab_for_dir(&items, &tabs, Path::new("/Users/me/code/gone"), Some(Path::new("/Users/me"))),
+            None
+        );
+    }
+
     #[test]
     fn labels_are_stable_user_visible_strings() {
         // The preview renders these; the oracle compares them against the JS constants.
@@ -245,6 +299,26 @@ pub fn tabs_for(items: &[Item], archive: &Archive) -> Vec<String> {
         tabs.push(ARCHIVED_TAB.to_string());
     }
     tabs
+}
+
+/// The tab to open on when sessio is launched from `dir`: the project whose sessions ran there,
+/// or failing that in its nearest parent. The walk up stops before `home`, so a folder with no
+/// sessions of its own doesn't open on whatever was once started in `~` — only launching from
+/// `~` itself does that.
+pub fn tab_for_dir(items: &[Item], tabs: &[String], dir: &Path, home: Option<&Path>) -> Option<usize> {
+    for d in dir.ancestors() {
+        if d != dir && home.is_some_and(|h| d == h || !d.starts_with(h)) {
+            break;
+        }
+        let tab = items
+            .iter()
+            .filter(|it| it.cwd.as_deref().map(Path::new) == Some(d))
+            .find_map(|it| tabs.iter().position(|t| *t == it.project));
+        if tab.is_some() {
+            return tab;
+        }
+    }
+    None
 }
 
 /// Read head+tail for every selected row, bounded by core count.
