@@ -257,15 +257,24 @@ mod tests {
         assert_eq!(pick("/Users/me"), Some(1), "home itself, when launched there");
         assert_eq!(pick("/Users/me/Downloads"), None, "never climbs to home");
         assert_eq!(pick("/opt/elsewhere"), None);
+        assert_eq!(
+            tab_for_dir(&items, &tabs, Path::new("/Users/me/code/sessio/src"), None),
+            None,
+            "without a home only the exact folder counts"
+        );
+        assert_eq!(tab_for_dir(&items, &tabs, Path::new("/Users/me/code/sessio"), None), Some(2));
     }
 
     #[test]
     fn a_folder_whose_sessions_are_all_archived_has_no_tab_to_open() {
-        let items = vec![at("/Users/me/code/gone", "gone")];
-        let tabs: Vec<String> = vec![ALL_TAB.into()];
+        let items = vec![at("/Users/me/code", "code"), at("/Users/me/code/gone", "gone")];
+        let tabs: Vec<String> = [ALL_TAB, "code"].map(String::from).to_vec();
+        let home = Some(Path::new("/Users/me"));
+        assert_eq!(tab_for_dir(&items, &tabs, Path::new("/Users/me/code/gone"), home), None);
         assert_eq!(
-            tab_for_dir(&items, &tabs, Path::new("/Users/me/code/gone"), Some(Path::new("/Users/me"))),
-            None
+            tab_for_dir(&items, &tabs, Path::new("/Users/me/code/gone/src"), home),
+            None,
+            "a subfolder stops at the archived project, not its live parent"
         );
     }
 
@@ -304,18 +313,19 @@ pub fn tabs_for(items: &[Item], archive: &Archive) -> Vec<String> {
 /// The tab to open on when sessio is launched from `dir`: the project whose sessions ran there,
 /// or failing that in its nearest parent. The walk up stops before `home`, so a folder with no
 /// sessions of its own doesn't open on whatever was once started in `~` — only launching from
-/// `~` itself does that.
+/// `~` itself does that. Without a known `home` only the exact folder is considered. A folder
+/// that has sessions but no visible tab (all archived) opens on everything rather than climbing.
 pub fn tab_for_dir(items: &[Item], tabs: &[String], dir: &Path, home: Option<&Path>) -> Option<usize> {
     for d in dir.ancestors() {
-        if d != dir && home.is_some_and(|h| d == h || !d.starts_with(h)) {
+        if d != dir && home.is_none_or(|h| d == h || !d.starts_with(h)) {
             break;
         }
-        let tab = items
+        let here: Vec<&Item> = items
             .iter()
             .filter(|it| it.cwd.as_deref().map(Path::new) == Some(d))
-            .find_map(|it| tabs.iter().position(|t| *t == it.project));
-        if tab.is_some() {
-            return tab;
+            .collect();
+        if !here.is_empty() {
+            return here.iter().find_map(|it| tabs.iter().position(|t| *t == it.project));
         }
     }
     None
