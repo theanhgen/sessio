@@ -15,12 +15,8 @@
 ## Install
 
 ```sh
-npm install -g sessio@alpha
+npm install -g sessio
 ```
-
-**The `@alpha` matters.** Everything documented here is the 1.0 rewrite; a plain `npm i -g sessio`
-still resolves to the older 0.3 JavaScript line, which has none of it. `latest` moves to 1.0 when
-the alpha does.
 
 This puts a `sessions` command on your PATH (and `sessio` as an alias). Run it:
 

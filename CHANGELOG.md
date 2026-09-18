@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 - 2026-09-18
+
+sessio is scriptable now: everything the dashboard does is also a command, with JSON for agents and
+a skill that teaches them to use it. The dashboard keeps its project panel at every window size.
 
 - **The project panel stays at every window size.** Below roughly 90-105 columns (depending on
   the longest project name) the projects used to move into a horizontal strip above the list,

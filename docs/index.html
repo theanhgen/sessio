@@ -127,7 +127,7 @@
     <p class="latin">Latin · <em>sessiō</em> — a sitting, a session. The root the English word grew from.</p>
 
     <div class="cta">
-      <span class="install"><span class="p">$</span><span id="cmd">npm i -g sessio@alpha</span>
+      <span class="install"><span class="p">$</span><span id="cmd">npm i -g sessio</span>
         <button onclick="copyCmd()" id="copy">copy</button></span>
       <a class="btn primary" href="https://www.npmjs.com/package/sessio">View on npm</a>
       <a class="btn" href="https://github.com/theanhgen/sessio">Star on GitHub</a>
@@ -216,8 +216,8 @@
     <h2>Install</h2>
     <div class="term" style="margin-top:0">
       <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">zsh</span></div>
-<pre style="margin:0;padding:18px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto"><span style="color:var(--dimmer)"># install the 1.0 rewrite (adds the `sessions` command)</span>
-<span style="color:var(--green)">$</span> npm install -g sessio@alpha
+<pre style="margin:0;padding:18px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto"><span style="color:var(--dimmer)"># install (adds the `sessions` command)</span>
+<span style="color:var(--green)">$</span> npm install -g sessio
 
 <span style="color:var(--dimmer)"># run it</span>
 <span style="color:var(--green)">$</span> sessions
@@ -227,7 +227,7 @@
     </div>
     <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Requires <b style="color:var(--fg)">Node.js ≥ 16</b> to install and <b style="color:var(--fg)">Claude Code</b> (the <span class="mono">claude</span> binary on your PATH). macOS and Linux.</p>
 
-    <div class="note" style="margin-top:22px"><b>Why <span class="mono">@alpha</span>:</b> everything on this page is the 1.0 rewrite — Rust, shipped as a native binary, with Node needed only to install it. It sits on the <span class="mono">alpha</span> dist-tag, so a plain <span class="mono">npm i -g sessio</span> still gives you the older 0.3 JavaScript line, which has none of this. Build it from source instead if you prefer:
+    <div class="note" style="margin-top:22px"><b>From source:</b> sessio is Rust, shipped as a native binary, with Node needed only to install it. Build it yourself if you prefer:
       <div style="margin-top:12px;font-family:var(--mono);font-size:13.5px;color:var(--fg)">$ cargo install --git https://github.com/theanhgen/sessio</div>
     </div>
   </section>
@@ -244,7 +244,7 @@
 
 <script>
   function copyCmd(){
-    navigator.clipboard.writeText('npm i -g sessio@alpha').then(function(){
+    navigator.clipboard.writeText('npm i -g sessio').then(function(){
       var b=document.getElementById('copy');b.textContent='copied';
       setTimeout(function(){b.textContent='copy'},1400);
     });
