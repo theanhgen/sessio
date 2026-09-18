@@ -70,6 +70,16 @@ impl Item {
 }
 
 pub fn load(extra: &[PathBuf]) -> Vec<Item> {
+    load_with(extra, false)
+}
+
+/// `load` for a caller that runs once and exits: waits for the git checks instead of reading
+/// unknown as clean, so uncommitted work counts as open on the first and only look.
+pub fn load_settled(extra: &[PathBuf]) -> Vec<Item> {
+    load_with(extra, true)
+}
+
+fn load_with(extra: &[PathBuf], settle: bool) -> Vec<Item> {
     let root = discover::projects_root();
     let rows = discover::scan(&root);
     let selected = discover::select(&rows, CAP, extra);
@@ -119,6 +129,15 @@ pub fn load(extra: &[PathBuf]) -> Vec<Item> {
 
     // git WIP: flag the most-recent session in each project whose folder has uncommitted
     // changes. `dirty()` never blocks — unknown reads as clean until a background check lands.
+    if settle {
+        let mut uniq: HashSet<&str> = HashSet::new();
+        let cwds: Vec<&str> = items
+            .iter()
+            .filter_map(|it| it.cwd.as_deref())
+            .filter(|c| uniq.insert(c))
+            .collect();
+        crate::git::settle(&cwds);
+    }
     let mut seen: HashSet<&str> = HashSet::new();
     let flags: Vec<bool> = items
         .iter()

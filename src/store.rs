@@ -160,6 +160,16 @@ impl Archive {
         self.save();
     }
 
+    /// Archive or unarchive outright, for a caller that knows which it wants: through `toggle`,
+    /// running `sessions archive` twice would unarchive. Returns whether anything changed.
+    pub fn set(&mut self, key: &str, id: &str, archived: bool) -> bool {
+        if self.contains(key, id) == archived {
+            return false;
+        }
+        self.toggle(key, id);
+        true
+    }
+
     fn forget(&mut self, key: &str, id: &str) {
         self.entries.remove(key);
         self.entries.remove(id);

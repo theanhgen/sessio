@@ -30,6 +30,7 @@
   },
   "files": [
     "bin/",
+    "skills/",
     "scripts/backup-sessions.sh",
     "scripts/com.sessio.backup.plist",
     "CHANGELOG.md",

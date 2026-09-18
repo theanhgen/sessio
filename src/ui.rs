@@ -796,7 +796,7 @@ fn enter_action(is_live: bool, confirmed: bool) -> EnterAction {
 }
 
 /// Where the running process is, for a user who has to find it themselves.
-fn running_where(live: &crate::live::Live) -> String {
+pub fn running_where(live: &crate::live::Live) -> String {
     let mut s = format!("pid {}", live.pid);
     if !live.tty.is_empty() {
         s.push_str(&format!(" · {}", live.tty));
@@ -1446,7 +1446,7 @@ fn help_lines() -> Vec<Line<'static>> {
 
 // ---------- formatting helpers ----------
 
-fn ago(ms: i64) -> String {
+pub fn ago(ms: i64) -> String {
     let s = (model::now_ms() - ms) as f64 / 1000.0;
     if s < 3600.0 {
         format!("{}m", ((s / 60.0).round() as i64).max(1))

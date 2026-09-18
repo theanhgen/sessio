@@ -52,6 +52,34 @@ pub fn dirty(cwd: &str) -> bool {
     }
 }
 
+/// Check every `cwd` now and wait for the answers, for a caller with no later tick to collect
+/// them on. The CLI runs once and exits, so `dirty()`'s "unknown reads as clean" would be its
+/// final answer and every git-WIP session would silently drop out of `--open`.
+///
+/// Same bounds as the background path: `WORKERS` at a time, each check held to `TIMEOUT`. A cwd
+/// with a fresh cache entry is not checked again.
+pub fn settle(cwds: &[&str]) {
+    let todo: Vec<&str> = {
+        let s = state().lock().expect("git cache is never poisoned");
+        cwds.iter()
+            .copied()
+            .filter(|c| !matches!(s.cache.get(*c), Some((_, at)) if at.elapsed() < TTL))
+            .collect()
+    };
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..WORKERS.min(todo.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(cwd) = todo.get(i) else { break };
+                let result = Path::new(cwd).exists() && run_status(cwd);
+                let mut s = state().lock().expect("git cache is never poisoned");
+                s.cache.insert(cwd.to_string(), (result, Instant::now()));
+            });
+        }
+    });
+}
+
 /// The work queue feeding the fixed worker pool, started on first use.
 fn queue() -> &'static Sender<String> {
     static Q: OnceLock<Sender<String>> = OnceLock::new();
