@@ -34,7 +34,7 @@ sessions
 
 ## What it does
 
-- **Projects panel** — sessions grouped by their working directory; `↑`/`↓` to switch, or `⌂ everything`. Launched from inside a project folder (or a subfolder of one), sessio opens on that project. On a window wide enough for it the projects run down the left as a panel; narrower, they fall back to a horizontal strip. Either way the chrome is a fixed height, so switching projects changes the text and nothing else.
+- **Projects panel** — sessions grouped by their working directory; `↑`/`↓` to switch, or `⌂ everything`. Launched from inside a project folder (or a subfolder of one), sessio opens on that project. The projects run down the left as a panel at every window size; on a narrow window the panel narrows and abbreviates the names rather than giving way. The chrome is a fixed height, so switching projects changes the text and nothing else.
 - **Session tabs** — the sessions in the current project are browser-style tabs on one row, moved with `←`/`→`. The focused tab shows its whole title, the rest show two words, and the strip scrolls around the focused one rather than wrapping.
 - **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, or the folder has uncommitted git changes). Open sessions are marked with an amber `▸` in any view.
 - **🔍 Type to filter** — instantly narrows by title, project, or first prompt. `^w` (or `⌥⌫`) rubs out a word, `^u` (which is what `⌘⌫` sends) clears the query. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching.

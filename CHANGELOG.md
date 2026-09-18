@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The project panel stays at every window size.** Below roughly 90-105 columns (depending on
+  the longest project name) the projects used to move into a horizontal strip above the list,
+  which wrapped onto as many rows as the names needed. Now the panel narrows instead, down to 10
+  columns with the names abbreviated, and the dashboard beside it keeps 80 columns for as long as
+  the window has them.
 - **sessio opens on the project you launched it from.** Run `sessions` inside a folder that has
   sessions — or a subfolder of one — and the panel starts on that project instead of
   `⌂ everything`. The walk up stops before `~`, so a folder with no sessions of its own still
