@@ -307,13 +307,19 @@ pub fn run() -> io::Result<()> {
 
     let (tx, rx) = mpsc::channel();
     let tabs = model::tabs_for(&items, &archive);
+    // Launched from inside a project, open on it rather than on everything.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let p_idx = std::env::current_dir()
+        .ok()
+        .and_then(|dir| model::tab_for_dir(&items, &tabs, &dir, home.as_deref()))
+        .unwrap_or(0);
     let mut app = App {
         items,
         archive,
         tabs,
         q: String::new(),
         cur: 0,
-        p_idx: 0,
+        p_idx,
         expand: false,
         help: false,
         flash: String::new(),
