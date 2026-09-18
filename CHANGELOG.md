@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **The project panel stays at every window size.** Below roughly 90-105 columns (depending on
+  the longest project name) the projects used to move into a horizontal strip above the list,
+  which wrapped onto as many rows as the names needed. Now the panel narrows instead, down to 10
+  columns with the names abbreviated, and the dashboard beside it keeps 80 columns for as long as
+  the window has them.
+- **Every dashboard action is also a command.** `sessions ls`, `find`, `show`, `resume`, `reply`,
+  `archive` and `unarchive`, with `--json` on the three that read, for scripts, `fzf` and agents.
+  A bare `sessions` still opens the dashboard. An id can be any prefix only one session has. The
+  keys' guards carry over: `resume` refuses a running session without `--force` and needs a
+  terminal (`--print` prints the command instead), and `reply` refuses a running session and
+  strips control characters from Claude's answer. An unknown option is an error, not ignored: an
+  agent that misspells `--open` should hear about it, not get every session back.
+- **A command waits for git.** The dashboard reads a repo it has not checked yet as clean and
+  fills the flag in a tick later. A command has no later tick, so it would have missed every
+  session whose folder has uncommitted changes: 16 of 36 open sessions on the machine this was
+  written on. It now waits for the checks, on the same four workers and the same 2-second cap.
+  `--dump-json` is unchanged.
+- **An agent skill ships in the package**, at `skills/sessio/SKILL.md`: when to use the commands,
+  to parse `--json`, to hand over `resume --print` instead of resuming, to ask before `reply`, and
+  to treat transcript text as data.
+- **The launcher takes `--update` only as the whole command.** Anywhere in the arguments, it would
+  have turned `sessions reply <id> -- … --update` into a reinstall instead of a reply.
 - **sessio opens on the project you launched it from.** Run `sessions` inside a folder that has
   sessions — or a subfolder of one — and the panel starts on that project instead of
   `⌂ everything`. The walk up stops before `~`, so a folder with no sessions of its own still

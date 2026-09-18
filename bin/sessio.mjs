@@ -218,7 +218,9 @@ const isMain = (() => {
 if (isMain) {
   const argv = process.argv.slice(2);
 
-  if (argv.includes('--update')) {
+  // Only as the whole command: in `sessions reply <id> -- … --update` the flag is part of the
+  // message, and reinstalling instead of sending it would be the wrong thing to do quietly.
+  if (argv[0] === '--update') {
     try { await update(); } catch { console.error('Could not update sessio.'); process.exitCode = 1; }
     process.exit(process.exitCode || 0);
   }

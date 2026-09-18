@@ -796,7 +796,7 @@ fn enter_action(is_live: bool, confirmed: bool) -> EnterAction {
 }
 
 /// Where the running process is, for a user who has to find it themselves.
-fn running_where(live: &crate::live::Live) -> String {
+pub fn running_where(live: &crate::live::Live) -> String {
     let mut s = format!("pid {}", live.pid);
     if !live.tty.is_empty() {
         s.push_str(&format!(" · {}", live.tty));
@@ -853,21 +853,19 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     // The panel is carved off the left first, so everything below measures itself against the
     // width that is actually left rather than the terminal's.
     let side = sidebar(app, cols);
-    let cols = cols - side.map(|w| w + SIDE_GAP).unwrap_or(0);
-    let tabs = if side.is_some() { Vec::new() } else { tab_bar(app, cols) };
+    let cols = cols.saturating_sub(side + SIDE_GAP);
 
-    // The chrome is a fixed height: header, project strip (none beside a panel), search, and the
-    // one-row session tab strip. Nothing here is derived from what the highlighted session
-    // contains, so the preview under it never moves as you walk the tabs.
-    let chrome = 1 + tabs.len() + 1 + TAB_ROW + usize::from(app.draft.is_some());
+    // The chrome is a fixed height: header, search, and the one-row session tab strip. Nothing
+    // here is derived from what the highlighted session contains, so the preview under it never
+    // moves as you walk the tabs.
+    let chrome = 1 + 1 + TAB_ROW + usize::from(app.draft.is_some());
     let preview_box = rows.saturating_sub(chrome);
     let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
     let reply_max = preview_box.saturating_sub(base).max(1);
     let prev = sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default();
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows + 4);
-    lines.push(header(app, cols, side.is_some()));
-    lines.extend(tabs);
+    lines.push(header(app, cols));
     lines.push(query_line(app, view.len()));
     lines.push(session_tabs(app, &view, cols));
     if let Some((_, text)) = &app.draft {
@@ -875,10 +873,7 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     }
     lines.extend(prev);
 
-    match side {
-        Some(w) => join_side(side_panel(app, w, rows), lines, w),
-        None => lines,
-    }
+    join_side(side_panel(app, side, rows), lines, side)
 }
 
 /// One hint in the key bar. `p` is how expendable it is: the bar sheds the highest `p` first.
@@ -914,7 +909,7 @@ fn fit_segments(segs: &[Seg], cols: usize) -> Vec<&Seg> {
 }
 
 
-fn header(app: &App, cols: usize, panel: bool) -> Line<'static> {
+fn header(app: &App, cols: usize) -> Line<'static> {
     let waiting = app.live.values().filter(|l| l.needs_you()).count();
     // The full bar is ~136 columns under Ghostty. Anything narrower would be clipped mid-word by
     // the paragraph, so drop the least essential hints instead. `? help` is p0 — it reveals
@@ -925,9 +920,6 @@ fn header(app: &App, cols: usize, panel: bool) -> Line<'static> {
     // column it moves through, which is a better place for it than a bar of ten hints.
     let mut segs: Vec<Seg> =
         vec![Seg { p: 3, t: "←→ session", accent: false }, Seg { p: 4, t: "type", accent: false }];
-    if !panel {
-        segs.insert(0, Seg { p: 3, t: "↑↓ project", accent: false });
-    }
     if search::rg_path().is_some() {
         segs.push(Seg { p: 5, t: "^f search-in-text", accent: false });
     }
@@ -985,56 +977,33 @@ fn header(app: &App, cols: usize, panel: bool) -> Line<'static> {
     Line::from(spans)
 }
 
-fn tab_bar(app: &App, cols: usize) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let mut cur: Vec<Span> = Vec::new();
-    let mut w = 0usize;
-    for (i, p) in app.tabs.iter().enumerate() {
-        let label = sanitize(p);
-        let vis = UnicodeWidthStr::width(label.as_str()) + 2;
-        if w + vis > cols && !cur.is_empty() {
-            lines.push(Line::from(std::mem::take(&mut cur)));
-            w = 0;
-        }
-        let style = if i == app.p_idx { panel_selected() } else { dim() };
-        cur.push(Span::styled(format!(" {label} "), style));
-        w += vis;
-    }
-    if !cur.is_empty() {
-        lines.push(Line::from(cur));
-    }
-    if lines.is_empty() {
-        lines.push(Line::from(""));
-    }
-    lines
-}
-
 /// The widest the project panel may get, however long the project names are. Past this it is
 /// eating the list for names `fit_width` can abbreviate instead.
 const SIDE_MAX: usize = 22;
-/// Below this a project name is unreadable, so the panel is not worth its columns.
+/// The narrowest the panel gets. A name clipped shorter than this is unreadable.
 const SIDE_MIN: usize = 10;
 /// The rule between the panel and the dashboard: `" │ "`.
 const SIDE_GAP: usize = 3;
-/// The narrowest dashboard worth drawing beside a panel. Below it the list rows lose their meta
-/// and the preview its measure, so the panel gives its columns back and the strip returns.
+/// The dashboard width the panel shrinks to protect. Below it the list rows lose their meta and
+/// the preview its measure, so the panel gives up its own columns first.
 const BODY_MIN: usize = 80;
 
-/// How wide the project panel should be, or `None` to keep the horizontal tab strip.
+/// How wide the project panel is. It is always drawn, at every window size.
 ///
-/// The panel buys vertical rows — the strip costs `1 + however many rows it wrapped to`, and that
-/// wrap moves every time the tab set changes, which drags the whole frame with it. It pays for
-/// them in columns, on every row, forever. That is only a good trade while the dashboard beside
-/// it is still a full-width dashboard; below `BODY_MIN` the strip comes back instead.
-fn sidebar(app: &App, cols: usize) -> Option<usize> {
+/// There used to be a fallback: below a certain width the projects moved into a horizontal strip
+/// above the list. That strip wrapped onto as many rows as the names needed, and the wrap changed
+/// whenever the project set did, dragging the whole frame with it. Never bring it back. On a
+/// narrow window the panel narrows instead, down to `SIDE_MIN`, and `fit_width` abbreviates the
+/// names.
+fn sidebar(app: &App, cols: usize) -> usize {
     let widest = app
         .tabs
         .iter()
         .map(|t| UnicodeWidthStr::width(sanitize(t).as_str()))
         .max()
         .unwrap_or(0);
-    let w = (widest + 2).clamp(SIDE_MIN, SIDE_MAX);
-    (cols >= w + SIDE_GAP + BODY_MIN).then_some(w)
+    let natural = (widest + 2).clamp(SIDE_MIN, SIDE_MAX);
+    natural.min(cols.saturating_sub(SIDE_GAP + BODY_MIN)).max(SIDE_MIN)
 }
 
 /// The project panel: a label, then one row per tab. When there are more projects than rows the
@@ -1477,7 +1446,7 @@ fn help_lines() -> Vec<Line<'static>> {
 
 // ---------- formatting helpers ----------
 
-fn ago(ms: i64) -> String {
+pub fn ago(ms: i64) -> String {
     let s = (model::now_ms() - ms) as f64 / 1000.0;
     if s < 3600.0 {
         format!("{}m", ((s / 60.0).round() as i64).max(1))
@@ -1841,29 +1810,48 @@ mod tests {
         assert_eq!(few, many, "the session list keeps its rows as projects pile up");
     }
 
+    /// The panel is the layout at every width. A narrow window used to swap it for a strip of
+    /// projects above the list that wrapped onto several rows; that must never come back.
     #[test]
-    fn a_narrow_terminal_keeps_the_horizontal_strip() {
-        let app = fixture(&real_tabs());
-        assert_eq!(sidebar(&app, 80), None, "80 columns cannot afford a panel");
-        assert!(sidebar(&app, 136).is_some(), "136 can");
+    fn a_narrow_terminal_keeps_the_panel() {
+        for cols in [40u16, 60, 80, 100] {
+            let mut app = fixture(&real_tabs());
+            let rows = frame(&mut app, cols, 26);
+            assert!(rows[0].starts_with(" "), "{cols} cols: panel label first: {:?}", rows[0]);
+            assert!(rows[0].contains("projects"), "{cols} cols: panel is labelled: {:?}", rows[0]);
+            for (i, name) in real_tabs().iter().enumerate() {
+                let head: String = name.chars().take(3).collect();
+                assert!(
+                    rows[i + 1].trim_start().starts_with(&head),
+                    "{cols} cols: row {} should hold {name}: {:?}",
+                    i + 1,
+                    rows[i + 1]
+                );
+            }
+        }
     }
 
-    /// The objection the panel had to answer: it must never be the reason the dashboard beside it
-    /// stops being a usable dashboard.
+    /// On a narrow window the panel gives up its columns before the dashboard beside it does.
     #[test]
-    fn the_panel_never_starves_the_dashboard() {
+    fn the_panel_shrinks_before_the_dashboard_does() {
         let app = fixture(&real_tabs());
+        let natural = sidebar(&app, 300);
         for cols in 0..300 {
-            if let Some(w) = sidebar(&app, cols) {
-                let body = cols - w - SIDE_GAP;
-                assert!(body >= BODY_MIN, "{cols} cols left the dashboard only {body}");
+            let w = sidebar(&app, cols);
+            assert!((SIDE_MIN..=SIDE_MAX).contains(&w), "{cols} cols gave a {w}-wide panel");
+            if cols >= natural + SIDE_GAP + BODY_MIN {
+                assert_eq!(w, natural, "{cols} cols can afford the full panel");
+            } else if cols >= SIDE_MIN + SIDE_GAP + BODY_MIN {
+                assert_eq!(cols - w - SIDE_GAP, BODY_MIN, "{cols} cols: the panel shrinks first");
+            } else {
+                assert_eq!(w, SIDE_MIN, "{cols} cols: as narrow as the panel goes");
             }
         }
     }
 
     #[test]
     fn no_row_overflows_the_terminal() {
-        for cols in [60u16, 80, 100, 103, 120, 136, 200] {
+        for cols in [30u16, 40, 60, 80, 100, 103, 120, 136, 200] {
             let mut app = fixture(&real_tabs());
             for (y, row) in frame(&mut app, cols, 26).iter().enumerate() {
                 let w = UnicodeWidthStr::width(row.trim_end());
@@ -1883,36 +1871,6 @@ mod tests {
             assert!(
                 panel.iter().any(|l| l.spans.iter().any(|s| s.content.contains(&refs[p_idx]))),
                 "project {p_idx} fell off the panel"
-            );
-        }
-    }
-
-    /// What the panel actually buys and costs, as the project list grows.
-    /// `cargo test what_the_panel_costs -- --nocapture --ignored`
-    #[test]
-    #[ignore]
-    fn what_the_panel_costs() {
-        for n in [12usize, 14, 16, 20, 26] {
-            let names: Vec<String> = (0..n - 2).map(|i| format!("project-{i:02}")).collect();
-            let mut tabs = vec![ALL_TAB.to_string(), OPEN_TAB.to_string()];
-            tabs.extend(names);
-            let refs: Vec<&str> = tabs.iter().map(String::as_str).collect();
-            let app = fixture(&refs);
-            let strip = tab_bar(&app, 136).len();
-            let w = sidebar(&app, 136).expect("136 affords a panel");
-            let body = 136 - w - SIDE_GAP;
-            let hints = |cols, panel| {
-                header(&app, cols, panel)
-                    .spans
-                    .iter()
-                    .filter(|s| s.content.as_ref() != SEP)
-                    .count()
-            };
-            println!(
-                "{n:>3} tabs | strip {strip} row(s) -> panel saves {} | bar {body} cols, {} hints (strip: 136 cols, {} hints)",
-                strip,
-                hints(body, true),
-                hints(136, false),
             );
         }
     }
@@ -2156,7 +2114,7 @@ mod tests {
         assert_eq!(dot_for(&app, &app.items[0]).0, "◆", "waiting gets its own mark");
 
         // And the bar says so, at a priority nothing can shed it from.
-        let bar: String = header(&app, 60, true).spans.iter().map(|s| s.content.to_string()).collect();
+        let bar: String = header(&app, 60).spans.iter().map(|s| s.content.to_string()).collect();
         assert!(bar.contains("waiting on you"), "even a narrow bar says it: {bar:?}");
     }
 

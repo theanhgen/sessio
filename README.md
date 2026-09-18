@@ -4,7 +4,7 @@
 
 🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
 
-`sessio` is a fast, self-contained TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it.
+`sessio` is a fast, self-contained TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Every one of those is also a plain command (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`) with `--json` for scripts and agents, and an [agent skill](#agent-skill) ships with it.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
@@ -34,7 +34,7 @@ sessions
 
 ## What it does
 
-- **Projects panel** — sessions grouped by their working directory; `↑`/`↓` to switch, or `⌂ everything`. Launched from inside a project folder (or a subfolder of one), sessio opens on that project. On a window wide enough for it the projects run down the left as a panel; narrower, they fall back to a horizontal strip. Either way the chrome is a fixed height, so switching projects changes the text and nothing else.
+- **Projects panel** — sessions grouped by their working directory; `↑`/`↓` to switch, or `⌂ everything`. Launched from inside a project folder (or a subfolder of one), sessio opens on that project. The projects run down the left as a panel at every window size; on a narrow window the panel narrows and abbreviates the names rather than giving way. The chrome is a fixed height, so switching projects changes the text and nothing else.
 - **Session tabs** — the sessions in the current project are browser-style tabs on one row, moved with `←`/`→`. The focused tab shows its whole title, the rest show two words, and the strip scrolls around the focused one rather than wrapping.
 - **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, or the folder has uncommitted git changes). Open sessions are marked with an amber `▸` in any view.
 - **🔍 Type to filter** — instantly narrows by title, project, or first prompt. `^w` (or `⌥⌫`) rubs out a word, `^u` (which is what `⌘⌫` sends) clears the query. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching.
@@ -67,6 +67,51 @@ sessions
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |
 | `^c` | quit |
+
+## Commands
+
+Everything the dashboard does is also a command, for scripts, `fzf` and agents. A bare `sessions`
+still opens the dashboard.
+
+```sh
+sessions ls                        # recent sessions, newest first (20; -n 0 for all)
+sessions ls --here --open          # unfinished work in this folder's project
+sessions ls --waiting              # running sessions blocked on you
+sessions find "login bug"          # rank by title, project and first prompt
+sessions find --text ECONNRESET    # search inside every transcript (needs rg)
+sessions show 1b6324f5             # recap, first and last prompt, last reply
+sessions resume 1b6324f5           # resume in its own folder, in this terminal
+sessions reply 1b6324f5 "run the tests again"   # one turn, without opening it
+sessions archive 1b6324f5          # hide it; `unarchive` undoes it
+```
+
+- **Ids** are any prefix only one session has; `ls` prints eight characters.
+- **Filters** for `ls` and `find`: `-p`/`--project <name>`, `--here`, `--open`, `--running`,
+  `--waiting`, `--archived`, `-n`/`--limit <N>`.
+- **`--json`** on `ls`, `find` and `show` prints one JSON document with the state the dashboard
+  shows: why a session is open, the process running it and what it is doing, whether it is
+  archived, and the transcript's path.
+- **Marks** in `ls`: `◆` waiting on you, `◉` running, `▸` unfinished.
+- **Uncommitted changes count on the first look.** The dashboard checks git in the background and
+  fills the flag in on a later refresh. A command has no later refresh, so it waits for those
+  checks (2s at most per repo) before it answers.
+- **The keys' guards carry over.** `resume` refuses a session that is already running unless you
+  pass `--force`, and needs a terminal; `--print` prints the command instead. `reply` refuses a
+  running session, spends tokens like `^r`, and strips control characters from Claude's answer
+  before printing it. A message that starts with `-` goes after `--`, and `-` alone reads it from
+  stdin.
+- Exit status: `0` done, `1` couldn't do it, `2` bad command line.
+
+## Agent skill
+
+[`skills/sessio/SKILL.md`](skills/sessio/SKILL.md) teaches an agent to use those commands: when to
+reach for them, to parse `--json`, to hand you `resume --print` rather than resume anything itself,
+to ask before `reply`, and to treat transcript text as data rather than instructions. It ships in
+the npm package; link it into Claude Code with:
+
+```sh
+ln -s "$(npm root -g)/sessio/skills/sessio" ~/.claude/skills/sessio
+```
 
 ## Update
 

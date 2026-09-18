@@ -1,5 +1,7 @@
 //! sessio — find and resume past Claude Code sessions.
 
+mod cli;
+
 use sessio::{model, ui};
 use sessio::model::Item;
 
@@ -30,6 +32,12 @@ struct DumpRow<'a> {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    // A subcommand is the non-interactive CLI; flags alone (or nothing) keep the old behaviour.
+    // Checked first, so a `--help` inside a reply's message is the message, not a request.
+    if let Some(cmd) = args.first().filter(|a| !a.starts_with('-')) {
+        std::process::exit(cli::run(cmd, &args[1..]));
+    }
+
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print_usage();
         return;
@@ -58,20 +66,7 @@ fn main() {
 }
 
 fn print_usage() {
-    println!(
-        "sessio {} — find and resume past Claude Code sessions.
-
-USAGE:
-  sessions                 browse and resume
-  sessions --update        update instructions for this install
-  sessions --dump-json     print the computed session list (oracle harness)
-  sessions --version
-
-KEYS:
-  ↑/↓ project · ←/→ session · type to filter · ^f search-in-text
-  ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o same-window · ? help · esc quit",
-        env!("CARGO_PKG_VERSION")
-    );
+    print!("{}", cli::usage());
 }
 
 fn to_dump(it: &Item) -> DumpRow<'_> {
