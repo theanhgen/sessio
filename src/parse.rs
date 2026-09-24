@@ -302,6 +302,108 @@ pub fn tail(path: &Path) -> Tail {
     t
 }
 
+/// Bytes of the file end read on each tick while `^t` follows a running session. Bounded, so a
+/// transcript that has grown to hundreds of megabytes costs the same to follow as a new one.
+pub const FOLLOW_WINDOW: u64 = 256 * 1024;
+
+/// Who wrote one entry of a followed session's tail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Who {
+    You,
+    Claude,
+    /// The names of the tools one assistant turn called, joined — not their input or output,
+    /// which is where the megabytes are.
+    Tool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    pub who: Who,
+    pub text: String,
+}
+
+/// The last `max_entries` things said in a transcript, oldest first, read from at most the last
+/// `max_bytes` of the file. Read-only: the file is opened for reading and nothing else.
+///
+/// A window that starts mid-file usually starts mid-line, and that fragment is dropped outright.
+/// The read begins one byte early so a window that happens to start exactly on a line boundary
+/// keeps that line: the byte before it is the newline that gets dropped.
+pub fn follow_tail(path: &Path, max_bytes: u64, max_entries: usize) -> Vec<Entry> {
+    let mut out: Vec<Entry> = Vec::new();
+    let Ok(mut file) = File::open(path) else { return out };
+    let Ok(meta) = file.metadata() else { return out };
+    let start = meta.len().saturating_sub(max_bytes);
+    let from = start.saturating_sub(1);
+    if file.seek(SeekFrom::Start(from)).is_err() {
+        return out;
+    }
+    let want = meta.len() - from;
+    let mut raw = Vec::with_capacity(want as usize);
+    if file.take(want).read_to_end(&mut raw).is_err() {
+        return out;
+    }
+    let body: &[u8] = if start > 0 {
+        match raw.iter().position(|b| *b == b'\n') {
+            Some(i) => &raw[i + 1..],
+            None => &[],
+        }
+    } else {
+        &raw
+    };
+
+    for chunk in body.split(|b| *b == b'\n') {
+        let line = line_str(chunk);
+        if line.contains("\"type\":\"assistant\"") {
+            let Ok(o) = serde_json::from_str::<Value>(&line) else { continue };
+            if str_field(&o, "type") != Some("assistant") {
+                continue;
+            }
+            let Some(blocks) =
+                o.get("message").and_then(|m| m.get("content")).and_then(Value::as_array)
+            else {
+                continue;
+            };
+            let text = blocks
+                .iter()
+                .filter(|b| str_field(b, "type") == Some("text"))
+                .map(|b| str_field(b, "text").unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            let text = js_trim(&sanitize(&text)).to_string();
+            if !text.is_empty() {
+                out.push(Entry { who: Who::Claude, text });
+            }
+            let tools = blocks
+                .iter()
+                .filter(|b| str_field(b, "type") == Some("tool_use"))
+                .filter_map(|b| str_field(b, "name"))
+                .map(sanitize)
+                .collect::<Vec<_>>();
+            if !tools.is_empty() {
+                out.push(Entry { who: Who::Tool, text: tools.join(" · ") });
+            }
+        } else if line.contains("\"promptSource\":\"") {
+            let Ok(o) = serde_json::from_str::<Value>(&line) else { continue };
+            let text = o
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(Value::as_str)
+                .map(sanitize)
+                .unwrap_or_default();
+            if str_field(&o, "type") == Some("user")
+                && is_human_prompt(&o)
+                && !js_trim(&text).is_empty()
+                && !text.starts_with('<')
+            {
+                out.push(Entry { who: Who::You, text: js_trim(&text).to_string() });
+            }
+        }
+    }
+    let drop = out.len().saturating_sub(max_entries);
+    out.drain(..drop);
+    out
+}
+
 /// Decode a raw line as UTF-8 (lossy, matching Node's stream decoding) and drop a trailing CR.
 fn line_str(bytes: &[u8]) -> String {
     let mut s = String::from_utf8_lossy(bytes).into_owned();
@@ -398,6 +500,95 @@ mod tests {
         assert!(recap_says_your_move("... Next action is yours: email HR."));
         assert!(recap_says_your_move("NEXT ACTION IS YOURS - do the thing"));
         assert!(!recap_says_your_move("Goal was X; done, nothing pending."));
+    }
+
+    /// A synthetic transcript in the temp dir; never anything under `~/.claude`.
+    fn transcript(name: &str, lines: &[serde_json::Value]) -> std::path::PathBuf {
+        let path = std::env::temp_dir()
+            .join(format!("sessio-follow-{}-{name}.jsonl", std::process::id()));
+        let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    fn prompt(text: &str) -> serde_json::Value {
+        serde_json::json!({"type": "user", "promptSource": "typed", "message": {"content": text}})
+    }
+
+    fn said(text: &str) -> serde_json::Value {
+        serde_json::json!({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
+    }
+
+    fn tool(name: &str) -> serde_json::Value {
+        serde_json::json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": name, "input": {"command": "ls"}}
+        ]}})
+    }
+
+    #[test]
+    fn follow_tail_lists_what_was_said_in_order() {
+        let path = transcript("order", &[
+            prompt("fix the limiter"),
+            tool("Read"),
+            serde_json::json!({"type": "user", "message": {"content": [
+                {"type": "tool_result", "content": "a huge tool result"}
+            ]}}),
+            said("Done — it was off by one."),
+            prompt("<command-name>/clear</command-name>"),
+        ]);
+        let got = follow_tail(&path, FOLLOW_WINDOW, 10);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            got,
+            vec![
+                Entry { who: Who::You, text: "fix the limiter".into() },
+                Entry { who: Who::Tool, text: "Read".into() },
+                Entry { who: Who::Claude, text: "Done — it was off by one.".into() },
+            ],
+            "tool results and command echoes are not things anyone said"
+        );
+    }
+
+    #[test]
+    fn follow_tail_keeps_only_the_newest_entries() {
+        let lines: Vec<_> = (0..20).map(|n| prompt(&format!("prompt {n}"))).collect();
+        let path = transcript("cap", &lines);
+        let got = follow_tail(&path, FOLLOW_WINDOW, 3);
+        let _ = std::fs::remove_file(&path);
+        let texts: Vec<_> = got.iter().map(|e| e.text.as_str()).collect();
+        assert_eq!(texts, ["prompt 17", "prompt 18", "prompt 19"]);
+    }
+
+    #[test]
+    fn follow_tail_reads_a_bounded_window_and_drops_the_cut_line() {
+        // A long first line holding the same markers a prompt has, so a fragment of it gets past
+        // the cheap prefilter: whatever the cut, it must not surface as an entry.
+        let padded = serde_json::json!({
+            "type": "user", "promptSource": "typed", "message": {"content": "x".repeat(4000)},
+        });
+        let last = said("the end");
+        let path = transcript("window", &[padded, last.clone()]);
+        let len = std::fs::metadata(&path).unwrap().len();
+        let last_len = format!("{last}\n").len() as u64;
+        let only_last = vec![Entry { who: Who::Claude, text: "the end".into() }];
+
+        // Cut anywhere inside the long line: only the whole line after it is read.
+        for extra in [1, 7, 100, 3999] {
+            assert_eq!(follow_tail(&path, last_len + extra, 10), only_last, "cut {extra} in");
+        }
+        // Cut exactly on the boundary: the last line is whole, and kept.
+        assert_eq!(follow_tail(&path, last_len, 10), only_last, "cut on the boundary");
+        // A window inside the last line: nothing whole fits, so nothing rather than junk.
+        assert!(follow_tail(&path, 16, 10).is_empty());
+        // Everything fits: both lines are whole and read normally.
+        assert_eq!(follow_tail(&path, len, 10).len(), 2);
+        assert_eq!(follow_tail(&path, len * 2, 10).len(), 2);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn follow_tail_of_a_missing_file_is_empty() {
+        assert!(follow_tail(Path::new("/nonexistent/sessio/x.jsonl"), FOLLOW_WINDOW, 5).is_empty());
     }
 }
 

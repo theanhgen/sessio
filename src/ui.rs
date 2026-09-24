@@ -29,7 +29,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::md::md_lines;
 use crate::model::{self, Item, ACTIVE_MS, ALL_TAB, ARCHIVED_TAB, OPEN_TAB, RECENT_MS, WAITING_TAB};
-use crate::parse::Detail;
+use crate::parse::{Detail, Entry, Who};
 use crate::safety::sanitize;
 use crate::store::Archive;
 use crate::{discover, resume, search};
@@ -81,6 +81,9 @@ const TAB_ROW: usize = 1;
 const TAB_MAX: usize = 44;
 /// Columns held back for the `‹N` / `+N›` counts when the strip scrolls.
 const MARKERS: usize = 12;
+/// How many entries a followed session's tail keeps. More than a tall window shows, so the
+/// preview can bottom-anchor on whole entries rather than run out of them.
+const FOLLOW_ENTRIES: usize = 40;
 
 fn dim() -> Style {
     Style::default().fg(theme::DIM)
@@ -92,6 +95,22 @@ enum Msg {
     Search { gen: u64, query: String, files: Option<HashSet<PathBuf>> },
     /// A headless reply came back (or failed). `key` identifies the session it belongs to.
     Replied { key: String, ok: bool, text: String },
+    /// A fresh read of the followed session's tail.
+    Tail { key: String, entries: Vec<Entry> },
+}
+
+/// `^t`: the preview pinned to a running session, showing the end of its transcript and kept
+/// there on every refresh. Read-only: the transcript is read, never written, and nothing is
+/// attached to the `claude` running it.
+struct Follow {
+    key: String,
+    id: String,
+    name: String,
+    file: PathBuf,
+    /// `None` until the first read lands.
+    entries: Option<Vec<Entry>>,
+    /// The session stopped running while it was followed. The tail stays on screen.
+    ended: bool,
 }
 
 struct Deep {
@@ -127,6 +146,8 @@ struct App {
     sending: HashSet<String>,
     /// Whether the "this spends tokens" warning has been acknowledged this run.
     reply_ok: bool,
+    /// The running session `^t` pinned the preview to. Any move unpins it.
+    follow: Option<Follow>,
     tx: Sender<Msg>,
 }
 
@@ -226,6 +247,7 @@ impl App {
 
     fn reset_position(&mut self) {
         self.cur = 0;
+        self.follow = None;
     }
 
     /// The projects are a column, so they move on ↑↓; the sessions move on ←→. Kept here rather
@@ -241,6 +263,7 @@ impl App {
     }
 
     fn step_session(&mut self, delta: isize) {
+        self.follow = None;
         if delta < 0 {
             self.cur = self.cur.saturating_sub(delta.unsigned_abs());
         } else if self.cur + 1 < self.view().len() {
@@ -287,6 +310,56 @@ impl App {
             tabs.insert(at, WAITING_TAB.to_string());
         }
         tabs
+    }
+
+    /// `^t`: pin the preview to the highlighted session and follow its tail, or unpin it. Only a
+    /// running session has a tail worth following; on anything else it says so and does nothing.
+    fn toggle_follow(&mut self) {
+        if self.follow.take().is_some() {
+            self.say("stopped following".into());
+            return;
+        }
+        let Some(i) = self.selected() else { return };
+        let it = &self.items[i];
+        let short = first_words(&it.name, 4);
+        if !self.live.contains_key(&it.id) {
+            self.say(format!("\"{short}\" is not running — nothing to follow"));
+            return;
+        }
+        self.follow = Some(Follow {
+            key: it.key.clone(),
+            id: it.id.clone(),
+            name: it.name.clone(),
+            file: it.file.clone(),
+            entries: None,
+            ended: false,
+        });
+        self.say(format!("following \"{short}\" — read-only · any move stops it"));
+        self.read_tail();
+    }
+
+    /// Read the followed session's tail on a worker, like the detail read. The browser has no
+    /// transcript to read.
+    fn read_tail(&self) {
+        let Some(f) = &self.follow else { return };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (tx, key, file) = (self.tx.clone(), f.key.clone(), f.file.clone());
+            std::thread::spawn(move || {
+                let entries =
+                    crate::parse::follow_tail(&file, crate::parse::FOLLOW_WINDOW, FOLLOW_ENTRIES);
+                let _ = tx.send(Msg::Tail { key, entries });
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = (&f.file, FOLLOW_ENTRIES);
+    }
+
+    /// A refresh landed: note whether the followed session is still running.
+    fn note_follow_live(&mut self) {
+        if let Some(f) = &mut self.follow {
+            f.ended = !self.live.contains_key(&f.id);
+        }
     }
 
     fn rebuild_tabs(&mut self) {
@@ -352,6 +425,7 @@ pub fn run() -> io::Result<()> {
         draft: None,
         sending: HashSet::new(),
         reply_ok: false,
+        follow: None,
         tx: tx.clone(),
     };
 
@@ -413,10 +487,23 @@ fn event_loop(
             last_refresh = Instant::now();
             let tx2 = tx.clone();
             let extra = app.deep.as_ref().map(|d| d.files.clone()).unwrap_or_default();
+            // A session that has stopped writes nothing more, so its tail is not re-read.
+            let follow =
+                app.follow.as_ref().filter(|f| !f.ended).map(|f| (f.key.clone(), f.file.clone()));
             std::thread::spawn(move || {
                 let items = model::load(&extra);
                 // Same worker: one `ps` per refresh, off the input path.
                 let _ = tx2.send(Msg::Items(items, crate::live::scan()));
+                // Read after the scan, so the refresh that finds the session gone also reads the
+                // last thing it wrote.
+                if let Some((key, file)) = follow {
+                    let entries = crate::parse::follow_tail(
+                        &file,
+                        crate::parse::FOLLOW_WINDOW,
+                        FOLLOW_ENTRIES,
+                    );
+                    let _ = tx2.send(Msg::Tail { key, entries });
+                }
             });
         }
 
@@ -436,7 +523,13 @@ fn event_loop(
                 Msg::Items(new_items, live) => {
                     refreshing = false;
                     app.live = live;
+                    app.note_follow_live();
                     absorb_items(app, new_items);
+                }
+                Msg::Tail { key, entries } => {
+                    if let Some(f) = app.follow.as_mut().filter(|f| f.key == key) {
+                        f.entries = Some(entries);
+                    }
                 }
                 Msg::Detail { key, mtime, detail } => {
                     app.detail_inflight.remove(&key);
@@ -586,6 +679,7 @@ fn handle_key(
         KeyCode::Char('a') if ctrl => {
             if let Some(i) = app.selected() {
                 let (key, id) = (app.items[i].key.clone(), app.items[i].id.clone());
+                app.follow = None; // the selection is about to move out from under the pin
                 app.archive.toggle(&key, &id);
                 app.rebuild_tabs();
                 let len = app.view().len();
@@ -596,6 +690,7 @@ fn handle_key(
         // A bare `r` cannot open the composer: plain letters filter the list, and "r" is the
         // first character of plenty of things worth searching for.
         KeyCode::Char('r') if ctrl => app.begin_reply(),
+        KeyCode::Char('t') if ctrl => app.toggle_follow(),
         KeyCode::Tab => app.expand = !app.expand,
         KeyCode::Char('e') if ctrl => app.expand = !app.expand,
         // Each axis matches the shape of the thing it moves: the projects are a column, so they
@@ -937,9 +1032,13 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     // moves as you walk the tabs.
     let chrome = 1 + 1 + TAB_ROW + usize::from(app.draft.is_some());
     let preview_box = rows.saturating_sub(chrome);
-    let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
-    let reply_max = preview_box.saturating_sub(base).max(1);
-    let prev = sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default();
+    let prev = if let Some(f) = &app.follow {
+        follow_preview(app, f, cols, preview_box)
+    } else {
+        let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
+        let reply_max = preview_box.saturating_sub(base).max(1);
+        sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default()
+    };
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows + 4);
     lines.push(header(app, cols));
@@ -1017,6 +1116,11 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         segs.push(Seg { p: 1, t: "↵ resume", accent: false });
     }
     segs.push(Seg { p: 2, t: "^r reply", accent: false });
+    segs.push(if app.follow.is_some() {
+        Seg { p: 4, t: "^t unfollow", accent: true }
+    } else {
+        Seg { p: 5, t: "^t follow", accent: false }
+    });
     // Never shed: a session waiting on you is the most urgent thing the bar can say, so it
     // outranks every hint including `? help`.
     if waiting > 0 {
@@ -1438,6 +1542,75 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     lines
 }
 
+/// The preview while `^t` follows a session: what it is, whether it is still running, and the
+/// end of its transcript, bottom-anchored so the newest line is always the last one on screen.
+fn follow_preview(app: &App, f: &Follow, width: usize, rows: usize) -> Vec<Line<'static>> {
+    let w = width.max(1);
+    let mut lines: Vec<Line> = vec![Line::from(Span::styled("─".repeat(w), dim()))];
+
+    let name = app.items.iter().find(|it| it.key == f.key).map_or(f.name.as_str(), Item::display_name);
+    let title = sanitize(name);
+    let (mark, style, rest) = match app.live.get(&f.id).filter(|_| !f.ended) {
+        Some(live) => {
+            ("◉ following", Style::default().fg(theme::ACTIVE), format!(" · {}", running_where(live)))
+        }
+        None => ("◌ ended", Style::default().fg(theme::NAMED), " · no longer running".to_string()),
+    };
+    let mut head = vec![Span::styled(title.clone(), Style::default().fg(theme::ACCENT))];
+    let used = UnicodeWidthStr::width(title.as_str())
+        + UnicodeWidthStr::width(mark)
+        + UnicodeWidthStr::width(rest.as_str());
+    if used + 2 <= w {
+        head.push(Span::raw(" ".repeat(w - used)));
+        head.push(Span::styled(mark, style));
+        head.push(Span::styled(rest, dim()));
+    }
+    lines.push(Line::from(head));
+    lines.push(Line::from(vec![
+        Span::raw("   "),
+        Span::styled("read-only tail · refreshes every 2s · ^t or any move stops following", dim()),
+    ]));
+
+    let prose = prose_width(w);
+    let mut body: Vec<Line> = Vec::new();
+    match &f.entries {
+        None => body.push(Line::from(Span::styled("…", dim()))),
+        Some(e) if e.is_empty() => body.push(Line::from(Span::styled(
+            "   nothing said near the end of the transcript yet",
+            dim(),
+        ))),
+        Some(entries) => {
+            for e in entries {
+                body.extend(match e.who {
+                    Who::You => gutter_block(
+                        "you",
+                        Style::default().fg(theme::NAMED),
+                        wrap_plain(&e.text, prose, 4).into_iter().map(Line::from).collect(),
+                    ),
+                    Who::Claude => gutter_block(
+                        "claude",
+                        Style::default().fg(theme::REPLY),
+                        md_lines(&e.text, prose),
+                    ),
+                    Who::Tool => gutter_block(
+                        "tool",
+                        dim(),
+                        vec![Line::from(Span::styled(
+                            fit_width(&e.text, prose).trim_end().to_string(),
+                            dim(),
+                        ))],
+                    ),
+                });
+            }
+        }
+    }
+    // Bottom-anchored: when it does not all fit, the oldest lines go.
+    let room = rows.saturating_sub(lines.len());
+    let skip = body.len().saturating_sub(room);
+    lines.extend(body.into_iter().skip(skip));
+    lines
+}
+
 /// How wide the preview sets its prose, given the room it has: all of it, up to a measure that
 /// is still scannable. Narrow windows fill completely; wide ones fill to `MEASURE_MAX` and give
 /// the remainder back as margin rather than running a line the eye cannot track.
@@ -1502,6 +1675,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^u ⌘⌫", key), Span::raw("  clear the whole query")]),
         Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
         Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list")]),
+        Line::from(vec![Span::styled("^t", key), Span::raw("     follow a running (◉) session's tail, read-only — any move stops following")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
         Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ goes to its window under Ghostty, else says where; ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
@@ -1864,6 +2038,7 @@ mod tests {
             draft: None,
             sending: HashSet::new(),
             reply_ok: false,
+            follow: None,
             tx,
         }
     }
@@ -2206,6 +2381,101 @@ mod tests {
         app.begin_reply();
         assert!(app.draft.is_none(), "no composer opens for a running session");
         assert!(app.flash.contains("running"), "and it says why: {:?}", app.flash);
+    }
+
+    /// The fixture with its first session marked running and selected.
+    fn running_fixture() -> App {
+        let mut app = fixture(&real_tabs());
+        let id = app.items[0].id.clone();
+        app.live.insert(
+            id.clone(),
+            crate::live::Live {
+                pid: 4674,
+                tty: "ttys000".into(),
+                status: "busy".into(),
+                waiting_for: String::new(),
+            },
+        );
+        app.cur = app.view().iter().position(|&i| app.items[i].id == id).unwrap();
+        app
+    }
+
+    #[test]
+    fn follow_needs_a_running_session() {
+        let mut app = fixture(&real_tabs());
+        app.toggle_follow();
+        assert!(app.follow.is_none(), "nothing to follow in a session nobody is running");
+        assert!(app.flash.contains("not running"), "and it says so: {:?}", app.flash);
+    }
+
+    #[test]
+    fn ctrl_t_pins_and_ctrl_t_again_unpins() {
+        let mut app = running_fixture();
+        app.toggle_follow();
+        let f = app.follow.as_ref().expect("a running session can be followed");
+        assert_eq!(f.id, app.items[0].id);
+        assert!(f.entries.is_none() && !f.ended);
+        app.toggle_follow();
+        assert!(app.follow.is_none());
+    }
+
+    #[test]
+    fn any_move_unpins() {
+        let moves: [fn(&mut App); 5] = [
+            |a| a.step_session(1),
+            |a| a.step_session(-1),
+            |a| a.step_project(1),
+            |a| {
+                a.q.push('x');
+                a.requery();
+            },
+            |a| {
+                a.q.pop();
+                a.requery();
+            },
+        ];
+        for (n, m) in moves.iter().enumerate() {
+            let mut app = running_fixture();
+            app.toggle_follow();
+            m(&mut app);
+            assert!(app.follow.is_none(), "move {n} left the preview pinned");
+        }
+    }
+
+    #[test]
+    fn a_session_that_stops_keeps_its_tail_and_says_so() {
+        let mut app = running_fixture();
+        app.toggle_follow();
+        app.follow.as_mut().unwrap().entries =
+            Some(vec![Entry { who: Who::Claude, text: "shipped it".into() }]);
+
+        app.note_follow_live();
+        assert!(!app.follow.as_ref().unwrap().ended, "still running");
+        assert!(frame(&mut app, 120, 20).join("\n").contains("◉ following"));
+
+        app.live.clear();
+        app.note_follow_live();
+        let f = app.follow.as_ref().expect("stopping does not unpin");
+        assert!(f.ended);
+        let shown = frame(&mut app, 120, 20).join("\n");
+        assert!(shown.contains("ended"), "{shown}");
+        assert!(shown.contains("shipped it"), "the tail stays: {shown}");
+    }
+
+    #[test]
+    fn the_followed_tail_is_bottom_anchored() {
+        let mut app = running_fixture();
+        app.toggle_follow();
+        let entries = (0..FOLLOW_ENTRIES)
+            .map(|n| Entry { who: if n % 2 == 0 { Who::You } else { Who::Claude }, text: format!("entry {n}") })
+            .collect();
+        app.follow.as_mut().unwrap().entries = Some(entries);
+        let rows = frame(&mut app, 120, 16);
+        let last = rows.iter().rposition(|r| r.contains("entry")).expect("entries shown");
+        assert!(rows[last].contains(&format!("entry {}", FOLLOW_ENTRIES - 1)), "{rows:#?}");
+        assert!(!rows.join("\n").contains("entry 0 "), "the oldest went: {rows:#?}");
+        let body = frame_lines(&mut app, 120, 16);
+        assert!(body.len() <= 16, "fills the window, never past it: {}", body.len());
     }
 
     /// An empty draft must not spend a turn.
@@ -2578,6 +2848,7 @@ pub mod demo {
             draft: None,
             sending: HashSet::new(),
             reply_ok: false,
+            follow: None,
             tx,
         }
     }
@@ -2698,6 +2969,7 @@ pub mod demo {
                     }
                 }
                 "^r" => app.begin_reply(),
+                "^t" => app.toggle_follow(),
                 _ => {
                     let mut ch = name.chars();
                     if let (Some(c), None) = (ch.next(), ch.next()) {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`^t` follows a running session.** It pins the preview to the highlighted `◉` session and
+  shows the end of its transcript, newest at the bottom, re-read on every refresh: your prompts,
+  Claude's text and the names of the tools it called. It only reads, at most the last 256 KB of
+  the file, and never attaches to the `claude` running it. A session that stops keeps its tail on
+  screen, marked ended. Any move stops following, and so does `^t` again.
 - **Token totals per session.** The preview and `sessions show` get one line —
   `tokens  in 10.8k · out 5.6M · cache w 31.6M · r 727M` — and `show --json` a `tokens` object.
   Claude Code writes one transcript line per content block of a response, each repeating that
