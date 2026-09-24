@@ -62,6 +62,7 @@ sessions
 | `⇥` / `^e` | expand / collapse the reply preview |
 | `↵` | resume the selected session in its directory, in **this** window, replacing sessio — if it's already running, switches to its window under Ghostty (or says where elsewhere), and a second `↵` opens it twice anyway |
 | `^o` | Ghostty only: resume in a **new** window and keep sessio open — the same already-running guard, confirmed with a second `^o` |
+| `^n` | start a new `claude` in the selected session's folder — a new window under Ghostty, this window everywhere else |
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |
 | `^c` | quit |

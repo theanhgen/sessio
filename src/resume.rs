@@ -10,7 +10,7 @@ pub fn in_ghostty() -> bool {
 }
 
 /// What a new window runs: a *login* shell that `cd`s into the session's folder and execs
-/// `claude --resume`.
+/// `claude --resume` — or, with no `id`, a fresh `claude` there (`^n`).
 ///
 /// The login shell is on purpose: a GUI-launched Ghostty can have a minimal PATH, and running
 /// `claude` directly would fail to find claude/node. Homebrew et al. append to the login profile,
@@ -19,16 +19,31 @@ pub fn in_ghostty() -> bool {
 /// The script `cd`s itself rather than trusting the terminal's working-directory setting, which
 /// has not always been honoured, and `claude --resume` in the wrong folder cannot find the
 /// session. The folder and id travel as positional arguments, never spliced into the script.
-fn window_command(shell: &str, cwd: &Path, id: &str) -> Vec<String> {
-    vec![
+fn window_command(shell: &str, cwd: &Path, id: Option<&str>) -> Vec<String> {
+    let script = match id {
+        Some(_) => "cd -- \"$1\" && exec claude --resume \"$2\"",
+        None => "cd -- \"$1\" && exec claude",
+    };
+    let mut argv = vec![
         shell.to_string(),
         "-l".into(),
         "-c".into(),
-        "cd -- \"$1\" && exec claude --resume \"$2\"".into(),
+        script.into(),
         "sessio".into(),                    // $0 for the -c script
         cwd.to_string_lossy().into_owned(), // $1
-        id.to_string(),                     // $2
-    ]
+    ];
+    argv.extend(id.map(str::to_string)); // $2
+    argv
+}
+
+/// Resume session `id` in a new Ghostty window.
+pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
+    ghostty_window(cwd, Some(id))
+}
+
+/// A fresh `claude` in `cwd`, in a new Ghostty window — `ghostty_launch` with nothing to resume.
+pub fn ghostty_launch_fresh(cwd: &Path) -> Result<(), String> {
+    ghostty_window(cwd, None)
 }
 
 fn login_shell() -> String {
@@ -46,7 +61,7 @@ fn login_shell() -> String {
 /// Ghostty runs `command` through a shell, so the argv is quoted into one string here. The folder
 /// and id reach osascript as argv items and are never interpolated into the AppleScript.
 #[cfg(target_os = "macos")]
-pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
+fn ghostty_window(cwd: &Path, id: Option<&str>) -> Result<(), String> {
     const SCRIPT: &str = r#"on run argv
   tell application "Ghostty"
     set cfg to new surface configuration
@@ -93,7 +108,7 @@ end run"#;
 
 /// Elsewhere: Ghostty's CLI can open a new window in the running instance (GTK builds).
 #[cfg(not(target_os = "macos"))]
-pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
+fn ghostty_window(cwd: &Path, id: Option<&str>) -> Result<(), String> {
     let mut child = Command::new("ghostty")
         .arg("+new-window")
         .arg(format!("--working-directory={}", cwd.display()))
@@ -291,10 +306,28 @@ pub fn resume_in_place(cwd: Option<&Path>, id: &str) -> std::io::Error {
     cmd.exec() // only returns on failure
 }
 
+/// `resume_in_place` with nothing to resume: hand THIS terminal to a fresh `claude` in `cwd`.
+/// The same contract — restore the terminal first, and it returns only on failure.
+#[cfg(target_arch = "wasm32")]
+pub fn start_in_place(_cwd: &Path) -> std::io::Error {
+    std::io::Error::other("starting claude is not available in the browser")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn start_in_place(cwd: &Path) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    Command::new("claude").current_dir(cwd).exec() // only returns on failure
+}
+
 /// The command to print when we cannot launch claude ourselves.
 pub fn manual_command(cwd: Option<&Path>, id: &str) -> String {
     let dir = cwd.map(|c| c.display().to_string()).unwrap_or_else(|| ".".into());
     format!("cd -- {} && claude --resume {}", shell_quote(&dir), shell_quote(id))
+}
+
+/// The command to print when we cannot start a fresh claude ourselves.
+pub fn manual_start_command(cwd: &Path) -> String {
+    format!("cd -- {} && claude", shell_quote(&cwd.display().to_string()))
 }
 
 /// One shell word per argument, for the places that take a command line rather than an argv.
@@ -349,7 +382,7 @@ mod tests {
         std::fs::write(&fake, "#!/bin/sh\npwd -P\necho \"$@\"\n").unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let args = window_command("/bin/sh", &cwd, "abc-123");
+        let args = window_command("/bin/sh", &cwd, Some("abc-123"));
         let c = args.iter().position(|a| a == "-c").unwrap();
         let out = Command::new("/bin/sh")
             .args(&args[c..])
@@ -373,15 +406,53 @@ mod tests {
         // the folder is called, that shell must see exactly the argv we built — checked by having
         // a shell split it and print each word, so nothing is ever launched.
         let cwd = Path::new("/tmp/it's a \"dir\" $HOME `x`");
-        let argv = window_command("/bin/zsh", cwd, "abc-123");
+        for id in [Some("abc-123"), None] {
+            let argv = window_command("/bin/zsh", cwd, id);
+            let out = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(format!("printf '%s\\n' {}", shell_join(&argv)))
+                .output()
+                .unwrap();
+            let words: Vec<String> =
+                String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect();
+            assert_eq!(words, argv, "id = {id:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_fresh_window_script_starts_a_new_claude_in_the_folder() {
+        // ^n: the same launch as ^o, with nothing to resume. It must land in the folder and hand
+        // claude no arguments at all — a stray `--resume` would reopen some other session.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!("sessio-fresh-{}", std::process::id()));
+        let bin = tmp.join("bin");
+        let cwd = tmp.join("a b");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        let fake = bin.join("claude");
+        std::fs::write(&fake, "#!/bin/sh\npwd -P\necho \"args:$#\"\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = window_command("/bin/sh", &cwd, None);
+        let c = args.iter().position(|a| a == "-c").unwrap();
         let out = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(format!("printf '%s\\n' {}", shell_join(&argv)))
+            .args(&args[c..])
+            .current_dir("/")
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
             .output()
             .unwrap();
-        let words: Vec<String> =
-            String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect();
-        assert_eq!(words, argv);
+        let want = cwd.canonicalize().unwrap();
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut lines = text.lines();
+        assert_eq!(lines.next(), Some(want.to_string_lossy().as_ref()));
+        assert_eq!(lines.next(), Some("args:0"));
+        assert_eq!(
+            manual_start_command(Path::new("/tmp/it's")),
+            r"cd -- '/tmp/it'\''s' && claude"
+        );
     }
 
     #[test]
