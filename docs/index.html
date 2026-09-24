@@ -184,7 +184,7 @@
         <p>Projects run down the left; the sessions in one are browser-style tabs across the top.</p>
         <ul>
           <li><b>Type to filter</b> — literal matches first, fuzzy as a fallback.</li>
-          <li><b>^f full-text search</b> — greps every transcript body on disk, via ripgrep.</li>
+          <li><b>^f full-text search</b> — greps every transcript body on disk, not just the newest 300, via ripgrep.</li>
           <li><b>^a archive</b> — hide what you are done with. A session you work in again un-hides itself.</li>
         </ul>
       </div>
@@ -218,17 +218,17 @@
       <tr><th>Key</th><th>Action</th></tr>
       <tr><td class="k"><kbd>↑</kbd> <kbd>↓</kbd></td><td>Switch project</td></tr>
       <tr><td class="k"><kbd>←</kbd> <kbd>→</kbd></td><td>Move between session tabs (<kbd>→</kbd> reveals more)</td></tr>
-      <tr><td class="k">type</td><td>Filter by name / project / first prompt</td></tr>
+      <tr><td class="k">type</td><td>Filter the selected tab by name / project / first prompt — literal first, fuzzy if none, among the newest 300</td></tr>
       <tr><td class="k"><kbd>^w</kbd> / <kbd>⌥⌫</kbd></td><td>Delete the last word of the query</td></tr>
       <tr><td class="k"><kbd>^u</kbd> / <kbd>⌘⌫</kbd></td><td>Clear the whole query</td></tr>
-      <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across all transcripts</td></tr>
+      <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across every transcript on disk (needs ripgrep)</td></tr>
       <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session locally</td></tr>
       <tr><td class="k"><kbd>^r</kbd></td><td>Reply to the session without opening it — sends one turn and leaves you in the list</td></tr>
       <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Give the reply the whole preview box</td></tr>
       <tr><td class="k"><kbd>↵</kbd></td><td>Resume — if it is already running, says where instead; a second <kbd>↵</kbd> opens it twice anyway</td></tr>
       <tr><td class="k"><kbd>^o</kbd></td><td>Resume in this window, skipping the already-running guard — and the escape hatch under Ghostty</td></tr>
       <tr><td class="k"><kbd>?</kbd></td><td>Toggle the full keybinding help</td></tr>
-      <tr><td class="k"><kbd>esc</kbd></td><td>Clear content search, then quit</td></tr>
+      <tr><td class="k"><kbd>esc</kbd></td><td>Leave the <kbd>^f</kbd> text search, otherwise quit</td></tr>
     </table>
   </section>
 

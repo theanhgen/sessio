@@ -61,9 +61,9 @@ whatever they said, including failures.
 
 | Tone | Colour | Mark | Used for |
 |---|---|---|---|
-| Info | primary text | none | progress and neutral acknowledgement: `searching…`, `⏳ sending…`, `reply discarded`, `following …` |
+| Info | primary text | none | progress and neutral acknowledgement: `⏳ sending…`, `reply discarded`, `following …` (a running `^f` says `searching…` on the query row instead) |
 | Success | success (green) | the message's own `↗` / `↩` / `✓` | resumed or focused elsewhere, reply landed, session ended, archived sessions back |
-| Warning | attention (yellow) | none: worded as what to press next or why not | refused preconditions, `↵ again` / `^k again` confirmations, "waiting on you" |
+| Warning | attention (yellow) | none: worded as what to press next or why not | refused preconditions (`^f needs ripgrep · brew install ripgrep`, `type a word first`), `↵ again` / `^k again` confirmations, "waiting on you" |
 | Error | error (red) | `✗ ` added by the renderer | reply failed, window or browser could not open, search or issues failed, `^k` could not end |
 
 The region exists (see Layout); pending state, per-session targets and the rest of its design are #25.
@@ -131,7 +131,7 @@ Verified against `handle_key` and `compose_key` in `src/ui.rs`.
 | `⌫` | delete a character of the query |
 | `^w`, `⌥⌫` | delete the last word of the query |
 | `^u`, `⌘⌫` | clear the query |
-| `^f` | full-text search of the query across all transcripts (only with ripgrep and a non-empty query) |
+| `^f` | full-text search of the query across every transcript on disk; without ripgrep or with an empty query it says why instead |
 | `^a` | archive / unarchive the highlighted session |
 | `^r` | reply without opening (first press warns it spends tokens; Claude only; refused while running) |
 | `⇥`, `^e` | expand / collapse the reply preview |
@@ -142,7 +142,7 @@ Verified against `handle_key` and `compose_key` in `src/ui.rs`.
 | `^g` | show / hide the folder's GitHub issues; `↵` opens one, `esc` or `^g` goes back |
 | `^k` | end a running session idle > 48h; a second `^k` on the same pid confirms |
 | `?` | help; any key closes it |
-| `esc` | leave content search, otherwise quit (in the composer: discard the draft) |
+| `esc` | leave the `^f` text search (results, a search still running, or a failed one), otherwise quit (in the composer: discard the draft) |
 | `^c` | quit, from anywhere except the composer |
 
 Invariants:
@@ -212,7 +212,7 @@ Invariants:
   |---|---|
   | 0 (never shed) | `◆ N waiting on you` (exact count), `? help` |
   | 1 | `↵ resume` |
-  | 2 | `^o new-window` (Ghostty only), `^r reply`, `esc quit` |
+  | 2 | `^o new-window` (Ghostty only), `^r reply`, `esc quit` (`esc back-to-filter` in text search) |
   | 3 | `←→ session`, `^k end-stale` (only when it would act) |
   | 4 | `type`, `⇥ expand-reply` / `⇥ collapse`, `^g issues`, `^t unfollow` |
   | 5 | `^f search-in-text` (only with ripgrep), `^a archive` / `unarchive`, `^t follow`, `live` |
@@ -224,6 +224,35 @@ Invariants:
   last prompts 2 lines each; the reply gets the rest of the height and ends `… ⇥ for full` when
   cut, the marker counted inside the preview's height. Times are one format everywhere: `22m`, `3h`, `2d`.
 - **Feedback** lasts `FLASH = 5s` and the list refreshes every `REFRESH = 2s`.
+
+## Search states
+
+The query row and an empty list share one `QueryState`, so they cannot disagree. The row is
+`🔍 <query>▏  <mode> · <scope> · <found>`; the mode and scope are dim, the count takes the role in
+the table. Typing filters the `CAP = 300` newest sessions in the selected tab by title, project and
+first prompt; `^f` reads every transcript on disk (Claude and Copilot), past the cap, and loads
+what it finds.
+
+| State | Query row | Session strip (empty list) | Advice under it |
+|---|---|---|---|
+| No sessions at all | `filter · <tab>` | `no sessions yet` | where sessio reads from; start `claude` or `copilot` |
+| Empty tab, no query | `filter · <tab>` | `no sessions here` | `↑↓` picks another project |
+| Filter, literal | `filter · <tab> · N matches` | — | — |
+| Filter, fuzzy fallback | `filter · <tab> · N fuzzy matches · none exact` (dim) | — | — |
+| Filter, none | `filter · <tab> · no matches` (attention) | `nothing in <tab> matches "q"` (attention) | what filtering looks at and the cap; `^f` instead, or `brew install ripgrep`; `^w` / `^u` |
+| Searching | `search in text · all sessions · searching…` | `searching every transcript for "q"…` | — |
+| Search failed | `… · ✗ failed · esc back to filter` (error) | `✗ text search failed` (error) | the reason; `^f` retries, `esc` back |
+| Text results | `search in text · all sessions · N matches` (attention; `N of T` on another tab) | — | — |
+| Text, none | `… · no text matches` (attention) | `no session's text contains "q"` (attention) | what was searched; `esc` back, or edit and `^f` |
+| Text, none in this tab | `search in text · <tab> · 0 of T matches` | `no text match in <tab>` | `T elsewhere · ↑↓ to ⌂ everything`; `esc` back |
+
+- A failure also flashes `✗ text search failed · <reason>`; missing ripgrep and `^f` on an empty
+  query flash a warning and change no state. Ordinary filtering never depends on ripgrep.
+- While `^f` owns the list (running, failed or showing results) the key bar's `esc quit` reads
+  `esc back-to-filter`, and the 🔍 takes the attention colour.
+- **Stale results never land.** Every query edit, `^f` and `esc` bumps `search_gen`; a result is
+  taken only under the generation it started with
+  (`a_stale_search_never_overwrites_newer_query_state`).
 - **Every string from a transcript** passes through `sanitize` before it is drawn.
 
 ## Contrast
@@ -312,6 +341,12 @@ Automated (in `cargo test`):
   `narrow_layouts_keep_the_state_and_the_route_to_it` (pid and tty at every size and below the
   minimum); `presentation_does_not_change_classification`;
   `the_key_bar_counts_the_sessions_waiting_on_you`; `help_groups_the_status_legend`.
+- `ui::tests::the_query_row_names_the_mode_the_scope_and_the_count`,
+  `every_empty_state_reads_differently`, `empty_states_name_the_way_out`,
+  `a_stale_search_never_overwrites_newer_query_state`, `a_failed_search_is_an_error_you_can_leave`,
+  `missing_ripgrep_explains_itself_and_filtering_still_works`,
+  `text_search_on_an_empty_query_says_to_type_first`, `esc_is_labelled_for_what_it_will_do`: the
+  search states above.
 
 Manual, for a release or a change to this file:
 

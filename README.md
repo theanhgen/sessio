@@ -26,7 +26,7 @@ sessions
 
 ### Optional: full-text search
 
-`^f` searches inside every transcript body via [ripgrep](https://github.com/BurntSushi/ripgrep). Without `rg` installed, everything else works — only content search is disabled. Install it with `brew install ripgrep` / `apt install ripgrep`.
+`^f` searches inside every transcript body via [ripgrep](https://github.com/BurntSushi/ripgrep). Without `rg` installed, everything else works, typing still filters, and `^f` says `^f needs ripgrep · brew install ripgrep` instead of searching. Install it with `brew install ripgrep` / `apt install ripgrep`.
 
 ## What it does
 
@@ -35,8 +35,8 @@ sessions
 - **Counts in the project panel** — beside every tab, right-aligned: sessions touched in the last 24 hours (`·` for none), then all of them. The panel drops the numbers before it abbreviates a name.
 - **`⏸ open` tab** — "pick up where you left off": surfaces unfinished sessions (Claude ended asking/proposing and you didn't answer, a prompt got no reply, Claude's recap says the move is yours, or the folder has uncommitted git changes — marked on that folder's newest session). Open sessions are marked with an amber `▸` in any view, and the preview says which reason applies: `▸ unfinished · your prompt got no reply`.
 - **`◆ waiting` tab** — right below `⏸ open`, while any running session has stopped on a question or permission prompt: exactly those sessions, one `↑↓` away. It disappears again once nothing is waiting. The key bar counts them exactly (`◆ 3 waiting on you`) and never drops that hint, however narrow the window.
-- **🔍 Type to filter** — instantly narrows by title, project, or first prompt. `^w` (or `⌥⌫`) rubs out a word, `^u` (which is what `⌘⌫` sends) clears the query. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching.
-- **`^f` full-text search** — greps the full transcript body for a term, across *all* sessions on disk.
+- **🔍 Type to filter** — instantly narrows the selected tab by title, project, or first prompt, among the 300 most recent sessions. `^w` (or `⌥⌫`) rubs out a word, `^u` (which is what `⌘⌫` sends) clears the query. Literal matches are shown first; if none exist, sessio falls back to fuzzy subsequence matching and says so (`3 fuzzy matches · none exact`). The query row always says which search is on, over what, and what it found: `filter · sessio · 4 matches`.
+- **`^f` full-text search** — greps the full transcript body for the query, across *all* sessions on disk (Claude and Copilot), including ones older than the 300 the list browses. The query row turns to `search in text · all sessions` and shows `searching…`, the match count, or `✗ failed` with the reason in the feedback row. `esc` goes back to filtering the same query. An empty list says why — no sessions yet, nothing in this tab, no filter match, no transcript match — and which key gets you out.
 - **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). **A session you work in again comes back out on its own** — archiving records when you hid it, and anything written to afterwards is un-hidden on the next refresh. This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
 - **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a dot (green `●` written in the last 5 min, orange `○` in the last 24h). A `◉` instead means a `claude` process is attached to that session *right now* — every running session, including ones you started as a bare `claude`. sessio reads the registry Claude Code keeps at `~/.claude/sessions/<pid>.json` and cross-checks each row against `ps`, so a row left behind by a crash, or a pid since recycled, is not reported as running.
 - **`◆` tells you when a session starts waiting on you** — while the dashboard is open, a running session that flips to `waiting` (a permission prompt, a question) posts a macOS notification titled `sessio`, naming the session and what it is waiting for, and shows the same line in the feedback row at the bottom of the window. One wait is one notification however long it lasts; several flipping in the same refresh are one notification that counts them. Sessions already waiting when sessio starts are not announced. Off the Mac it rings the terminal bell instead. `SESSIO_NOTIFY=0` turns it off.
@@ -75,10 +75,10 @@ Without a `~/.copilot` folder nothing changes. Both kinds count toward the same 
 |---|---|
 | `↑` / `↓` | switch project |
 | `←` / `→` | move between session tabs (`→` reveals more) |
-| type | fuzzy-filter (ranked) by name / project / first prompt |
+| type | filter the selected tab by name / project / first prompt (literal first, fuzzy if none; the newest 300 sessions) |
 | `^w` / `⌥⌫` | delete the last word of the query |
 | `^u` / `⌘⌫` | clear the whole query |
-| `^f` | full-text search the current query across all transcripts |
+| `^f` | full-text search the current query across every transcript on disk, past the 300 too (needs ripgrep) |
 | `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `^r` | reply to the selected session without opening it |
 | `^t` | follow the selected running (`◉`) session's tail, read-only; any move stops following |
@@ -89,7 +89,7 @@ Without a `~/.copilot` folder nothing changes. Both kinds count toward the same 
 | `^n` | start a new `claude` in the selected session's folder — a new window under Ghostty, this window everywhere else |
 | `^k` | end a running session idle for more than 48h (not `busy`, not `waiting`) — confirmed with a second `^k` |
 | `?` | toggle the help overlay |
-| `esc` | clear content search, then quit |
+| `esc` | leave the `^f` text search, otherwise quit |
 | `^c` | quit |
 
 ## Commands

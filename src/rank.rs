@@ -59,8 +59,23 @@ fn is_word_boundary(c: char) -> bool {
 ///
 /// `items` is `(hay, mtime)` in current list order; the returned indices are the new order.
 pub fn rank(items: &[(&str, i64)], query: &str) -> Vec<usize> {
+    rank_kind(items, query).0
+}
+
+/// Which of the two passes produced a ranking, so the dashboard can say whether it is showing
+/// sessions that contain the query or only ones that spell it out in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// Every result contains the query as typed (ignoring case).
+    Literal,
+    /// Nothing contained it; these are subsequence matches.
+    Fuzzy,
+}
+
+/// `rank`, and which pass it came from. An empty query is literal: nothing was loosened.
+pub fn rank_kind(items: &[(&str, i64)], query: &str) -> (Vec<usize>, Kind) {
     if query.is_empty() {
-        return (0..items.len()).collect();
+        return ((0..items.len()).collect(), Kind::Literal);
     }
     let nq = query.to_lowercase();
 
@@ -71,7 +86,7 @@ pub fn rank(items: &[(&str, i64)], query: &str) -> Vec<usize> {
         .collect();
     if !subs.is_empty() {
         subs.sort_by(|a, b| a.1.cmp(&b.1).then(b.2.cmp(&a.2)));
-        return subs.into_iter().map(|(i, _, _)| i).collect();
+        return (subs.into_iter().map(|(i, _, _)| i).collect(), Kind::Literal);
     }
 
     let mut fuzzy: Vec<(usize, i64, i64)> = items
@@ -80,7 +95,7 @@ pub fn rank(items: &[(&str, i64)], query: &str) -> Vec<usize> {
         .filter_map(|(i, (hay, mtime))| fuzzy_score(hay, query).map(|s| (i, s, *mtime)))
         .collect();
     fuzzy.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
-    fuzzy.into_iter().map(|(i, _, _)| i).collect()
+    (fuzzy.into_iter().map(|(i, _, _)| i).collect(), Kind::Fuzzy)
 }
 
 #[cfg(test)]
@@ -137,5 +152,15 @@ mod tests {
         let items = [("alpha beta", 1i64), ("nothing here", 2i64)];
         let order = rank(&items, "ab");
         assert_eq!(order, vec![0]);
+    }
+
+    #[test]
+    fn rank_says_which_pass_it_used() {
+        let items = [("alpha beta", 1i64), ("nothing here", 2i64)];
+        assert_eq!(rank_kind(&items, "beta").1, Kind::Literal);
+        assert_eq!(rank_kind(&items, "ab").1, Kind::Fuzzy);
+        assert_eq!(rank_kind(&items, "").1, Kind::Literal);
+        // No match at all is still the fuzzy pass, with nothing in it.
+        assert_eq!(rank_kind(&items, "zzz"), (vec![], Kind::Fuzzy));
     }
 }
