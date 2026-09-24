@@ -9,98 +9,117 @@
 <meta property="og:description" content="Find and resume your past Claude Code sessions from the terminal.">
 <meta property="og:type" content="website">
 <style>
+  /* Colour roles: the same names src/theme.rs uses, defined in docs/DESIGN.md with their contrast
+     ratios. Everything coloured on this page is carrying a role, not decorating. */
+  :root, .term{
+    --surface:#0b0d10; --surface-raised:#121519; --surface-sunken:#171b21; --rule:#242a31;
+    --text:#e6e9ee; --dim:#8a93a0; --faint:#7a8390;
+    --accent:#a882d5; --selection:#6b4a8f; --on-selection:#f4effa;
+    --code:#5fd7d7; --attention:#e0b341; --running:#4ec96a; --recent:#e88a2b; --voice:#af87ff;
+    --success:#4ec96a; --error:#f07178;
+    --glow:rgba(168,130,213,.07); --shadow:rgba(0,0,0,.8);
+    color-scheme:dark;
+  }
   :root{
-    --bg:#0b0d10; --panel:#121519; --panel2:#171b21; --line:#242a31;
-    --fg:#e6e9ee; --dim:#8a93a0; --dimmer:#5c6470;
-    /* One accent. Everything else coloured on this page is carrying status, not decoration. */
-    --plum:#a882d5; --plum-deep:#6b4a8f; --on-plum:#f4effa;
-    --green:#4ec96a; --orange:#e88a2b;
     --radius:14px;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
   }
+  /* Light pages keep the terminal windows dark: the demo draws the xterm palette a dark terminal
+     shows, and `.term` re-declares the dark roles above for everything inside it. */
+  @media (prefers-color-scheme: light){
+    :root{
+      --surface:#fbfbfc; --surface-raised:#f1f2f4; --surface-sunken:#e8eaee; --rule:#d5d9de;
+      --text:#16181c; --dim:#4a525e; --faint:#5b636f;
+      --accent:#6d3fa3; --selection:#6b4a8f; --on-selection:#ffffff;
+      --code:#0b6e75; --attention:#8a6100; --running:#1b6e31; --recent:#a4520c; --voice:#6d3fa3;
+      --success:#1b6e31; --error:#b3261e;
+      --glow:rgba(109,63,163,.06); --shadow:rgba(20,24,30,.25);
+      color-scheme:light;
+    }
+  }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
   body{
-    margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+    margin:0;background:var(--surface);color:var(--text);font-family:var(--sans);
     line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-    background-image:radial-gradient(1200px 600px at 50% -10%,rgba(168,130,213,.07),transparent 70%);
+    background-image:radial-gradient(1200px 600px at 50% -10%,var(--glow),transparent 70%);
   }
-  a{color:var(--plum);text-decoration:none}
+  a{color:var(--accent);text-decoration:none}
   a:hover{text-decoration:underline}
   .wrap{max-width:980px;margin:0 auto;padding:0 24px}
   code,kbd,.mono{font-family:var(--mono)}
 
   nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
   .brand{font-family:var(--mono);font-weight:600;font-size:18px;letter-spacing:.02em}
-  .brand .dot{color:var(--green)}
+  .brand .dot{color:var(--running)}
   .nav-links{display:flex;gap:22px;font-size:14px}
   .nav-links a{color:var(--dim)}
-  .nav-links a:hover{color:var(--fg);text-decoration:none}
+  .nav-links a:hover{color:var(--text);text-decoration:none}
 
   header{padding:48px 0 28px;text-align:center}
-  .kicker{font-family:var(--mono);font-size:13px;color:var(--dimmer);letter-spacing:.14em;text-transform:uppercase}
+  .kicker{font-family:var(--mono);font-size:13px;color:var(--faint);letter-spacing:.14em;text-transform:uppercase}
   h1{font-size:clamp(40px,8vw,72px);line-height:1;margin:14px 0 0;font-weight:700;letter-spacing:-.02em}
-  h1 .u{color:var(--plum)}
+  h1 .u{color:var(--accent)}
   .tagline{font-size:clamp(18px,3.5vw,24px);color:var(--dim);margin:18px auto 0;max-width:640px}
-  .latin{font-family:var(--mono);font-size:13px;color:var(--dimmer);margin-top:14px}
+  .latin{font-family:var(--mono);font-size:13px;color:var(--faint);margin-top:14px}
   .latin em{color:var(--dim);font-style:normal}
 
   .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:30px}
-  .install{display:inline-flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);
+  .install{display:inline-flex;align-items:center;gap:12px;background:var(--surface-raised);border:1px solid var(--rule);
     border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:15px}
-  .install .p{color:var(--dimmer)}
+  .install .p{color:var(--faint)}
   .install button{all:unset;cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:12px;
-    border:1px solid var(--line);border-radius:6px;padding:3px 8px;transition:.15s}
-  .install button:hover{color:var(--fg);border-color:var(--dimmer)}
+    border:1px solid var(--rule);border-radius:6px;padding:3px 8px;transition:.15s}
+  .install button:hover{color:var(--text);border-color:var(--faint)}
   .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:10px;font-size:15px;
-    border:1px solid var(--line);color:var(--fg);background:var(--panel);transition:.15s}
-  .btn:hover{border-color:var(--dimmer);text-decoration:none;transform:translateY(-1px)}
-  .btn.primary{background:var(--plum-deep);color:var(--on-plum);border-color:var(--plum-deep);font-weight:600}
-  .btn.primary:hover{background:var(--plum);color:#1a1020}
+    border:1px solid var(--rule);color:var(--text);background:var(--surface-raised);transition:.15s}
+  .btn:hover{border-color:var(--faint);text-decoration:none;transform:translateY(-1px)}
+  .btn.primary{background:var(--selection);color:var(--on-selection);border-color:var(--selection);font-weight:600}
+  .btn.primary:hover{background:var(--accent);color:var(--surface)}
 
   /* the live demo */
-  .term{margin:36px auto 0;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
-    overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.02) inset;text-align:left}
-  .term-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
+  .term{margin:36px auto 0;background:var(--surface-raised);border:1px solid var(--rule);border-radius:var(--radius);
+    overflow:hidden;box-shadow:0 30px 80px -30px var(--shadow),0 0 0 1px rgba(255,255,255,.02) inset;text-align:left}
+  .term-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--surface-sunken);border-bottom:1px solid var(--rule)}
   .term-bar .b{width:11px;height:11px;border-radius:50%;background:#3a4048}
-  .term-bar .t{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--dimmer)}
-  .term-bar .hint{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--dimmer)}
+  .term-bar .t{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .term-bar .hint{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--faint)}
   #screen{margin:0;padding:16px 18px;font-family:var(--mono);font-size:12px;line-height:1.45;
-    overflow-x:auto;color:var(--fg);tab-size:2;white-space:pre;outline:none;min-height:420px}
-  #screen:focus-visible{box-shadow:inset 0 0 0 2px var(--plum-deep)}
+    overflow-x:auto;color:var(--text);background:var(--surface-raised);tab-size:2;white-space:pre;outline:none;min-height:420px}
+  #screen:focus-visible{box-shadow:inset 0 0 0 2px var(--selection)}
   .demo-keys{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
   .demo-keys button{all:unset;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--dim);
-    border:1px solid var(--line);border-radius:7px;padding:5px 10px;transition:.15s;background:var(--panel)}
-  .demo-keys button:hover{color:var(--fg);border-color:var(--plum-deep)}
-  .demo-note{text-align:center;color:var(--dimmer);font-size:13px;margin-top:12px}
+    border:1px solid var(--rule);border-radius:7px;padding:5px 10px;transition:.15s;background:var(--surface-raised)}
+  .demo-keys button:hover{color:var(--text);border-color:var(--selection)}
+  .demo-note{text-align:center;color:var(--faint);font-size:13px;margin-top:12px}
   .demo-note b{color:var(--dim);font-weight:600}
 
   section{padding:52px 0}
-  h2{font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer);
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
     margin:0 0 8px;font-weight:600}
   .lead{color:var(--dim);margin:0 0 26px;max-width:680px}
   .three{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+  .card{background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;padding:22px}
   .card h3{margin:0 0 8px;font-size:17px}
-  .card h3 .i{color:var(--plum);font-family:var(--mono);margin-right:8px}
+  .card h3 .i{color:var(--accent);font-family:var(--mono);margin-right:8px}
   .card p{margin:0 0 10px;color:var(--dim);font-size:14.5px}
   .card ul{margin:0;padding-left:18px;color:var(--dim);font-size:14px}
   .card li{margin:4px 0}
-  .card li b{color:var(--fg);font-weight:600}
+  .card li b{color:var(--text);font-weight:600}
 
   table{width:100%;border-collapse:collapse;font-size:14.5px}
-  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
-  th{color:var(--dimmer);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
-  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;
-    padding:1px 7px;font-size:12.5px;color:var(--fg)}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--rule)}
+  th{color:var(--faint);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+  kbd{background:var(--surface-sunken);border:1px solid var(--rule);border-bottom-width:2px;border-radius:6px;
+    padding:1px 7px;font-size:12.5px;color:var(--text)}
   td.k{white-space:nowrap}
 
-  .note{background:var(--panel);border:1px solid var(--line);
+  .note{background:var(--surface-raised);border:1px solid var(--rule);
     border-radius:10px;padding:16px 18px;color:var(--dim);font-size:14.5px}
-  .note b{color:var(--fg)}
+  .note b{color:var(--text)}
 
-  footer{border-top:1px solid var(--line);margin-top:40px;padding:30px 0 60px;color:var(--dimmer);font-size:13.5px;
+  footer{border-top:1px solid var(--rule);margin-top:40px;padding:30px 0 60px;color:var(--faint);font-size:13.5px;
     display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
   footer a{color:var(--dim)}
   .disc{max-width:560px}
@@ -184,7 +203,7 @@
         <p>Resume properly, or answer without leaving the list at all.</p>
         <ul>
           <li><b>↵ resume</b> — runs <span class="mono">claude --resume</span> in the original directory.</li>
-          <li><b>Never twice</b> — a <span style="color:var(--green)">◉</span> means a claude is attached right now; ↵ names its pid and tty instead of starting a second one.</li>
+          <li><b>Never twice</b> — a <span style="color:var(--running)">◉</span> means a claude is attached right now; ↵ names its pid and tty instead of starting a second one.</li>
           <li><b>^r reply</b> — send one turn to a session without opening it, and stay where you are.</li>
           <li><kbd>↵</kbd> resumes in this window. <b>Under Ghostty</b>, <kbd>^o</kbd> opens the session in a <b>new window</b> and keeps sessio running as a launcher.</li>
         </ul>
@@ -217,19 +236,19 @@
     <h2>Install</h2>
     <div class="term" style="margin-top:0">
       <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">zsh</span></div>
-<pre style="margin:0;padding:18px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto"><span style="color:var(--dimmer)"># install (adds the `sessions` command)</span>
-<span style="color:var(--green)">$</span> npm install -g sessio
+<pre style="margin:0;padding:18px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto"><span style="color:var(--faint)"># install (adds the `sessions` command)</span>
+<span style="color:var(--running)">$</span> npm install -g sessio
 
-<span style="color:var(--dimmer)"># run it</span>
-<span style="color:var(--green)">$</span> sessions
+<span style="color:var(--faint)"># run it</span>
+<span style="color:var(--running)">$</span> sessions
 
-<span style="color:var(--dimmer)"># optional: full-text search needs ripgrep</span>
-<span style="color:var(--green)">$</span> brew install ripgrep   <span style="color:var(--dimmer)"># or: apt install ripgrep</span></pre>
+<span style="color:var(--faint)"># optional: full-text search needs ripgrep</span>
+<span style="color:var(--running)">$</span> brew install ripgrep   <span style="color:var(--faint)"># or: apt install ripgrep</span></pre>
     </div>
-    <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Requires <b style="color:var(--fg)">Node.js ≥ 16</b> to install and <b style="color:var(--fg)">Claude Code</b> (the <span class="mono">claude</span> binary on your PATH). macOS and Linux.</p>
+    <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Requires <b style="color:var(--text)">Node.js ≥ 16</b> to install and <b style="color:var(--text)">Claude Code</b> (the <span class="mono">claude</span> binary on your PATH). macOS and Linux.</p>
 
     <div class="note" style="margin-top:22px"><b>From source:</b> sessio is Rust, shipped as a native binary, with Node needed only to install it. Build it yourself if you prefer:
-      <div style="margin-top:12px;font-family:var(--mono);font-size:13.5px;color:var(--fg)">$ cargo install --git https://github.com/theanhgen/sessio</div>
+      <div style="margin-top:12px;font-family:var(--mono);font-size:13.5px;color:var(--text)">$ cargo install --git https://github.com/theanhgen/sessio</div>
     </div>
   </section>
 

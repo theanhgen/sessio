@@ -10,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::ui::theme;
+use crate::theme;
 
 /// An inline run of text with one style.
 #[derive(Debug, Clone, PartialEq)]
@@ -56,7 +56,7 @@ fn inline(s: &str, base: Style) -> Vec<Seg> {
                     flush!();
                     out.push(seg(
                         chars[i + 1..end].iter().collect::<String>(),
-                        base.fg(theme::CODE),
+                        base.patch(theme::code()),
                     ));
                     i = end + 1;
                     continue;
@@ -67,7 +67,7 @@ fn inline(s: &str, base: Style) -> Vec<Seg> {
         if chars[i] == '[' {
             if let Some((text, next)) = link(&chars, i) {
                 flush!();
-                out.push(seg(text, base.fg(theme::CODE)));
+                out.push(seg(text, base.patch(theme::code())));
                 i = next;
                 continue;
             }
@@ -236,7 +236,7 @@ fn render_table(rows: &[Vec<String>], w: usize) -> Vec<Line<'static>> {
     let rule: usize = (widths.iter().sum::<usize>() + gap).min(w);
     out.push(Line::from(Span::styled(
         "─".repeat(rule),
-        Style::default().fg(theme::DIM),
+        theme::dim(),
     )));
     for r in &padded[1..] {
         out.push(row_line(r, &widths, Style::default()));
@@ -310,7 +310,7 @@ pub fn md_lines(text: &str, w: usize) -> Vec<Line<'static>> {
                 } else {
                     while !code.is_empty() {
                         let (head, rest) = split_at_width(&code, w);
-                        res.push(Line::from(Span::styled(head, Style::default().fg(theme::DIM))));
+                        res.push(Line::from(Span::styled(head, theme::dim())));
                         code = rest;
                     }
                 }

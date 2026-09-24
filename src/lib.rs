@@ -20,4 +20,5 @@ pub mod resume;
 pub mod safety;
 pub mod search;
 pub mod store;
+pub mod theme;
 pub mod ui;
