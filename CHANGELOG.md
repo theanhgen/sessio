@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Filtering and full-text search say what they are doing.** The query row names the mode and
+  what it covers — `filter · sessio` or, after `^f`, `search in text · all sessions` — and what it
+  found: `4 matches`, `3 fuzzy matches · none exact` when nothing contained the query as typed,
+  `no matches`, `searching…`, or `✗ failed · esc back to filter`. An empty list says which of
+  these it is — no sessions yet, nothing in this tab, no filter match, no transcript match, a search
+  running, a search that failed and why — and names the key out of it. The help and README explain
+  that typing filters the newest 300 sessions while `^f` reads every transcript on disk. Without
+  ripgrep, `^f` says `brew install ripgrep` instead of doing nothing, and the help still lists it;
+  `^f` on an empty query asks for a word. While `^f` owns the list the key bar reads
+  `esc back-to-filter`, and `esc` also cancels a search still running or leaves a failed one
+  (it used to quit). A search result that lands after the query has changed is still dropped, now
+  under test.
+
 - **A session's state is said in words, in the same place every time.** The row under the preview's
   title is always the state: `◆ waiting on you · input needed · pid 4242 · ttys009`,
   `◉ running · busy · pid · tty` (or `idle`, or `stale · idle 3d`), `● recently updated · 2m ago ·

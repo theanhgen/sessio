@@ -311,11 +311,14 @@ fn list(o: &Opts, query: Option<&str>) -> Result<(), Fail> {
     let files: Option<HashSet<PathBuf>> = match query.filter(|_| o.text) {
         Some(q) => {
             if search::rg_path().is_none() {
-                return Err(err("find --text needs ripgrep (rg) on PATH"));
+                return Err(err(format!(
+                    "find --text needs ripgrep (rg) on PATH · {}",
+                    search::INSTALL_HINT
+                )));
             }
             Some(
                 search::content_search(q, &search::roots())
-                    .ok_or_else(|| err("full-text search failed"))?,
+                    .map_err(|e| err(format!("full-text search failed: {e}")))?,
             )
         }
         None => None,

@@ -76,7 +76,7 @@ const FOLLOW_ENTRIES: usize = 40;
 enum Msg {
     Items(Vec<Item>, crate::live::LiveMap),
     Detail { key: String, mtime: i64, detail: Box<Detail> },
-    Search { gen: u64, query: String, files: Option<HashSet<PathBuf>> },
+    Search { gen: u64, query: String, files: Result<HashSet<PathBuf>, String> },
     /// A headless reply came back (or failed). `key` identifies the session it belongs to.
     Replied { key: String, ok: bool, text: String },
     /// A `^k` finished: what happened to the process, ready to flash.
@@ -105,6 +105,37 @@ struct Deep {
     files: Vec<PathBuf>,
 }
 
+/// Where `^f` is before its results land (they live in `App::deep` once they do). Either state
+/// is text-search mode: the query row says so, and `esc` leaves it rather than quitting.
+#[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the browser demo has no ripgrep to run
+enum TextSearch {
+    #[default]
+    Idle,
+    /// ripgrep is running for this query.
+    Searching(String),
+    /// It could not run, and why.
+    Failed(String),
+}
+
+/// What the query row and the empty list say is going on: the mode and what it covers, and how
+/// many sessions it found. One value, so the row and the empty state cannot disagree.
+#[derive(Clone, Debug, PartialEq)]
+enum QueryState {
+    /// Nothing at all on disk (or nothing sessio could read).
+    NoSessions,
+    /// Browsing a tab with no query.
+    Browse,
+    /// Filtering the tab by title, project and first prompt.
+    Filter { n: usize, fuzzy: bool },
+    /// `^f` is running.
+    Searching,
+    /// `^f` failed, with the reason.
+    SearchFailed(String),
+    /// `^f` results: `n` in this tab, `total` across every session the list can show.
+    Text { n: usize, total: usize },
+}
+
 struct App {
     items: Vec<Item>,
     archive: Archive,
@@ -120,6 +151,11 @@ struct App {
     /// When the current flash stops being shown. `None` means there is nothing to expire.
     flash_until: Option<Instant>,
     deep: Option<Deep>,
+    /// `^f` before its results land: running, or failed and why.
+    text: TextSearch,
+    /// Bumped by every query edit and every `^f`. A search result carries the generation it was
+    /// started under and is dropped unless it still matches, so a slow search can never overwrite
+    /// a query typed after it.
     search_gen: u64,
     details: HashMap<String, (i64, Detail)>,
     detail_inflight: HashSet<String>,
@@ -193,19 +229,122 @@ impl App {
 
     /// Indices into `items`, filtered by tab and query, ranked. Port of `view()` at :476.
     fn view(&self) -> Vec<usize> {
+        self.view_ranked().0
+    }
+
+    /// `view`, and whether the query filtered it by the fuzzy fallback rather than literally.
+    fn view_ranked(&self) -> (Vec<usize>, bool) {
         let tab = self.tabs.get(self.p_idx).map(String::as_str).unwrap_or(ALL_TAB);
         let mut idx: Vec<usize> =
             (0..self.items.len()).filter(|&i| self.in_tab(tab, &self.items[i])).collect();
 
+        let mut fuzzy = false;
         if let Some(d) = &self.deep {
             idx.retain(|&i| d.keys.contains(&self.items[i].key));
         } else if !self.q.is_empty() {
             let pairs: Vec<(&str, i64)> =
                 idx.iter().map(|&i| (self.items[i].hay.as_str(), self.items[i].mtime)).collect();
-            let order = crate::rank::rank(&pairs, &self.q);
+            let (order, kind) = crate::rank::rank_kind(&pairs, &self.q);
+            fuzzy = kind == crate::rank::Kind::Fuzzy;
             idx = order.into_iter().map(|p| idx[p]).collect();
         }
-        idx
+        (idx, fuzzy)
+    }
+
+    /// Whether `^f` owns the list: running, failed, or showing its results. `esc` leaves it.
+    fn in_text_search(&self) -> bool {
+        self.deep.is_some() || self.text != TextSearch::Idle
+    }
+
+    /// What the query row and the empty list say: see `QueryState`.
+    fn query_state(&self, n: usize, fuzzy: bool) -> QueryState {
+        if let Some(d) = &self.deep {
+            // Counted over the sessions the list can show, not the files rg matched: a subagent's
+            // transcript or an empty session matches too, but has no tab to be found in.
+            let total = self
+                .items
+                .iter()
+                .filter(|it| !self.archived(it) && d.keys.contains(&it.key))
+                .count();
+            return QueryState::Text { n, total };
+        }
+        match &self.text {
+            TextSearch::Searching(_) => return QueryState::Searching,
+            TextSearch::Failed(why) => return QueryState::SearchFailed(why.clone()),
+            TextSearch::Idle => {}
+        }
+        if self.items.is_empty() {
+            QueryState::NoSessions
+        } else if self.q.is_empty() {
+            QueryState::Browse
+        } else {
+            QueryState::Filter { n, fuzzy }
+        }
+    }
+
+    /// `^f`: start a full-text search for the query, or say why it cannot. Returns the generation
+    /// and the term for the worker to search; the result comes back through `finish_text_search`.
+    /// `have_rg` is `search::rg_path().is_some()`, passed in so its absence can be tested.
+    fn begin_text_search(&mut self, have_rg: bool) -> Option<(u64, String)> {
+        if !have_rg {
+            // Only this key is lost: typing still filters, so say what it would take and move on.
+            self.say(
+                Tone::Warning,
+                format!("^f needs ripgrep · {} · typing still filters", search::INSTALL_HINT),
+            );
+            return None;
+        }
+        if self.q.is_empty() {
+            self.say(Tone::Warning, "type a word first · ^f searches every transcript for it".into());
+            return None;
+        }
+        self.search_gen += 1;
+        self.text = TextSearch::Searching(self.q.clone());
+        Some((self.search_gen, self.q.clone()))
+    }
+
+    /// A `^f` result back from its worker. Dropped, changing nothing, unless it belongs to the
+    /// current generation: any edit to the query or a newer `^f` since has superseded it. `load`
+    /// reads the sessions the search found (`model::load` outside tests). Returns whether it was
+    /// taken.
+    fn finish_text_search(
+        &mut self,
+        gen: u64,
+        query: String,
+        files: Result<HashSet<PathBuf>, String>,
+        load: impl FnOnce(&[PathBuf]) -> Vec<Item>,
+    ) -> bool {
+        if gen != self.search_gen {
+            return false;
+        }
+        match files {
+            Err(why) => {
+                self.say(Tone::Error, format!("text search failed · {why}"));
+                self.text = TextSearch::Failed(why);
+            }
+            Ok(files) => {
+                self.text = TextSearch::Idle;
+                let keys = files.iter().filter_map(|f| discover::key_for_file(f)).collect();
+                let list: Vec<PathBuf> = files.into_iter().collect();
+                self.items = load(&list);
+                self.deep = Some(Deep { query, keys, files: list });
+                self.rebuild_tabs();
+                self.p_idx = 0;
+                self.reset_position();
+                self.ensure_detail();
+            }
+        }
+        true
+    }
+
+    /// `esc` in text-search mode: back to filtering the same query, dropping any search still
+    /// running.
+    fn leave_text_search(&mut self) {
+        self.deep = None;
+        self.text = TextSearch::Idle;
+        self.search_gen += 1;
+        self.reset_position();
+        self.ensure_detail();
     }
 
     fn selected(&self) -> Option<usize> {
@@ -249,6 +388,7 @@ impl App {
     /// Every edit to the query invalidates the content search and the scroll position.
     fn requery(&mut self) {
         self.deep = None;
+        self.text = TextSearch::Idle;
         self.search_gen += 1;
         self.reset_position();
         self.ensure_detail();
@@ -533,6 +673,7 @@ pub fn run() -> io::Result<()> {
         flash_tone: Tone::Info,
         flash_until: None,
         deep: None,
+        text: TextSearch::Idle,
         search_gen: 0,
         details: HashMap::new(),
         detail_inflight: HashSet::new(),
@@ -661,23 +802,8 @@ fn event_loop(
                     }
                 }
                 Msg::Search { gen, query, files } => {
-                    if gen != app.search_gen {
-                        continue; // a newer query superseded this search
-                    }
-                    match files {
-                        None => app.say(Tone::Error, "content search failed".into()),
-                        Some(files) => {
-                            let keys =
-                                files.iter().filter_map(|f| discover::key_for_file(f)).collect();
-                            let list: Vec<PathBuf> = files.into_iter().collect();
-                            app.items = model::load(&list);
-                            app.deep = Some(Deep { query, keys, files: list });
-                            app.rebuild_tabs();
-                            app.p_idx = 0;
-                            app.reset_position();
-                            app.ensure_detail();
-                        }
-                    }
+                    // A newer query or `^f` supersedes this one: it is dropped, not shown.
+                    app.finish_text_search(gen, query, files, model::load);
                 }
                 Msg::Replied { key, ok, text } => {
                     app.sending.remove(&key);
@@ -836,22 +962,16 @@ fn handle_key(
         KeyCode::Char('g') if ctrl => app.toggle_issues(),
         KeyCode::Char('?') if !ctrl => app.help = true,
         KeyCode::Esc => {
-            if app.deep.is_some() {
-                app.deep = None;
-                app.search_gen += 1;
-                app.reset_position();
-                app.ensure_detail();
+            if app.in_text_search() {
+                app.leave_text_search();
             } else {
                 return Ok(Flow::Quit);
             }
         }
         KeyCode::Char('f') if ctrl => {
-            if search::rg_path().is_some() && !app.q.is_empty() {
-                app.search_gen += 1;
-                let gen = app.search_gen;
-                let term_q = app.q.clone();
+            // The query row says `searching…` for as long as it runs; no flash repeats it.
+            if let Some((gen, term_q)) = app.begin_text_search(search::rg_path().is_some()) {
                 let tx = app.tx.clone();
-                app.say(Tone::Info, "searching…".into());
                 std::thread::spawn(move || {
                     let files = search::content_search(&term_q, &search::roots());
                     let _ = tx.send(Msg::Search { gen, query: term_q, files });
@@ -1239,11 +1359,12 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
         return help_lines(cols, rows);
     }
 
-    let view = app.view();
+    let (view, fuzzy) = app.view_ranked();
     if app.cur >= view.len() {
         app.cur = view.len().saturating_sub(1);
     }
     let sel = view.get(app.cur).copied();
+    let state = app.query_state(view.len(), fuzzy);
 
     if cols < MIN_COLS || rows < MIN_ROWS {
         return too_small(app, &view, cols, rows);
@@ -1271,14 +1392,32 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     } else {
         let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
         let reply_max = preview_box.saturating_sub(base).max(1);
-        sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default()
+        match sel {
+            Some(i) => preview(app, &app.items[i], cols, reply_max),
+            // Nothing to preview: the space says how to get something back instead.
+            None => empty_state(app, &state)
+                .1
+                .into_iter()
+                .map(|l| Line::from(Span::styled(format!("  {l}"), dim())))
+                .collect(),
+        }
     };
 
     let mut lines: Vec<Line> = vec![Line::default(); CHROME];
     lines[KEYBAR_ROW] = header(app, cols);
-    lines[QUERY_ROW] = query_line(app, view.len());
+    lines[QUERY_ROW] = query_line(app, &state);
     lines[CONTEXT_ROW] = context_line(app, sel, cols);
-    lines[STRIP_ROW] = session_tabs(app, &view, cols);
+    lines[STRIP_ROW] = if view.is_empty() {
+        let (said, _) = empty_state(app, &state);
+        let (mark, style) = match state {
+            QueryState::SearchFailed(_) => (Tone::Error.mark(), Tone::Error.style()),
+            QueryState::Filter { .. } | QueryState::Text { .. } => ("", theme::attention()),
+            _ => ("", dim()),
+        };
+        Line::from(Span::styled(format!("  {mark}{said}"), style))
+    } else {
+        session_tabs(app, &view, cols)
+    };
     if let Some((_, text)) = &app.draft {
         lines.push(compose_line(text));
     }
@@ -1466,7 +1605,12 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         segs.push(Seg { p: 0, t: Cow::Owned(format!("◆ {waiting} waiting on you")), accent: true });
     }
     segs.push(Seg { p: 0, t: Cow::Borrowed("? help"), accent: false });
-    segs.push(Seg { p: 2, t: Cow::Borrowed("esc quit"), accent: false });
+    // In text search, esc steps back to filtering rather than quitting: the bar says which.
+    segs.push(if app.in_text_search() {
+        Seg { p: 2, t: Cow::Borrowed("esc back-to-filter"), accent: true }
+    } else {
+        Seg { p: 2, t: Cow::Borrowed("esc quit"), accent: false }
+    });
     segs.push(Seg { p: 5, t: Cow::Borrowed("live"), accent: true });
     // The issues list has keys of its own, and the dashboard's would be wrong while it is up.
     if app.issues {
@@ -1646,27 +1790,114 @@ fn join_side(
         .collect()
 }
 
-fn query_line(app: &App, matches: usize) -> Line<'static> {
+fn query_line(app: &App, state: &QueryState) -> Line<'static> {
     // Empty, this row read as a stray blank line. The glyph is what says it is a search field
-    // even with nothing typed in it — and which of the two searches is running.
-    let mut spans = match &app.deep {
-        Some(_) => vec![
-            Span::styled(SEARCH_ICON, theme::attention()),
-            Span::styled(" content", theme::attention()),
-        ],
-        None => vec![Span::styled(SEARCH_ICON, theme::accent())],
+    // even with nothing typed in it; the words after the query say which of the two searches it
+    // is, what it covers and what it found, so none of that needs the help screen.
+    let icon = if app.in_text_search() { theme::attention() } else { theme::accent() };
+    let mut spans = vec![
+        Span::styled(SEARCH_ICON, icon),
+        Span::raw(" "),
+        Span::raw(sanitize(&app.q)),
+        Span::styled("▏", dim()),
+        Span::raw("  "),
+    ];
+    let tab = sanitize(app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str));
+    let plural = |n: usize| if n == 1 { "" } else { "es" };
+    let (scope, found): (String, Option<(String, Style)>) = match state {
+        QueryState::NoSessions | QueryState::Browse => (format!("filter · {tab}"), None),
+        QueryState::Filter { n: 0, .. } => {
+            (format!("filter · {tab}"), Some(("no matches".into(), theme::attention())))
+        }
+        QueryState::Filter { n, fuzzy: false } => {
+            (format!("filter · {tab}"), Some((format!("{n} match{}", plural(*n)), theme::text())))
+        }
+        // Nothing contained the query as typed, so these only spell it out in order: say so,
+        // rather than let a loose match pass for an exact one.
+        QueryState::Filter { n, fuzzy: true } => (
+            format!("filter · {tab}"),
+            Some((format!("{n} fuzzy match{} · none exact", plural(*n)), dim())),
+        ),
+        QueryState::Searching => {
+            (TEXT_SCOPE.to_string(), Some(("searching…".into(), theme::text())))
+        }
+        QueryState::SearchFailed(_) => (
+            TEXT_SCOPE.to_string(),
+            Some((format!("{}failed · esc back to filter", Tone::Error.mark()), Tone::Error.style())),
+        ),
+        QueryState::Text { n, total } => {
+            let scope =
+                if tab == ALL_TAB { TEXT_SCOPE.to_string() } else { format!("search in text · {tab}") };
+            let found = match (n, total) {
+                (_, 0) => "no text matches".to_string(),
+                (n, t) if n == t => format!("{n} match{}", plural(*n)),
+                (n, t) => format!("{n} of {t} matches"),
+            };
+            (scope, Some((found, theme::attention())))
+        }
     };
-    spans.push(Span::raw(" "));
-    spans.push(Span::raw(sanitize(&app.q)));
-    spans.push(Span::styled("▏", dim()));
-    if app.deep.is_some() {
-        let plural = if matches == 1 { "" } else { "es" };
-        spans.push(Span::styled(
-            format!("  {matches} match{plural}"),
-            theme::attention(),
-        ));
+    spans.push(Span::styled(scope, dim()));
+    if let Some((found, style)) = found {
+        spans.push(Span::styled(SEP, dim()));
+        spans.push(Span::styled(found, style));
     }
     Line::from(spans)
+}
+
+/// The query row's label while `^f` owns the list: it searched every session, not the tab.
+const TEXT_SCOPE: &str = "search in text · all sessions";
+
+/// What an empty list says, as the strip's one line and the advice under it. Each empty state
+/// reads differently — nothing on disk, an empty tab, no filter match, no text match, a search
+/// running, a search that failed — and each names the key that gets you out of it.
+fn empty_state(app: &App, state: &QueryState) -> (String, Vec<String>) {
+    let q = sanitize(&app.q);
+    let tab = sanitize(app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str));
+    let cap = crate::discover::CAP;
+    match state {
+        QueryState::NoSessions => (
+            "no sessions yet".into(),
+            vec![
+                "sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~/.copilot).".into(),
+                "Start claude or copilot in a folder; it shows up here within 2s.".into(),
+            ],
+        ),
+        QueryState::Browse => ("no sessions here".into(), vec!["↑↓ picks another project".into()]),
+        QueryState::Filter { .. } => {
+            let text = if search::rg_path().is_some() {
+                "^f searches the full text of every session instead".to_string()
+            } else {
+                format!("^f would search the full text, but needs ripgrep: {}", search::INSTALL_HINT)
+            };
+            (
+                format!("nothing in {tab} matches \"{q}\""),
+                vec![
+                    format!("filtering looks at titles, projects and first prompts of the newest {cap}"),
+                    text,
+                    "^w drops a word · ^u clears the query".into(),
+                ],
+            )
+        }
+        QueryState::Searching => (format!("searching every transcript for \"{q}\"…"), vec![]),
+        QueryState::SearchFailed(why) => (
+            "text search failed".into(),
+            vec![sanitize(why), "^f tries again · esc goes back to filtering".into()],
+        ),
+        QueryState::Text { total: 0, .. } => (
+            format!("no session's text contains \"{q}\""),
+            vec![
+                "searched every Claude and Copilot transcript on disk".into(),
+                "esc goes back to filtering · edit the query and ^f again".into(),
+            ],
+        ),
+        QueryState::Text { total, .. } => (
+            format!("no text match in {tab}"),
+            vec![
+                format!("{total} elsewhere · ↑↓ to {ALL_TAB}"),
+                "esc goes back to filtering".into(),
+            ],
+        ),
+    }
 }
 
 /// The selected project's context line, above the session strip: its whole name (the panel may
@@ -2362,11 +2593,26 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
             Span::styled(" — keys and marks · any key closes", dim()),
         ]),
         k("↑ ↓", "switch project · ← → move session selection (→ reveals more)"),
-        k("type", "filter by name / project / first prompt · ^w ⌥⌫ word · ^u ⌘⌫ all"),
+        Line::from(vec![
+            Span::styled(format!("{:<7}", "type"), key),
+            Span::raw(format!(
+                "filter the newest {} by name/project/prompt · ^w ⌥⌫ word · ^u ⌘⌫ all",
+                crate::discover::CAP
+            )),
+        ]),
     ];
-    if search::rg_path().is_some() {
-        v.push(k("^f", "full-text search across all transcripts on disk"));
-    }
+    // Shown either way: without ripgrep it says what would bring it back rather than vanishing.
+    v.push(Line::from(vec![
+        Span::styled(format!("{:<7}", "^f"), key),
+        if search::rg_path().is_some() {
+            Span::raw(format!(
+                "full-text search of every transcript on disk, past the newest {} too",
+                crate::discover::CAP
+            ))
+        } else {
+            Span::raw(format!("full-text search, needs ripgrep: {}", search::INSTALL_HINT))
+        },
+    ]));
     v.extend([
         k("^a", "archive / unarchive (a session you work in again comes back)"),
         k("^r", "reply without opening: sends one turn, stays in the list (Claude only)"),
@@ -2378,7 +2624,7 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
         k("^o", "resume in a new Ghostty window, keeping sessio open (same guard)"),
         k("^n", "new session in the session's folder (new window under Ghostty)"),
         k("^k", "end a running session idle over 48h; ^k again to confirm"),
-        k("? esc", "this help · esc clears a search, then quits · ^c quits"),
+        k("? esc", "this help · esc leaves ^f text search, otherwise quits · ^c quits"),
         Line::from(""),
     ]);
     // Grouped by evidence: a mark in one group never stands in for another. `◉` is a process,
@@ -2569,6 +2815,242 @@ fn wrap_plain(text: &str, width: usize, max_lines: usize) -> Vec<String> {
 mod tests {
     use super::*;
 
+    // ---------- #23: filtering and full-text search as explicit states ----------
+
+    /// The query row of a rendered frame.
+    fn query_row(app: &mut App, cols: u16, rows: u16) -> String {
+        let f = frame(app, cols, rows);
+        f.into_iter().find(|r| r.contains(SEARCH_ICON)).expect("a query row")
+    }
+
+    /// The session strip of a rendered frame, right of the panel.
+    fn strip_row(app: &mut App, cols: u16, rows: u16) -> String {
+        let f = frame(app, cols, rows);
+        let r = &f[STRIP_ROW];
+        r.split(" │ ").nth(1).unwrap_or(r).trim().to_string()
+    }
+
+    /// Text search results for `q`: `keys` of the fixture's sessions matched.
+    fn with_text_results(app: &mut App, q: &str, keys: &[&str]) {
+        app.q = q.into();
+        app.deep = Some(Deep {
+            query: q.into(),
+            keys: keys.iter().map(|k| k.to_string()).collect(),
+            files: vec![],
+        });
+    }
+
+    /// Without opening help you can tell which search is on, over what, and what it found.
+    #[test]
+    fn the_query_row_names_the_mode_the_scope_and_the_count() {
+        let mut app = fixture(&real_tabs());
+        let idle = query_row(&mut app, 136, 26);
+        assert!(idle.contains(&format!("filter · {ALL_TAB}")), "{idle:?}");
+
+        app.q = "session".into();
+        let lit = query_row(&mut app, 136, 26);
+        assert!(lit.contains("filter · ") && lit.contains("12 matches"), "{lit:?}");
+        assert!(!lit.contains("fuzzy"), "{lit:?}");
+
+        // Not a substring of any session, but spelled out in order in all of them.
+        app.q = "ssn".into();
+        let fz = query_row(&mut app, 136, 26);
+        assert!(fz.contains("fuzzy match") && fz.contains("none exact"), "{fz:?}");
+
+        // The scope follows the tab.
+        app.q.clear();
+        app.p_idx = app.tabs.iter().position(|t| t == "sessio").unwrap();
+        assert!(query_row(&mut app, 136, 26).contains("filter · sessio"));
+
+        app.p_idx = 0;
+        with_text_results(&mut app, "session", &["key1", "key2"]);
+        let txt = query_row(&mut app, 136, 26);
+        assert!(txt.contains("search in text · all sessions"), "{txt:?}");
+        assert!(txt.contains("2 matches"), "{txt:?}");
+        // A file rg matched that is not a session in the list (a subagent's, an empty one) is not
+        // counted: the number is what you can walk to.
+        with_text_results(&mut app, "session", &["key1", "not-a-listed-session"]);
+        let one = query_row(&mut app, 136, 26);
+        assert!(one.contains("1 match") && !one.contains(" of "), "{one:?}");
+
+        app.deep = None;
+        app.text = TextSearch::Searching("session".into());
+        let busy = query_row(&mut app, 136, 26);
+        assert!(busy.contains("search in text · all sessions") && busy.contains("searching…"));
+
+        app.text = TextSearch::Failed("rg exited 2".into());
+        let bad = query_row(&mut app, 136, 26);
+        assert!(bad.contains("✗ failed") && bad.contains("esc back to filter"), "{bad:?}");
+    }
+
+    /// Zero sessions, an empty tab, no filter match, no text match, a search running and a search
+    /// failed each say something different, and never overflow the 80x24 frame.
+    #[test]
+    fn every_empty_state_reads_differently() {
+        let tabs = [ALL_TAB, WAITING_TAB, "sessio"];
+        let mut said: Vec<(String, String)> = Vec::new();
+        let mut check = |what: &str, app: &mut App| {
+            // One cell per column: a row cannot run past the frame, and the frame is whole.
+            let f = frame(app, 80, 24);
+            assert_eq!(f.len(), 24, "{what}");
+            for r in &f {
+                assert!(r.chars().count() <= 80, "{what}: {r:?}");
+            }
+            let strip = strip_row(app, 80, 24);
+            assert!(!strip.is_empty(), "{what}");
+            said.push((what.to_string(), strip));
+        };
+
+        let mut none = fixture(&tabs);
+        none.items.clear();
+        check("no sessions", &mut none);
+
+        let mut empty_tab = fixture(&tabs);
+        empty_tab.p_idx = 1;
+        check("empty tab", &mut empty_tab);
+
+        let mut no_filter = fixture(&tabs);
+        no_filter.q = "zzzz".into();
+        check("no filter match", &mut no_filter);
+
+        let mut no_text = fixture(&tabs);
+        with_text_results(&mut no_text, "zzzz", &[]);
+        check("no text match", &mut no_text);
+
+        let mut searching = fixture(&tabs);
+        searching.q = "zzzz".into();
+        searching.text = TextSearch::Searching("zzzz".into());
+        check("searching", &mut searching);
+
+        let mut failed = fixture(&tabs);
+        failed.q = "zzzz".into();
+        failed.text = TextSearch::Failed("rg exited 2: boom".into());
+        check("failed", &mut failed);
+
+        for (i, (a, x)) in said.iter().enumerate() {
+            for (b, y) in &said[i + 1..] {
+                assert_ne!(x, y, "{a} and {b} read the same");
+            }
+        }
+        assert!(said[0].1.contains("no sessions yet"), "{said:?}");
+        assert!(said[2].1.contains("nothing in") && said[2].1.contains("zzzz"), "{said:?}");
+        assert!(said[3].1.contains("no session's text contains"), "{said:?}");
+        assert!(said[5].1.contains("✗ text search failed"), "{said:?}");
+    }
+
+    /// An empty list says how to get out of it, and a failure says why.
+    #[test]
+    fn empty_states_name_the_way_out() {
+        let mut app = fixture(&real_tabs());
+        app.q = "zzzz".into();
+        let (_, advice) = empty_state(&app, &app.query_state(0, false));
+        let all = advice.join(" / ");
+        assert!(all.contains("^u clears"), "{all}");
+        assert!(all.contains(&format!("newest {}", crate::discover::CAP)), "{all}");
+        assert!(all.contains("^f"), "the other search is offered: {all}");
+
+        let (_, advice) =
+            empty_state(&app, &QueryState::SearchFailed("rg exited 2: bad glob".into()));
+        assert!(advice[0].contains("bad glob") && advice[1].contains("esc"), "{advice:?}");
+
+        with_text_results(&mut app, "zzzz", &[]);
+        let (_, advice) = empty_state(&app, &app.query_state(0, false));
+        assert!(advice.join(" ").contains("esc goes back to filtering"), "{advice:?}");
+    }
+
+    /// A slow search must never land on top of a query typed after it, nor a superseded `^f`
+    /// on top of a newer one — result or failure alike.
+    #[test]
+    fn a_stale_search_never_overwrites_newer_query_state() {
+        let stale = |_: &[PathBuf]| -> Vec<Item> { panic!("a stale result was loaded") };
+        let mut app = fixture(&real_tabs());
+        app.q = "session".into();
+        let (g1, t1) = app.begin_text_search(true).unwrap();
+        assert_eq!(t1, "session");
+        assert_eq!(app.text, TextSearch::Searching("session".into()));
+
+        // Typing after ^f supersedes it: the row goes back to filtering the new query.
+        app.q.push('s');
+        app.requery();
+        assert_eq!(app.text, TextSearch::Idle);
+        assert!(!app.finish_text_search(g1, t1.clone(), Ok(HashSet::new()), stale));
+        assert!(app.deep.is_none() && app.text == TextSearch::Idle);
+        assert_eq!(app.q, "sessions");
+        assert!(!app.finish_text_search(g1, t1, Err("late".into()), stale));
+        assert!(app.flash.is_empty(), "a stale failure says nothing: {:?}", app.flash);
+
+        // Two ^f in a row: only the second may land.
+        let (g2, t2) = app.begin_text_search(true).unwrap();
+        let (g3, t3) = app.begin_text_search(true).unwrap();
+        assert!(!app.finish_text_search(g2, t2, Ok(HashSet::new()), stale));
+        assert_eq!(app.text, TextSearch::Searching("sessions".into()), "still waiting on g3");
+        let items = app.items.clone();
+        assert!(app.finish_text_search(g3, t3, Ok(HashSet::new()), |_| items));
+        assert!(app.deep.is_some() && app.text == TextSearch::Idle);
+
+        // esc drops a search still running; its answer arriving afterwards changes nothing.
+        let (g4, t4) = app.begin_text_search(true).unwrap();
+        app.leave_text_search();
+        assert!(!app.in_text_search());
+        assert!(!app.finish_text_search(g4, t4, Err("late".into()), stale));
+        assert!(!app.in_text_search(), "esc stays left");
+    }
+
+    /// A failed search says why, keeps the query, and esc gets back to filtering it.
+    #[test]
+    fn a_failed_search_is_an_error_you_can_leave() {
+        let mut app = fixture(&real_tabs());
+        app.q = "session".into();
+        let (g, t) = app.begin_text_search(true).unwrap();
+        assert!(app.finish_text_search(g, t, Err("rg exited 2: bad glob".into()), |_| vec![]));
+        assert_eq!(app.flash_tone, Tone::Error);
+        assert!(app.flash.contains("bad glob"), "{:?}", app.flash);
+        assert!(app.in_text_search(), "esc leaves it rather than quitting");
+        app.leave_text_search();
+        assert!(!app.in_text_search());
+        assert_eq!(app.q, "session");
+        assert_eq!(app.view().len(), 12, "back to filtering the same query");
+    }
+
+    /// Without ripgrep, ^f explains how to get it and nothing else is lost.
+    #[test]
+    fn missing_ripgrep_explains_itself_and_filtering_still_works() {
+        let mut app = fixture(&real_tabs());
+        app.q = "session".into();
+        assert!(app.begin_text_search(false).is_none());
+        assert_eq!(app.flash_tone, Tone::Warning);
+        assert!(app.flash.contains(search::INSTALL_HINT), "{:?}", app.flash);
+        assert!(app.flash.contains("typing still filters"), "{:?}", app.flash);
+        assert!(!app.in_text_search());
+        assert_eq!(app.view().len(), 12);
+    }
+
+    /// ^f on an empty query says what it wants instead of doing nothing.
+    #[test]
+    fn text_search_on_an_empty_query_says_to_type_first() {
+        let mut app = fixture(&real_tabs());
+        assert!(app.begin_text_search(true).is_none());
+        assert_eq!(app.flash_tone, Tone::Warning);
+        assert!(app.flash.contains("type a word first"), "{:?}", app.flash);
+    }
+
+    /// While ^f owns the list the bar says esc steps back, not quits; the help agrees.
+    #[test]
+    fn esc_is_labelled_for_what_it_will_do() {
+        let mut app = fixture(&real_tabs());
+        let bar = |app: &App| {
+            header(app, 400).spans.iter().map(|s| s.content.to_string()).collect::<String>()
+        };
+        assert!(bar(&app).contains("esc quit"));
+        with_text_results(&mut app, "session", &["key1"]);
+        assert!(bar(&app).contains("esc back-to-filter"), "{}", bar(&app));
+        let help: String = help_lines(200, 60)
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.to_string()))
+            .collect();
+        assert!(help.contains("esc leaves ^f text search, otherwise quits"), "{help}");
+    }
+
     #[test]
     fn token_counts_are_humanized() {
         assert_eq!(count_fmt(0), "0");
@@ -2751,6 +3233,7 @@ mod tests {
             flash_tone: Tone::Info,
             flash_until: None,
             deep: None,
+            text: TextSearch::Idle,
             search_gen: 0,
             details: HashMap::new(),
             detail_inflight: HashSet::new(),
@@ -4299,6 +4782,7 @@ pub mod demo {
             flash_tone: Tone::Info,
             flash_until: None,
             deep: None,
+            text: TextSearch::Idle,
             search_gen: 0,
             details: HashMap::new(),
             detail_inflight: HashSet::new(),
