@@ -74,10 +74,25 @@ impl Fixture {
         fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
     }
 
+    /// A Copilot CLI session folder: `workspace.yaml` plus `events.jsonl`. Absent unless a test
+    /// adds one, so every other test runs with no Copilot at all.
+    fn copilot(&self, id: &str, workspace: &str, age_secs: u64, events: &[Value]) {
+        let dir = self.root.join("copilot/session-state").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("workspace.yaml"), workspace).unwrap();
+        let file = dir.join("events.jsonl");
+        let body: String = events.iter().map(|l| format!("{l}\n")).collect();
+        fs::write(&file, body).unwrap();
+        let when = SystemTime::now() - Duration::from_secs(age_secs);
+        fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
+    }
+
     fn cmd(&self, args: &[&str]) -> Command {
         let mut c = Command::new(env!("CARGO_BIN_EXE_sessio"));
         c.args(args)
             .env("CLAUDE_CONFIG_DIR", self.root.join("claude"))
+            // Never the real ~/.copilot, even for a developer who has set COPILOT_HOME.
+            .env("COPILOT_HOME", self.root.join("copilot"))
             .env("HOME", self.home())
             .current_dir(&self.root);
         c
@@ -130,6 +145,28 @@ fn user(text: &str, cwd: &Path, ts: &str) -> Value {
 
 fn assistant(text: &str, ts: &str) -> Value {
     json!({"type": "assistant", "timestamp": ts, "message": {"content": [{"type": "text", "text": text}]}})
+}
+
+fn cp_event(ty: &str, data: Value, ts: &str) -> Value {
+    json!({"type": ty, "data": data, "id": "e", "timestamp": ts, "parentId": null})
+}
+
+const D: &str = "dddd4444-0000-4000-8000-000000000004";
+
+/// Adds D: a Copilot session in `alpha`, between A and B in age.
+fn with_copilot(f: &Fixture) {
+    let alpha = f.work("alpha");
+    f.copilot(
+        D,
+        &format!("id: {D}\ncwd: {}\nbranch: feat\nname: Copilot fixes the lexer\nuser_named: false\n", alpha.display()),
+        600,
+        &[
+            cp_event("session.start", json!({"context": {"cwd": alpha}}), "2026-09-01T11:00:00.000Z"),
+            cp_event("user.message", json!({"content": "fix the lexer"}), "2026-09-01T11:00:01.000Z"),
+            cp_event("assistant.message", json!({"content": "Lexer fixed; copilot-only-needle."}), "2026-09-01T11:00:02.000Z"),
+            cp_event("session.task_complete", json!({"summary": "Fixed the lexer."}), "2026-09-01T11:00:03.000Z"),
+        ],
+    );
 }
 
 fn stderr(o: &Output) -> String {
@@ -461,4 +498,75 @@ fn kill_will_not_signal_a_process_that_is_not_claude() {
     assert_eq!(o.status.code(), Some(1));
     assert!(stderr(&o).contains("not a claude process"), "{}", stderr(&o));
     assert!(alive, "the sleep was left alone");
+}
+
+#[test]
+fn copilot_sessions_merge_into_the_list_by_age_and_say_where_they_came_from() {
+    let f = Fixture::new("copilot-ls");
+    with_copilot(&f);
+    // A folder Copilot made but never talked in is not a session.
+    fs::create_dir_all(f.root.join("copilot/session-state/empty-one")).unwrap();
+
+    let v = f.json(&["ls", "--json"]);
+    let rows = v.as_array().unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, [A, D, B, C]);
+    assert_eq!(rows[0]["source"], "claude");
+    let d = &rows[1];
+    assert_eq!(d["source"], "copilot");
+    assert_eq!(d["title"], "Copilot fixes the lexer");
+    assert_eq!(d["project"], "alpha", "grouped with the Claude sessions from the same folder");
+    assert_eq!(d["branch"], "feat");
+    assert_eq!(d["first_prompt"], "fix the lexer");
+    assert_eq!(d["running"], Value::Null);
+    assert!(d["transcript"].as_str().unwrap().ends_with(&format!("{D}/events.jsonl")));
+    assert_eq!(f.ids(&["ls", "--json", "-p", "alpha"]), [A, D, C]);
+
+    let s = f.json(&["show", "--json", "dddd"]);
+    assert_eq!(s["source"], "copilot");
+    assert_eq!(s["prompts"], 1);
+    assert_eq!(s["recap"], "Fixed the lexer.");
+    assert_eq!(s["last_reply"], "Lexer fixed; copilot-only-needle.");
+    assert!(f.ok(&["show", "dddd"]).contains("  source    copilot\n"));
+}
+
+#[test]
+fn copilot_sessions_resume_with_copilot_and_refuse_a_reply() {
+    let f = Fixture::new("copilot-resume");
+    with_copilot(&f);
+    let expected = format!("cd -- '{}' && copilot --resume='{D}'\n", f.work("alpha").display());
+    assert_eq!(f.ok(&["resume", "--print", "dddd"]), expected);
+
+    let o = f.run(&["resume", "dddd"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains(&format!("copilot --resume='{D}'")), "{}", stderr(&o));
+
+    // Nothing may be launched for a reply: a stand-in claude would record it.
+    let log = f.root.join("claude-args.log");
+    let path = f.fake_claude(r#"echo called > "$FAKE_LOG""#);
+    let o = f.cmd(&["reply", "dddd", "hi"]).env("PATH", &path).env("FAKE_LOG", &log).output().unwrap();
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("reply is Claude-only"), "{}", stderr(&o));
+    assert!(!log.exists(), "claude was not run");
+
+    let o = f.run(&["kill", "dddd"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("kill is Claude-only"), "{}", stderr(&o));
+}
+
+#[test]
+fn copilot_sessions_are_searched_and_archived_like_the_rest() {
+    let f = Fixture::new("copilot-search");
+    with_copilot(&f);
+    if Command::new("rg").arg("--version").output().is_ok() {
+        assert_eq!(f.ids(&["find", "--json", "--text", "copilot-only-needle"]), [D]);
+    }
+    assert_eq!(f.ids(&["find", "--json", "lexer"]), [D]);
+
+    assert!(f.ok(&["archive", "dddd"]).starts_with("archived  dddd4444"));
+    assert_eq!(f.ids(&["ls", "--json"]), [A, B, C]);
+    let saved = fs::read_to_string(f.root.join("claude/.sessio/archived.json")).unwrap();
+    assert!(saved.contains(&format!("copilot/{D}")), "{saved}");
+    assert!(f.ok(&["unarchive", "dddd"]).starts_with("unarchived"));
+    assert_eq!(f.ids(&["ls", "--json"]), [A, D, B, C]);
 }

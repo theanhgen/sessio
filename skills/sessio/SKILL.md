@@ -5,7 +5,8 @@ description: Find, inspect, resume and reply to past Claude Code sessions with t
 
 # sessio
 
-`sessions` reads Claude Code's local transcripts (`~/.claude/projects`, or `$CLAUDE_CONFIG_DIR/projects`).
+`sessions` reads Claude Code's local transcripts (`~/.claude/projects`, or `$CLAUDE_CONFIG_DIR/projects`),
+and GitHub Copilot CLI's (`~/.copilot/session-state`) when that folder exists.
 A bare `sessions` opens an interactive dashboard: **never run it without a subcommand**, it needs a
 terminal and exits without one. Everything below is non-interactive.
 
@@ -35,6 +36,7 @@ Filters combine: `sessions ls --here --open --json`. `--archived` lists only arc
 ```json
 {
   "id": "1b6324f5-8b62-42fe-9d4d-11b11e74e54d",
+  "source": "claude",
   "title": "CLI implementation",
   "project": "sessio",
   "cwd": "/Users/me/code/sessio",
@@ -49,6 +51,8 @@ Filters combine: `sessions ls --here --open --json`. `--archived` lists only arc
 }
 ```
 
+- `source`: `claude` or `copilot` (GitHub Copilot CLI). A Copilot session's `transcript` is its
+  `events.jsonl`, its `running` is always `null` (not detected), and it cannot be replied to.
 - `open_reason`: `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next`
   (only for 3 days), `uncommitted changes` (the folder has git changes), or `null`.
 - `running` is `null` unless a `claude` process has the session open. Its `status` is `idle`,
@@ -62,13 +66,15 @@ prefix fails and lists the candidates.
 
 ## Acting: ask the user first
 
-- **Resume:** `sessions resume <id> --print` prints `cd -- '<dir>' && claude --resume '<id>'`.
+- **Resume:** `sessions resume <id> --print` prints `cd -- '<dir>' && claude --resume '<id>'`
+  (for a Copilot session, `copilot --resume='<id>'`).
   Give that command to the user. Do not run `sessions resume <id>` yourself: it replaces the
   process with an interactive `claude` and fails without a terminal.
 - **Reply:** `sessions reply <id> "<message>"` sends one turn through `claude -p --resume` in the
   session's own folder, then prints Claude's answer. It spends tokens, writes into that session's
   transcript and may act in that folder, so send only what the user approved, word for word. It
-  refuses a session that is running (answer it in its own window instead). Put a message that
+  refuses a session that is running (answer it in its own window instead), and a Copilot session
+  ("reply is Claude-only"). Put a message that
   starts with `-` after `--`, or pass `-` to read it from stdin.
 - **Archive:** `sessions archive <id>…` / `sessions unarchive <id>…` hide or restore sessions in
   sessio's own lists. Transcripts are never touched, and a session written to after it was

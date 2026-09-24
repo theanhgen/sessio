@@ -1,49 +1,67 @@
-//! Handing a session over to `claude --resume`. Port of bin/sessio.mjs:652-720.
+//! Handing a session over to `claude --resume` (or `copilot --resume=`). Port of
+//! bin/sessio.mjs:652-720.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+
+use crate::discover::Source;
 
 pub fn in_ghostty() -> bool {
     std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
         || std::env::var("TERM_PROGRAM").map(|v| v == "ghostty").unwrap_or(false)
 }
 
+/// The argv that resumes a session with the agent that wrote it.
+pub fn resume_argv(source: Source, id: &str) -> Vec<String> {
+    match source {
+        Source::Claude => vec!["claude".into(), "--resume".into(), id.to_string()],
+        // `--resume` takes an optional value, so it is attached with `=`: a separate word could be
+        // read as something else.
+        Source::Copilot => vec!["copilot".into(), format!("--resume={id}")],
+    }
+}
+
+/// The program name, for messages.
+pub fn program(source: Source) -> &'static str {
+    match source {
+        Source::Claude => "claude",
+        Source::Copilot => "copilot",
+    }
+}
+
 /// What a new window runs: a *login* shell that `cd`s into the session's folder and execs
-/// `claude --resume` — or, with no `id`, a fresh `claude` there (`^n`).
+/// `argv` — `claude --resume <id>`, `copilot --resume=<id>`, or a fresh `claude` there (`^n`).
 ///
 /// The login shell is on purpose: a GUI-launched Ghostty can have a minimal PATH, and running
 /// `claude` directly would fail to find claude/node. Homebrew et al. append to the login profile,
 /// which `-l` sources. Do not "simplify" this to a direct exec.
 ///
 /// The script `cd`s itself rather than trusting the terminal's working-directory setting, which
-/// has not always been honoured, and `claude --resume` in the wrong folder cannot find the
-/// session. The folder and id travel as positional arguments, never spliced into the script.
-fn window_command(shell: &str, cwd: &Path, id: Option<&str>) -> Vec<String> {
-    let script = match id {
-        Some(_) => "cd -- \"$1\" && exec claude --resume \"$2\"",
-        None => "cd -- \"$1\" && exec claude",
-    };
-    let mut argv = vec![
+/// has not always been honoured, and resuming in the wrong folder cannot find the session. The
+/// script is a constant: the folder, the program and its arguments all travel as positional
+/// parameters, never spliced into it.
+fn window_command(shell: &str, cwd: &Path, argv: &[String]) -> Vec<String> {
+    let mut v = vec![
         shell.to_string(),
         "-l".into(),
         "-c".into(),
-        script.into(),
+        "cd -- \"$1\" && shift && exec \"$@\"".into(),
         "sessio".into(),                    // $0 for the -c script
         cwd.to_string_lossy().into_owned(), // $1
     ];
-    argv.extend(id.map(str::to_string)); // $2
-    argv
+    v.extend(argv.iter().cloned()); // $2… — the program and its arguments
+    v
 }
 
-/// Resume session `id` in a new Ghostty window.
-pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
-    ghostty_window(cwd, Some(id))
+/// Resume a session in a new Ghostty window, with `argv` from `resume_argv`.
+pub fn ghostty_launch(cwd: &Path, argv: &[String]) -> Result<(), String> {
+    ghostty_window(cwd, argv)
 }
 
 /// A fresh `claude` in `cwd`, in a new Ghostty window — `ghostty_launch` with nothing to resume.
 pub fn ghostty_launch_fresh(cwd: &Path) -> Result<(), String> {
-    ghostty_window(cwd, None)
+    ghostty_window(cwd, &["claude".to_string()])
 }
 
 fn login_shell() -> String {
@@ -61,7 +79,7 @@ fn login_shell() -> String {
 /// Ghostty runs `command` through a shell, so the argv is quoted into one string here. The folder
 /// and id reach osascript as argv items and are never interpolated into the AppleScript.
 #[cfg(target_os = "macos")]
-fn ghostty_window(cwd: &Path, id: Option<&str>) -> Result<(), String> {
+fn ghostty_window(cwd: &Path, argv: &[String]) -> Result<(), String> {
     const SCRIPT: &str = r#"on run argv
   tell application "Ghostty"
     set cfg to new surface configuration
@@ -71,7 +89,7 @@ fn ghostty_window(cwd: &Path, id: Option<&str>) -> Result<(), String> {
   end tell
   return "ok"
 end run"#;
-    let command = shell_join(&window_command(&login_shell(), cwd, id));
+    let command = shell_join(&window_command(&login_shell(), cwd, argv));
     let mut child = Command::new("osascript")
         .args(["-e", SCRIPT])
         .arg(cwd)
@@ -108,12 +126,12 @@ end run"#;
 
 /// Elsewhere: Ghostty's CLI can open a new window in the running instance (GTK builds).
 #[cfg(not(target_os = "macos"))]
-fn ghostty_window(cwd: &Path, id: Option<&str>) -> Result<(), String> {
+fn ghostty_window(cwd: &Path, argv: &[String]) -> Result<(), String> {
     let mut child = Command::new("ghostty")
         .arg("+new-window")
         .arg(format!("--working-directory={}", cwd.display()))
         .arg("-e")
-        .args(window_command(&login_shell(), cwd, id))
+        .args(window_command(&login_shell(), cwd, argv))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -291,15 +309,19 @@ pub fn focus_window_titled(_name: &str) -> bool {
 /// disabled raw mode) before calling — after `exec` there is no code left to do it.
 /// Replacing this process with `claude` is a unix idea; wasm has no process to replace.
 #[cfg(target_arch = "wasm32")]
-pub fn resume_in_place(_cwd: Option<&Path>, _id: &str) -> std::io::Error {
+pub fn resume_in_place(_cwd: Option<&Path>, _argv: &[String]) -> std::io::Error {
     std::io::Error::other("resume is not available in the browser")
 }
 
+/// `argv` comes from `resume_argv`, so the same call resumes a Claude or a Copilot session.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn resume_in_place(cwd: Option<&Path>, id: &str) -> std::io::Error {
+pub fn resume_in_place(cwd: Option<&Path>, argv: &[String]) -> std::io::Error {
     use std::os::unix::process::CommandExt;
-    let mut cmd = Command::new("claude");
-    cmd.arg("--resume").arg(id);
+    let Some((program, args)) = argv.split_first() else {
+        return std::io::Error::other("nothing to run");
+    };
+    let mut cmd = Command::new(program);
+    cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -319,10 +341,14 @@ pub fn start_in_place(cwd: &Path) -> std::io::Error {
     Command::new("claude").current_dir(cwd).exec() // only returns on failure
 }
 
-/// The command to print when we cannot launch claude ourselves.
-pub fn manual_command(cwd: Option<&Path>, id: &str) -> String {
+/// The command to print when we cannot launch the agent ourselves.
+pub fn manual_command(cwd: Option<&Path>, source: Source, id: &str) -> String {
     let dir = cwd.map(|c| c.display().to_string()).unwrap_or_else(|| ".".into());
-    format!("cd -- {} && claude --resume {}", shell_quote(&dir), shell_quote(id))
+    let run = match source {
+        Source::Claude => format!("claude --resume {}", shell_quote(id)),
+        Source::Copilot => format!("copilot --resume={}", shell_quote(id)),
+    };
+    format!("cd -- {} && {run}", shell_quote(&dir))
 }
 
 /// The command to print when we cannot start a fresh claude ourselves.
@@ -378,25 +404,30 @@ mod tests {
         let cwd = tmp.join("a b");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
-        let fake = bin.join("claude");
-        std::fs::write(&fake, "#!/bin/sh\npwd -P\necho \"$@\"\n").unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for name in ["claude", "copilot"] {
+            let fake = bin.join(name);
+            std::fs::write(&fake, format!("#!/bin/sh\npwd -P\necho {name} \"$@\"\n")).unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
 
-        let args = window_command("/bin/sh", &cwd, Some("abc-123"));
-        let c = args.iter().position(|a| a == "-c").unwrap();
-        let out = Command::new("/bin/sh")
-            .args(&args[c..])
-            .current_dir("/")
-            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-            .output()
-            .unwrap();
+        let run = |source: Source| {
+            let args = window_command("/bin/sh", &cwd, &resume_argv(source, "abc-123"));
+            let c = args.iter().position(|a| a == "-c").unwrap();
+            let out = Command::new("/bin/sh")
+                .args(&args[c..])
+                .current_dir("/")
+                .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let (claude, copilot) = (run(Source::Claude), run(Source::Copilot));
         let want = cwd.canonicalize().unwrap();
         let _ = std::fs::remove_dir_all(&tmp);
 
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut lines = text.lines();
-        assert_eq!(lines.next(), Some(want.to_string_lossy().as_ref()));
-        assert_eq!(lines.next(), Some("--resume abc-123"));
+        let here = want.to_string_lossy();
+        assert_eq!(claude.lines().collect::<Vec<_>>(), [here.as_ref(), "claude --resume abc-123"]);
+        assert_eq!(copilot.lines().collect::<Vec<_>>(), [here.as_ref(), "copilot --resume=abc-123"]);
     }
 
     #[cfg(unix)]
@@ -406,8 +437,16 @@ mod tests {
         // the folder is called, that shell must see exactly the argv we built — checked by having
         // a shell split it and print each word, so nothing is ever launched.
         let cwd = Path::new("/tmp/it's a \"dir\" $HOME `x`");
-        for id in [Some("abc-123"), None] {
-            let argv = window_command("/bin/zsh", cwd, id);
+        // Every program sessio starts in a window: both resumes, a hostile-looking id (the argv is
+        // data all the same), and ^n's fresh claude.
+        let mut runs: Vec<Vec<String>> = vec![vec!["claude".into()]];
+        for source in [Source::Claude, Source::Copilot] {
+            for id in ["abc-123", "x'; touch /tmp/pwned; '$(id)"] {
+                runs.push(resume_argv(source, id));
+            }
+        }
+        for run in runs {
+            let argv = window_command("/bin/zsh", cwd, &run);
             let out = Command::new("/bin/sh")
                 .arg("-c")
                 .arg(format!("printf '%s\\n' {}", shell_join(&argv)))
@@ -415,7 +454,9 @@ mod tests {
                 .unwrap();
             let words: Vec<String> =
                 String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect();
-            assert_eq!(words, argv, "id = {id:?}");
+            assert_eq!(words, argv, "run = {run:?}");
+            // The script itself is constant: nothing about the session is spliced into it.
+            assert_eq!(argv[3], "cd -- \"$1\" && shift && exec \"$@\"");
         }
     }
 
@@ -434,7 +475,7 @@ mod tests {
         std::fs::write(&fake, "#!/bin/sh\npwd -P\necho \"args:$#\"\n").unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let args = window_command("/bin/sh", &cwd, None);
+        let args = window_command("/bin/sh", &cwd, &["claude".to_string()]);
         let c = args.iter().position(|a| a == "-c").unwrap();
         let out = Command::new("/bin/sh")
             .args(&args[c..])
@@ -457,7 +498,15 @@ mod tests {
 
     #[test]
     fn manual_command_is_copy_pasteable() {
-        let cmd = manual_command(Some(Path::new("/tmp/a b")), "abc-123");
+        let cmd = manual_command(Some(Path::new("/tmp/a b")), Source::Claude, "abc-123");
         assert_eq!(cmd, "cd -- '/tmp/a b' && claude --resume 'abc-123'");
+        let cmd = manual_command(Some(Path::new("/tmp/a b")), Source::Copilot, "abc-123");
+        assert_eq!(cmd, "cd -- '/tmp/a b' && copilot --resume='abc-123'");
+    }
+
+    #[test]
+    fn each_source_resumes_with_its_own_agent() {
+        assert_eq!(resume_argv(Source::Claude, "i"), ["claude", "--resume", "i"]);
+        assert_eq!(resume_argv(Source::Copilot, "i"), ["copilot", "--resume=i"]);
     }
 }

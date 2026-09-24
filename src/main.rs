@@ -1,4 +1,4 @@
-//! sessio — find and resume past Claude Code sessions.
+//! sessio — find and resume past Claude Code (and GitHub Copilot CLI) sessions.
 
 mod cli;
 
@@ -53,7 +53,7 @@ fn main() {
         std::process::exit(1);
     }
     if args.iter().any(|a| a == "--dump-json") {
-        let items = model::load(&[]);
+        let items = model::load_claude(&[]);
         let dump: Vec<DumpRow> = items.iter().map(to_dump).collect();
         println!("{}", serde_json::to_string(&dump).expect("plain data"));
         return;

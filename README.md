@@ -51,6 +51,22 @@ sessions
 - **`?` help** — a full keybinding overlay; any key closes it.
 - **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
 
+## Sources
+
+sessio lists sessions from two agents in one list, newest first, grouped by folder:
+
+- **Claude Code** — `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`). Everything above applies.
+- **GitHub Copilot CLI** — `~/.copilot/session-state` (or `$COPILOT_HOME/session-state`), read-only.
+  These carry a small `copilot` tag on their tab and in the preview. The title is Copilot's own
+  session name (else the first prompt); the preview shows the first and last prompt you typed, the
+  last reply, and Copilot's task summary as the recap (its compaction summary when there is none).
+  `↵` runs `copilot --resume=<id>` in the session's folder and `^o` does the same in a new Ghostty
+  window; `^f` searches their `events.jsonl` too, and `^a` archives them like any other.
+  Not covered yet: running detection (`◉`), `^r` reply (it says "reply is Claude-only"), `^t`
+  follow, `^k` end-stale (it says "^k is Claude-only"), token totals, and the open-session heuristics other than uncommitted changes.
+
+Without a `~/.copilot` folder nothing changes. Both kinds count toward the same 300-session cap.
+
 ## Keys
 
 | Key | Action |

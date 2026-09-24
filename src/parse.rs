@@ -15,7 +15,7 @@ use crate::safety::{js_trim, sanitize, valid_path};
 /// Read at least this many lines before an early exit is allowed (JS: `n >= 400`).
 const MIN_LINES: usize = 400;
 /// Bytes of the file end scanned by `tail()`.
-const TAIL_WINDOW: u64 = 65536;
+pub(crate) const TAIL_WINDOW: u64 = 65536;
 
 #[derive(Debug, Default, Clone)]
 pub struct Head {
@@ -405,7 +405,7 @@ pub fn follow_tail(path: &Path, max_bytes: u64, max_entries: usize) -> Vec<Entry
 }
 
 /// Decode a raw line as UTF-8 (lossy, matching Node's stream decoding) and drop a trailing CR.
-fn line_str(bytes: &[u8]) -> String {
+pub(crate) fn line_str(bytes: &[u8]) -> String {
     let mut s = String::from_utf8_lossy(bytes).into_owned();
     if s.ends_with('\n') {
         s.pop();
