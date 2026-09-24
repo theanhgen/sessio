@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Reply, archive and resume say what happened, and to which session.** Every message about a
+  session names it (`"fix login redirect…" is running (pid 4242 · ttys009 · busy) — answer it in
+  that terminal`), so it still makes sense after you have moved on, and a reply or `^k` result
+  that lands later names the session it was for, not the one you are on. `^r`'s composer reads
+  `↳ reply to "x"`; while a reply is on its way its session's tab and preview carry `⏳` until it
+  lands, and a second send to it is refused. A failed reply is no longer lost: the feedback and the
+  preview say why, and the next `^r` on that session puts your text back in the composer — it is
+  never resent on its own. `^a` says `🗄 archived "x"` and how to get it back (`↑↓ to 🗄 archived,
+  then ^a`), and unarchiving says where it went. The `↵` / `^o` warning on a running session names
+  it with its pid, tty and status; the consent it asks for is still the very next key only, and a
+  background result that replaces the warning now withdraws it too. In-progress messages have
+  their own `⏳` pending tone; nothing refused or failed is green. With `SESSIO_FOCUS=1` the
+  title match says it *raised* a Ghostty window rather than that it focused one, and the README
+  and help say plainly that outside Ghostty sessio does not move you to a running session.
+
 - **The whole reply is readable without resuming.** `PgUp` / `PgDn` scroll Claude's latest reply
   a page at a time, and its last row says where you are: `↓ 40 more lines · PgDn scrolls` at the
   top, `lines 20–38 of 88 · ↓ 50 more · PgUp PgDn` further down, `end of reply` at the bottom. The

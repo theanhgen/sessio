@@ -111,6 +111,9 @@ pub enum Tone {
     Warning,
     /// It was tried and failed.
     Error,
+    /// Started and not finished yet: a reply on its way, a process being ended. Said once, and
+    /// the thing it is about carries its own marker until the result replaces it.
+    Pending,
 }
 
 impl Tone {
@@ -120,6 +123,7 @@ impl Tone {
             Tone::Success => fg(SUCCESS),
             Tone::Warning => attention(),
             Tone::Error => fg(ERROR),
+            Tone::Pending => text(),
         }
     }
 
@@ -127,6 +131,7 @@ impl Tone {
     pub fn mark(self) -> &'static str {
         match self {
             Tone::Error => "✗ ",
+            Tone::Pending => "⏳ ",
             _ => "",
         }
     }
@@ -239,6 +244,9 @@ mod tests {
         assert!(!Tone::Error.mark().is_empty());
         assert_ne!(Tone::Error.style(), Tone::Success.style());
         assert_ne!(Tone::Warning.style(), Tone::Success.style());
+        // Only an outcome that happened may be green: in progress is not done.
+        assert_ne!(Tone::Pending.style(), Tone::Success.style());
+        assert!(!Tone::Pending.mark().is_empty(), "pending reads apart without colour");
     }
 
     /// Colour lives here and nowhere else. Checked over the source, since a stray `Color::` or a
