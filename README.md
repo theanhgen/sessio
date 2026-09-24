@@ -9,7 +9,7 @@
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
 ```
-↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o new-window · ? help · esc quit · live
+↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ^t follow · ↵ resume · ^o new-window · ? help · esc quit · live
 ```
 
 ## Install
@@ -44,6 +44,7 @@ sessions
   <br>Elsewhere sessio can also try to *raise* the running session's window by title, but that is **off by default** and gated behind `SESSIO_FOCUS=1`, because it cannot be made to land: measured on Ghostty, `AXRaise` puts the target at z-position 2 and never 1, since position 1 is the key window and that is sessio's own. Adding `set frontmost to true` makes macOS promote whatever it considers the app's main window instead, so each press reshuffles the stack and a different unrelated window surfaces.
   <br>Under Ghostty, **`^o`** opens the session in a **new window** and keeps sessio running as a launcher. On macOS it asks the Ghostty you already have open through its AppleScript dictionary (Ghostty 1.3+), so no second Ghostty is started; the first time, macOS may ask whether Ghostty may control itself. On Linux it uses `ghostty +new-window`. If the window can't be opened, sessio says why and stays put — `↵` still resumes here.
 - **`^r` reply without opening** — send one turn to a session and stay in the list. `claude -p --resume` appends to the same transcript, so the answer shows up in the preview on the next refresh. It refuses on a session that is already running (`◉`) — there is no safe way to put text into the stdin of a `claude` you are sitting in front of — and the first `^r` of a run warns that this spends tokens before the second one opens the composer. `esc` discards the draft. It is `^r` rather than a bare `r` because plain letters filter the list.
+- **`^t` follow a running session** — pins the preview to the highlighted `◉` session and shows the end of its transcript (your prompts, Claude's text, and the names of the tools it called), newest at the bottom, re-read on every 2s refresh. Read-only: it reads at most the last 256 KB of the transcript and never writes to it or attaches to the `claude` running it. If the session stops, the tail stays on screen marked `◌ ended`. Any move — a project, a session, a keystroke into the filter — or `^t` again stops following. On a session that is not running it says so and does nothing.
 - **`?` help** — a full keybinding overlay; any key closes it.
 - **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
 
@@ -59,6 +60,7 @@ sessions
 | `^f` | full-text search the current query across all transcripts |
 | `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `^r` | reply to the selected session without opening it |
+| `^t` | follow the selected running (`◉`) session's tail, read-only; any move stops following |
 | `⇥` / `^e` | expand / collapse the reply preview |
 | `↵` | resume the selected session in its directory, in **this** window, replacing sessio — if it's already running, switches to its window under Ghostty (or says where elsewhere), and a second `↵` opens it twice anyway |
 | `^o` | Ghostty only: resume in a **new** window and keep sessio open — the same already-running guard, confirmed with a second `^o` |
