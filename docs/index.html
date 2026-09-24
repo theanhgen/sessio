@@ -224,7 +224,8 @@
       <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across every transcript on disk (needs ripgrep)</td></tr>
       <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session locally</td></tr>
       <tr><td class="k"><kbd>^r</kbd></td><td>Reply to the session without opening it — sends one turn and leaves you in the list</td></tr>
-      <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Give the reply the whole preview box</td></tr>
+      <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Give the latest reply more room (hides the first / last prompts) or back</td></tr>
+      <tr><td class="k"><kbd>PgUp</kbd> / <kbd>PgDn</kbd></td><td>Scroll the latest reply a page; every line of it is reachable without resuming</td></tr>
       <tr><td class="k"><kbd>↵</kbd></td><td>Resume — if it is already running, says where instead; a second <kbd>↵</kbd> opens it twice anyway</td></tr>
       <tr><td class="k"><kbd>^o</kbd></td><td>Resume in this window, skipping the already-running guard — and the escape hatch under Ghostty</td></tr>
       <tr><td class="k"><kbd>?</kbd></td><td>Toggle the full keybinding help</td></tr>
@@ -286,7 +287,7 @@
 
     // Only swallow keys the demo actually uses, and only while it has focus — otherwise the
     // page cannot be scrolled or navigated with a keyboard.
-    const OWNED = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Escape','Backspace']);
+    const OWNED = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','PageUp','PageDown','Escape','Backspace']);
     screenEl.addEventListener('keydown', (e) => {
       if (e.metaKey || e.altKey) return;
       if (e.ctrlKey) {

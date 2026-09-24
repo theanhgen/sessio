@@ -134,7 +134,8 @@ Verified against `handle_key` and `compose_key` in `src/ui.rs`.
 | `^f` | full-text search of the query across every transcript on disk; without ripgrep or with an empty query it says why instead |
 | `^a` | archive / unarchive the highlighted session |
 | `^r` | reply without opening (first press warns it spends tokens; Claude only; refused while running) |
-| `⇥`, `^e` | expand / collapse the reply preview |
+| `⇥`, `^e` | give the latest reply more room (hide the first / last prompts), or back |
+| `PgUp` `PgDn` | scroll the latest reply a page (its window's height less one line); nothing else moves |
 | `↵` | resume here; on a running session switch to its window under Ghostty, else say where and require a second `↵` |
 | `^o` | resume in a new Ghostty window, keeping sessio open (same running guard as `↵`) |
 | `^n` | new session in the highlighted session's folder (new window under Ghostty) |
@@ -156,7 +157,11 @@ Invariants:
 - **The composer owns the keyboard** until `↵` sends or `esc` discards. Nothing behind it moves.
 - **Only the keys the issues list uses are borrowed** while it is up (`↑↓`, `↵`, `esc`, `^g`);
   `←→` still walks the sessions.
-- The website demo supports `↑↓←→`, typing, `⌫`, `⇥`, `^r`, `?` and `esc`; it cannot resume,
+- **Scrolling reads, it never navigates.** `PgUp` `PgDn` move only the latest reply's window: the
+  project and session stay put, a different session (by `←→`, `↑↓`, typing or a search) starts at
+  the top of its reply, and a live refresh keeps the reader's line. While `^t` or `^g` owns the
+  preview they do nothing. Nothing else here used the page keys; the arrows keep their meaning.
+- The website demo supports `↑↓←→`, typing, `⌫`, `⇥`, `PgUp` `PgDn`, `^r`, `?` and `esc`; it cannot resume,
   send or open windows (#26 labels this).
 
 ## Layout, spacing and truncation
@@ -219,10 +224,42 @@ Invariants:
 
   `↑↓` is not in the bar: the panel's own label carries it. While the `^g` list is up the bar is
   replaced by that list's keys.
-- **Preview**: gutter labels right-aligned in `GUTTER = 12` columns; prose measure is the width
-  minus the gutter, capped at `MEASURE_MAX = 140`. Recap and summary at most 6 lines; first and
-  last prompts 2 lines each; the reply gets the rest of the height and ends `… ⇥ for full` when
-  cut, the marker counted inside the preview's height. Times are one format everywhere: `22m`, `3h`, `2d`.
+- **Preview hierarchy**, one column, top to bottom by what you act on:
+
+  | Rows | Content | Shed in a short window |
+  |---|---|---|
+  | rule, title | the session's name (`copilot` tag first) | never |
+  | state | `CHROME + 2` onward, then `▸ unfinished · <reason>` (see State summary) | never |
+  | location | `project · branch · N prompts` | 5th |
+  | flags | `✓ contains "…"`, `🗄 archived …`, `⚑` issues | never; issues 3rd |
+  | file facts | `tokens  in … · out … · cache w … · r … · 12K · auto-named`: what the file is, below what it is about | 1st |
+  | recap | Claude's recap (or the compact summary), italic, at most `RECAP_MAX = 6` rows, ending ` …` when cut | rows past `RECAP_MIN = 2` 6th, the rest last |
+  | first, last | the conversation's two ends, 2 rows each; hidden by `⇥` | first 2nd, last 4th |
+  | reply | Claude's latest reply, whole, in a scrolling window over the rest of the box | never |
+
+  Blocks are shed until the reply keeps `REPLY_MIN = 4` rows (three lines and its indicator);
+  the recap's first rows outlast that and the reply goes down to one line and the indicator first.
+- **Labels**: a preview at least `GUTTER_MIN = 72` columns wide puts `recap` `first` `last`
+  `reply` right-aligned in a `GUTTER = 12` column, content lined up after it. Narrower, the label
+  leads its first row (`recap 3h: Goal…`), or takes a row of its own when the text opens on a fence,
+  table, heading or list, and the text gets the full width. Prose measure is the width (minus the
+  gutter when there is one), capped at `MEASURE_MAX = 140`.
+- **Reply window**: a reply that fits is shown whole with no indicator. One that does not gets
+  the rest of the box less one row, and that row says where the window is, parts dropped from the
+  end (never cut) to fit: `↓ 40 more lines · PgDn scrolls · ⇥ more room` at the top,
+  `lines 20–38 of 88 · ↓ 50 more · PgUp PgDn` in the middle, `lines 69–88 of 88 · end of reply ·
+  PgUp` at the end (`⇥ more room` only while collapsed). With inline labels the label scrolls
+  away with the reply's first row, so a scrolled window opens on `reply 9m: ↑ 12 lines above`
+  (one row less of reply) rather than reading on from the recap as if it were part of it. It never says "full": `⇥` gives the reply
+  more rows, it does not un-cut it; scrolling is what reaches every line.
+- **Loading and missing**: before the transcript is read the reply's place says
+  `reading transcript…`; once read, `no reply yet` and (Claude sessions only) `no recap yet`. A
+  refresh that finds the session written again keeps showing the previous read until the new one
+  lands, so the reply neither blanks nor jumps.
+- **Markdown**: code is hard-wrapped at the measure, never cut; headings wrap like prose; a table
+  whose columns do not fit side by side at their natural widths is set as one wrapped
+  `header: cell · header: cell` line per row instead of cutting cells.
+- Times are one format everywhere: `22m`, `3h`, `2d`.
 - **Feedback** lasts `FLASH = 5s` and the list refreshes every `REFRESH = 2s`.
 
 ## Search states
@@ -347,6 +384,14 @@ Automated (in `cargo test`):
   `missing_ripgrep_explains_itself_and_filtering_still_works`,
   `text_search_on_an_empty_query_says_to_type_first`, `esc_is_labelled_for_what_it_will_do`: the
   search states above.
+- `ui::tests::every_reply_line_is_reachable_without_resuming` (every supported size and the
+  minimum), `a_cut_reply_says_how_much_is_left_and_how_to_reach_it`,
+  `scrolling_never_moves_the_selection_and_a_new_session_starts_at_the_top`,
+  `a_refresh_does_not_move_a_reader_off_their_place`,
+  `narrow_previews_lead_with_their_labels_and_wide_ones_line_them_up`,
+  `the_preview_reads_state_then_recap_then_context_then_reply`, `a_short_window_keeps_what_you_act_on`,
+  `loading_and_missing_content_say_so`, `code_tables_and_cjk_stay_inside_the_preview_and_reachable`;
+  `md::tests::a_table_too_wide_to_set_keeps_every_cell`, `a_long_heading_wraps_instead_of_being_cut`.
 
 Manual, for a release or a change to this file:
 
