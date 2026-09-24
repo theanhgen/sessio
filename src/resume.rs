@@ -9,23 +9,19 @@ pub fn in_ghostty() -> bool {
         || std::env::var("TERM_PROGRAM").map(|v| v == "ghostty").unwrap_or(false)
 }
 
-/// Ghostty has no way to target a sibling pane, but its CLI can open a NEW window running a
-/// command in the running instance. Returns true if the launch was accepted.
+/// What a new window runs: a *login* shell that `cd`s into the session's folder and execs
+/// `claude --resume`.
 ///
-/// The command runs through a *login* shell on purpose: a GUI-launched Ghostty can have a
-/// minimal PATH, and `-e claude` would exec directly and fail to find claude/node. Homebrew et
-/// al. append to the login profile, which `-l` sources. Do not "simplify" this to a direct exec.
-/// The part both launch paths share: where to start, and what to run once there.
+/// The login shell is on purpose: a GUI-launched Ghostty can have a minimal PATH, and running
+/// `claude` directly would fail to find claude/node. Homebrew et al. append to the login profile,
+/// which `-l` sources. Do not "simplify" this to a direct exec.
 ///
-/// The script `cd`s itself rather than trusting `--working-directory`: a Ghostty started through
-/// `open -na` ignores that flag — measured on 1.3.2, the shell came up in whatever folder another
-/// Ghostty window was in — and `claude --resume` in the wrong folder cannot find the session.
-fn launch_args(cwd: &Path, id: &str) -> Vec<String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+/// The script `cd`s itself rather than trusting the terminal's working-directory setting, which
+/// has not always been honoured, and `claude --resume` in the wrong folder cannot find the
+/// session. The folder and id travel as positional arguments, never spliced into the script.
+fn window_command(shell: &str, cwd: &Path, id: &str) -> Vec<String> {
     vec![
-        format!("--working-directory={}", cwd.display()),
-        "-e".into(),
-        shell,
+        shell.to_string(),
         "-l".into(),
         "-c".into(),
         "cd -- \"$1\" && exec claude --resume \"$2\"".into(),
@@ -35,78 +31,93 @@ fn launch_args(cwd: &Path, id: &str) -> Vec<String> {
     ]
 }
 
-/// macOS refuses `+new-window` outright — it answers "+new-window is not supported on this
-/// platform" and exits 1 — so every `↵` there fell through to handing over the current window
-/// while the key bar went on advertising a new one. Ghostty's own `--help` names the supported
-/// route: `open -na Ghostty.app --args …`.
+fn login_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+}
+
+/// macOS: ask the Ghostty that is already running for a new window, through its AppleScript
+/// dictionary (Ghostty 1.3+: `new window with configuration`).
 ///
-/// `-n` is not optional. Without it macOS merely activates the running instance and drops the
-/// arguments on the floor — measured: the window comes forward and the command never runs — so a
-/// second instance is the price of a new window here.
+/// This replaced `open -na Ghostty.app --args …`, which must never come back. `-n` starts a
+/// *second Ghostty process*, and a fresh process restores the saved window state — so every ↵
+/// reopened every window the user had, about twenty at a time, on top of the one asked for.
+/// (`ghostty +new-window` is no alternative: on macOS it answers "not supported on this platform".)
+///
+/// Ghostty runs `command` through a shell, so the argv is quoted into one string here. The folder
+/// and id reach osascript as argv items and are never interpolated into the AppleScript.
 #[cfg(target_os = "macos")]
-fn ghostty_open_new(cwd: &Path, id: &str) -> bool {
-    for app in ["Ghostty.app", "/Applications/Ghostty.app"] {
-        let status = Command::new("open")
-            .arg("-na")
-            .arg(app)
-            .arg("--args")
-            .args(launch_args(cwd, id))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        // `open` reports only that LaunchServices accepted the launch, not that claude started —
-        // the login shell is what makes the latter likely, as on the CLI path.
-        if matches!(status, Ok(s) if s.success()) {
-            return true;
-        }
-    }
-    false
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ghostty_open_new(_cwd: &Path, _id: &str) -> bool {
-    false
-}
-
-pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
-    let mut args: Vec<String> = vec!["+new-window".into()];
-    args.extend(launch_args(cwd, id));
-
-    for bin in [
-        "ghostty",
-        "/Applications/Ghostty.app/Contents/MacOS/ghostty",
-    ] {
-        let Ok(mut child) = Command::new(bin)
-            .args(&args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            continue;
-        };
-        // Bound any hang so the TUI can't freeze behind a wedged launcher.
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            match child.try_wait() {
-                // A refusal is not the end: on macOS the CLI always exits 1 here, and returning
-                // its failure skipped the `open -na` route below, so ↵ resumed in place.
-                Ok(Some(status)) if status.success() => return true,
-                Ok(Some(_)) => break,
-                Ok(None) if Instant::now() >= deadline => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break;
-                }
-                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-                Err(_) => break,
+pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
+    const SCRIPT: &str = r#"on run argv
+  tell application "Ghostty"
+    set cfg to new surface configuration
+    set initial working directory of cfg to item 1 of argv
+    set command of cfg to item 2 of argv
+    new window with configuration cfg
+  end tell
+  return "ok"
+end run"#;
+    let command = shell_join(&window_command(&login_shell(), cwd, id));
+    let mut child = Command::new("osascript")
+        .args(["-e", SCRIPT])
+        .arg(cwd)
+        .arg(&command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("osascript: {e}"))?;
+    // Bound any hang so the TUI can't freeze behind a wedged launch. Generous, because the first
+    // run can sit behind macOS's "allow control of Ghostty" prompt.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Ghostty did not answer".into());
             }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(e.to_string()),
         }
     }
-    // The CLI could not do it — on macOS it never can. Try the route that works there before
-    // giving up and resuming in place.
-    ghostty_open_new(cwd, id)
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if out.status.success() && out.stdout.starts_with(b"ok") {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    // osascript prefixes "NN:MM: execution error: "; the rest is the part worth showing.
+    let why = err.rsplit("error: ").next().unwrap_or("").trim();
+    Err(if why.is_empty() { "Ghostty refused".into() } else { why.chars().take(80).collect() })
+}
+
+/// Elsewhere: Ghostty's CLI can open a new window in the running instance (GTK builds).
+#[cfg(not(target_os = "macos"))]
+pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
+    let mut child = Command::new("ghostty")
+        .arg("+new-window")
+        .arg(format!("--working-directory={}", cwd.display()))
+        .arg("-e")
+        .args(window_command(&login_shell(), cwd, id))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("ghostty: {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => return Err(format!("ghostty +new-window: {status}")),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("ghostty did not answer".into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
 }
 
 /// Raise the terminal window already showing this session, so ↵ moves you to the running
@@ -250,6 +261,12 @@ pub fn manual_command(cwd: Option<&Path>, id: &str) -> String {
     format!("cd -- {} && claude --resume {}", shell_quote(&dir), shell_quote(id))
 }
 
+/// One shell word per argument, for the places that take a command line rather than an argv.
+#[cfg(any(target_os = "macos", test))]
+fn shell_join(args: &[String]) -> String {
+    args.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ")
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
@@ -296,7 +313,7 @@ mod tests {
         std::fs::write(&fake, "#!/bin/sh\npwd -P\necho \"$@\"\n").unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let args = launch_args(&cwd, "abc-123");
+        let args = window_command("/bin/sh", &cwd, "abc-123");
         let c = args.iter().position(|a| a == "-c").unwrap();
         let out = Command::new("/bin/sh")
             .args(&args[c..])
@@ -311,6 +328,24 @@ mod tests {
         let mut lines = text.lines();
         assert_eq!(lines.next(), Some(want.to_string_lossy().as_ref()));
         assert_eq!(lines.next(), Some("--resume abc-123"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_window_command_line_splits_back_into_the_same_argv() {
+        // Ghostty takes the new window's command as one string and hands it to a shell. Whatever
+        // the folder is called, that shell must see exactly the argv we built — checked by having
+        // a shell split it and print each word, so nothing is ever launched.
+        let cwd = Path::new("/tmp/it's a \"dir\" $HOME `x`");
+        let argv = window_command("/bin/zsh", cwd, "abc-123");
+        let out = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("printf '%s\\n' {}", shell_join(&argv)))
+            .output()
+            .unwrap();
+        let words: Vec<String> =
+            String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect();
+        assert_eq!(words, argv);
     }
 
     #[test]

@@ -118,8 +118,9 @@ struct App {
     detail_inflight: HashSet<String>,
     /// Sessions with a `claude` process attached right now, by session id.
     live: crate::live::LiveMap,
-    /// Session the user has been warned about and may now resume anyway.
-    confirm: Option<String>,
+    /// Session the user has been warned about and may now resume anyway, and whether the warning
+    /// came from `^o` (new window) rather than `↵` — consent is to the key that was warned about.
+    confirm: Option<(String, bool)>,
     /// The reply being typed, and the session it is addressed to. `None` when not replying.
     draft: Option<(String, String)>, // (session id, text)
     /// Sessions with a headless reply in flight, by id.
@@ -524,9 +525,9 @@ fn handle_key(
         return compose_key(app, k, ctrl);
     }
 
-    // "↵ again to open it twice" means the *very next* key. Moving, typing or switching tabs is
-    // not consent to start a second process on a live transcript.
-    if k.code != KeyCode::Enter {
+    // "↵ again to open it twice" means the *very next* key, and the same key. Moving, typing or
+    // switching tabs is not consent to start a second process on a live transcript.
+    if !is_resume_key(&k) {
         app.confirm = None;
     }
 
@@ -606,54 +607,8 @@ fn handle_key(
             app.q.pop();
             app.requery();
         }
-        KeyCode::Enter => {
-            if let Some(i) = app.selected() {
-                let (cwd, id, name) = (
-                    app.items[i].cwd.clone(),
-                    app.items[i].id.clone(),
-                    app.items[i].name.clone(),
-                );
-                // Already running? Resuming would point a second `claude` at the same transcript
-                // and both would append to it. Go to the session instead — and if we can't find
-                // its window, say where it is and make the duplicate an explicit second ↵.
-                let running = app.live.get(&id).cloned();
-                if let EnterAction::GoToRunning = enter_action(
-                    running.is_some(),
-                    app.confirm.as_deref() == Some(id.as_str()),
-                ) {
-                    let live = running.expect("GoToRunning implies a live process");
-                    if focus_enabled() && resume::focus_window_titled(&name) {
-                        let short: String = name.chars().take(40).collect();
-                        app.say(format!("↗ focused \"{short}\" — already running"));
-                    } else {
-                        app.confirm = Some(id.clone());
-                        app.say(format!(
-                            "already running ({}) — ↵ again to open it twice",
-                            running_where(&live)
-                        ));
-                    }
-                    return Ok(Flow::Continue);
-                }
-                app.confirm = None;
-                // Ghostty: open in a NEW window and keep sessio running as a launcher.
-                if resume::in_ghostty() {
-                    if let Some(dir) = cwd.as_deref() {
-                        if resume::ghostty_launch(std::path::Path::new(dir), &id) {
-                            let short: String = name.chars().take(40).collect();
-                            app.say(format!("↗ opened \"{short}\" in a new window"));
-                            return Ok(Flow::Continue);
-                        }
-                    }
-                }
-                hand_over(term, cwd.as_deref(), &id);
-            }
-        }
-        KeyCode::Char('o') if ctrl => {
-            if let Some(i) = app.selected() {
-                let (cwd, id) = (app.items[i].cwd.clone(), app.items[i].id.clone());
-                hand_over(term, cwd.as_deref(), &id);
-            }
-        }
+        KeyCode::Enter => return resume_selected(term, app, false),
+        KeyCode::Char('o') if ctrl => return resume_selected(term, app, true),
         KeyCode::Char(c) if !ctrl && !k.modifiers.contains(KeyModifiers::ALT) && c >= ' ' => {
             app.q.push(c);
             app.requery();
@@ -813,6 +768,70 @@ pub fn running_where(live: &crate::live::Live) -> String {
     s
 }
 
+/// `↵` and `^o`: the two keys that start a `claude` on the highlighted session.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_resume_key(k: &KeyEvent) -> bool {
+    k.code == KeyCode::Enter
+        || (k.code == KeyCode::Char('o') && k.modifiers.contains(KeyModifiers::CONTROL))
+}
+
+/// `↵` resumes in this window; `^o` opens a new Ghostty window and keeps sessio as a launcher.
+///
+/// Both go through the already-running guard: a second `claude` on a live transcript is the same
+/// mistake whichever window it lands in.
+#[cfg(not(target_arch = "wasm32"))]
+fn resume_selected(
+    term: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    new_window: bool,
+) -> io::Result<Flow> {
+    let Some(i) = app.selected() else { return Ok(Flow::Continue) };
+    let (cwd, id, name) =
+        (app.items[i].cwd.clone(), app.items[i].id.clone(), app.items[i].name.clone());
+    let key = if new_window { "^o" } else { "↵" };
+
+    // Only Ghostty can be asked for a window. Say so rather than quietly doing something else.
+    if new_window && !resume::in_ghostty() {
+        app.say("^o opens a new window under Ghostty only — ↵ resumes here".into());
+        return Ok(Flow::Continue);
+    }
+
+    // Already running? Resuming would point a second `claude` at the same transcript and both
+    // would append to it. Go to the session instead — and if we can't find its window, say where
+    // it is and make the duplicate an explicit second press of the same key.
+    let running = app.live.get(&id).cloned();
+    let confirmed = app.confirm.as_ref() == Some(&(id.clone(), new_window));
+    if let EnterAction::GoToRunning = enter_action(running.is_some(), confirmed) {
+        let live = running.expect("GoToRunning implies a live process");
+        if focus_enabled() && resume::focus_window_titled(&name) {
+            let short: String = name.chars().take(40).collect();
+            app.say(format!("↗ focused \"{short}\" — already running"));
+        } else {
+            app.confirm = Some((id, new_window));
+            app.say(format!("already running ({}) — {key} again to open it twice", running_where(&live)));
+        }
+        return Ok(Flow::Continue);
+    }
+    app.confirm = None;
+
+    if !new_window {
+        hand_over(term, cwd.as_deref(), &id);
+    }
+    // A new window needs a folder to open in; sessio's own would be a guess.
+    let Some(dir) = cwd else {
+        app.say("no folder recorded for this session — ↵ resumes it here".into());
+        return Ok(Flow::Continue);
+    };
+    let short: String = name.chars().take(40).collect();
+    match resume::ghostty_launch(std::path::Path::new(&dir), &id) {
+        Ok(()) => app.say(format!("↗ opened \"{short}\" in a new window")),
+        // Stay put and say why. Falling back to this window would replace sessio with something
+        // the user did not ask for.
+        Err(why) => app.say(format!("couldn't open a new window ({why}) — ↵ resumes here")),
+    }
+    Ok(Flow::Continue)
+}
+
 /// Replace sessio with `claude --resume`. The terminal is restored *first* — `exec` never
 /// returns, so there is no later opportunity to undo raw mode.
 #[cfg(not(target_arch = "wasm32"))]
@@ -934,8 +953,8 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         Seg { p: 4, t: "⇥ expand-reply", accent: false }
     });
     if resume::in_ghostty() {
-        segs.push(Seg { p: 1, t: "↵ new-window", accent: false });
-        segs.push(Seg { p: 2, t: "^o same-window", accent: false });
+        segs.push(Seg { p: 1, t: "↵ resume", accent: false });
+        segs.push(Seg { p: 2, t: "^o new-window", accent: false });
     } else {
         segs.push(Seg { p: 1, t: "↵ resume", accent: false });
     }
@@ -1422,8 +1441,8 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
         Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
-        Line::from(vec![Span::styled("↵", key), Span::raw("      resume (◉ = already running: ↵ says where, ↵ again opens it twice)")]),
-        Line::from(vec![Span::styled("^o", key), Span::raw("     resume in this window (replaces sessio)")]),
+        Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ says where, ↵ again opens it twice)")]),
+        Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
         Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
         Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
         Line::from(vec![Span::styled("^c", key), Span::raw("     quit")]),
@@ -1667,8 +1686,8 @@ mod tests {
             Seg { p: 5, t: "^f search-in-text", accent: false },
             Seg { p: 5, t: "^a archive", accent: false },
             Seg { p: 4, t: "⇥ expand-reply", accent: false },
-            Seg { p: 1, t: "↵ new-window", accent: false },
-            Seg { p: 2, t: "^o same-window", accent: false },
+            Seg { p: 1, t: "↵ resume", accent: false },
+            Seg { p: 2, t: "^o new-window", accent: false },
             Seg { p: 0, t: "? help", accent: false },
             Seg { p: 2, t: "esc quit", accent: false },
             Seg { p: 5, t: "live", accent: true },
@@ -2307,7 +2326,7 @@ mod tests {
     #[test]
     fn hints_are_shed_from_the_most_expendable_end() {
         let narrow = rendered(80);
-        assert!(narrow.contains("↵ new-window"), "resume is the point: {narrow}");
+        assert!(narrow.contains("↵ resume"), "resume is the point: {narrow}");
         assert!(!narrow.contains("^f search-in-text"), "p5 sheds first: {narrow}");
     }
 }

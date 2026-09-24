@@ -56,7 +56,7 @@ Marks: ◆ waiting on you · ◉ running · ▸ unfinished
 
 KEYS:
   ↑/↓ project · ←/→ session · type to filter · ^f search-in-text
-  ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o same-window · ? help · esc quit
+  ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o new-window · ? help · esc quit
 ",
         env!("CARGO_PKG_VERSION")
     )
