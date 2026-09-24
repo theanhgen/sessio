@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- **`↵` opens a new window under Ghostty on macOS again.** Ghostty's `+new-window` exits 1 on
-  macOS, and sessio took that refusal as final instead of moving on to `open -na Ghostty.app`, so
-  `↵` resumed in the same window while the key bar said "new-window". 1.0.0 described this as
-  fixed; it never was.
-- **The new window resumes in the session's folder.** A Ghostty started through `open -na`
-  ignores `--working-directory` and comes up in some other window's folder, where
-  `claude --resume` cannot find the session. The launch script now `cd`s there itself.
+- **`↵` resumes in this window; `^o` opens a new one.** Swapped, and `^o` now gets the same
+  already-running guard as `↵` instead of skipping it — a second `claude` on a live transcript is
+  the same mistake in either window.
+- **A new window no longer brings twenty with it.** macOS opened it with `open -na Ghostty.app`,
+  which starts a second Ghostty, and a fresh Ghostty restores every saved window — so each press
+  reopened all of them on top of the one asked for, and could leave two `claude`s on one
+  conversation. sessio now asks the Ghostty already running for one window through its AppleScript
+  dictionary (Ghostty 1.3+). If that fails it says why and stays put rather than falling back.
 
 ## 1.1.0 - 2026-09-18
 

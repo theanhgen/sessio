@@ -9,7 +9,7 @@
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
 ```
-↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o same-window · ? help · esc quit · live
+↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o new-window · ? help · esc quit · live
 ```
 
 ## Install
@@ -38,9 +38,9 @@ sessions
 - **`^a` archive** — hides a session you're done with from every tab; press again to unarchive. Archived sessions collect in a `🗄 archived` tab (you can still resume from there). **A session you work in again comes back out on its own** — archiving records when you hid it, and anything written to afterwards is un-hidden on the next refresh. This is a sessio-local declutter list only — the transcript files are never touched, so `claude --resume` still works and Claude's own cleanup still applies.
 - **Live refresh** — the list updates every 2s, so a session you're actively running floats to the top with a green dot (🟢 active <5 min, 🟠 recent <24h). A `◉` instead of `●` means a `claude` process is attached to that session *right now* — every running session, including ones you started as a bare `claude`. sessio reads the registry Claude Code keeps at `~/.claude/sessions/<pid>.json` and cross-checks each row against `ps`, so a row left behind by a crash, or a pid since recycled, is not reported as running.
 - **Preview** — for the highlighted session: title, project, prompt count, git branch, Claude's **recap** (the goal / state / whose-move paragraph it writes when you leave a session; the compact summary is shown when there is no recap), first/last typed prompt, and Claude's last reply rendered as markdown (including fenced code blocks). `⇥` drops the first/last context to give the reply the whole box. A session whose recap says the next move is yours is marked as open.
-- **`↵` resume** — runs `claude --resume <id>` in that session's original working directory, replacing sessio in this window. If the session is **already running** (`◉`), sessio stops rather than pointing a second `claude` at the same transcript: it names the pid, tty and what that session is doing (`idle` / `busy` / `waiting` / `shell`) so you can find the window yourself, and opening it a second time takes an explicit second `↵`. Press **`^o`** to resume in this window without the guard.
+- **`↵` resume** — runs `claude --resume <id>` in that session's original working directory, replacing sessio in this window. If the session is **already running** (`◉`), sessio stops rather than pointing a second `claude` at the same transcript: it names the pid, tty and what that session is doing (`idle` / `busy` / `waiting` / `shell`) so you can find the window yourself, and opening it a second time takes an explicit second `↵`. **`^o`** opens it in a new window instead (below), behind the same guard.
   <br>sessio can also try to *raise* the running session's window, but that is **off by default** and gated behind `SESSIO_FOCUS=1`, because it cannot be made to land: measured on Ghostty, `AXRaise` puts the target at z-position 2 and never 1, since position 1 is the key window and that is sessio's own. Adding `set frontmost to true` makes macOS promote whatever it considers the app's main window instead, so each press reshuffles the stack and a different unrelated window surfaces.
-  <br>Under Ghostty, `↵` opens the session in a **new window** and keeps sessio running as a launcher. The CLI's `+new-window` action only works on Linux — on macOS it answers `+new-window is not supported on this platform` and exits 1 — so there sessio uses the route Ghostty's own `--help` names instead: `open -na Ghostty.app --args …`. The `-n` is not optional; without it macOS activates the running instance and silently drops the arguments. Everywhere else, and whenever the launch is refused, `↵` hands over the current window.
+  <br>Under Ghostty, **`^o`** opens the session in a **new window** and keeps sessio running as a launcher. On macOS it asks the Ghostty you already have open through its AppleScript dictionary (Ghostty 1.3+), so no second Ghostty is started; the first time, macOS may ask whether Ghostty may control itself. On Linux it uses `ghostty +new-window`. If the window can't be opened, sessio says why and stays put — `↵` still resumes here.
 - **`^r` reply without opening** — send one turn to a session and stay in the list. `claude -p --resume` appends to the same transcript, so the answer shows up in the preview on the next refresh. It refuses on a session that is already running (`◉`) — there is no safe way to put text into the stdin of a `claude` you are sitting in front of — and the first `^r` of a run warns that this spends tokens before the second one opens the composer. `esc` discards the draft. It is `^r` rather than a bare `r` because plain letters filter the list.
 - **`?` help** — a full keybinding overlay; any key closes it.
 - **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
@@ -58,8 +58,8 @@ sessions
 | `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `^r` | reply to the selected session without opening it |
 | `⇥` / `^e` | expand / collapse the reply preview |
-| `↵` | resume the selected session in its directory — if it's already running, says where instead, and a second `↵` opens it twice anyway |
-| `^o` | resume in **this** window, replacing sessio — skips the already-running guard (also the Ghostty escape hatch) |
+| `↵` | resume the selected session in its directory, in **this** window, replacing sessio — if it's already running, says where instead, and a second `↵` opens it twice anyway |
+| `^o` | Ghostty only: resume in a **new** window and keep sessio open — the same already-running guard, confirmed with a second `^o` |
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |
 | `^c` | quit |
