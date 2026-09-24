@@ -561,6 +561,7 @@ fn event_loop(
             match msg {
                 Msg::Items(new_items, live) => {
                     refreshing = false;
+                    announce_waiting(app, &live);
                     app.live = live;
                     app.note_follow_live();
                     absorb_items(app, new_items);
@@ -615,6 +616,39 @@ fn event_loop(
                     });
                 }
             }
+        }
+    }
+}
+
+/// Tell the user about sessions that have just started waiting on them, comparing the snapshot
+/// about to replace `app.live` against it. The first snapshot is taken at startup and only ever
+/// plays `prev`, so a session already waiting when sessio opened is not announced.
+#[cfg(not(target_arch = "wasm32"))]
+fn announce_waiting(app: &mut App, live: &crate::live::LiveMap) {
+    use crate::notify;
+    let ids = notify::newly_waiting(&app.live, live);
+    if ids.is_empty() || !notify::enabled() {
+        return;
+    }
+    let waiting: Vec<(String, String)> = ids
+        .iter()
+        .map(|id| {
+            let title = app
+                .items
+                .iter()
+                .find(|it| &it.id == id)
+                .map(|it| sanitize(it.display_name()))
+                .unwrap_or_else(|| id.chars().take(8).collect());
+            let why = live.get(id).map(|l| sanitize(&l.waiting_for)).unwrap_or_default();
+            (title, why)
+        })
+        .collect();
+    if let Some(msg) = notify::message(&waiting) {
+        notify::post(&msg);
+        // Not over a pending "↵ again" warning: `say` would hide it and restart its clock, leaving
+        // the consent armed behind a message that no longer asks for it.
+        if app.confirm.is_none() {
+            app.say(msg);
         }
     }
 }

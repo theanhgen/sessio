@@ -31,6 +31,12 @@
 - **A `◆ waiting` tab.** Right below `⏸ open`, present only while a running session is stopped
   on a question or permission prompt, and holding exactly those — the key bar's "waiting on you"
   now has somewhere to go.
+- **The dashboard tells you when a session starts waiting on you.** `◆` only helped while you
+  were looking at the list, and a session parked on a question in a forgotten window is the one
+  you are not looking at. Now the flip to `waiting` posts a macOS notification (the terminal bell
+  elsewhere) naming the session and what it wants, once per wait, and several at once are one
+  notification that counts them. Sessions already waiting when sessio opens stay quiet.
+  `SESSIO_NOTIFY=0` turns it off.
 - **`↵` resumes in this window; `^o` opens a new one.** Swapped, and `^o` now gets the same
   already-running guard as `↵` instead of skipping it — a second `claude` on a live transcript is
   the same mistake in either window.

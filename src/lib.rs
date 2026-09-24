@@ -11,6 +11,7 @@ pub mod issues;
 pub mod live;
 pub mod md;
 pub mod model;
+pub mod notify;
 pub mod parse;
 pub mod rank;
 pub mod resume;
