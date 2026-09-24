@@ -43,9 +43,26 @@ const REFRESH: Duration = Duration::from_secs(2);
 /// every 120ms input poll, and a message cleared after one frame — as the JS reference does, where
 /// a frame is a keypress or the 2s tick — was gone before anyone could read it.
 const FLASH: Duration = Duration::from_secs(5);
-/// The session tab strip is always exactly one row. Like a browser, tabs shrink as more open and
-/// then the strip scrolls — it never wraps onto a second row, so nothing below it ever moves.
-const TAB_ROW: usize = 1;
+/// The dashboard's fixed regions, top to bottom, in the column right of the project panel: the
+/// key bar, the query, the selected project's context line and the session strip. Each is exactly
+/// one row, so the preview under them starts on the same row whatever is selected, typed or
+/// flashed. The session strip, like a browser's, scrolls rather than wraps: it never takes a
+/// second row.
+const KEYBAR_ROW: usize = 0;
+const QUERY_ROW: usize = 1;
+const CONTEXT_ROW: usize = 2;
+const STRIP_ROW: usize = 3;
+/// Rows above the preview (plus one while the reply composer is open).
+const CHROME: usize = STRIP_ROW + 1;
+/// The feedback region: the bottom row(s), the whole terminal wide, under the panel and the
+/// preview alike. One row, a second only while a message needs it; blank when nothing is said.
+const FEEDBACK_MAX: usize = 2;
+/// The smallest window the dashboard lays out. Below it the frame says so and keeps only the
+/// essentials, rather than squeezing the regions into each other. The width is the panel at its
+/// narrowest, its rule, and a body that still holds a readable strip; the height is the chrome,
+/// the preview's rule, title and facts, a few lines of content and the feedback row.
+const MIN_COLS: usize = 50;
+const MIN_ROWS: usize = 12;
 /// No one tab may take more than this, however long its title — the focused tab is allowed to be
 /// the wide one, but not so wide that nothing is left to steer by.
 const TAB_MAX: usize = 44;
@@ -1221,16 +1238,25 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     }
     let sel = view.get(app.cur).copied();
 
-    // The panel is carved off the left first, so everything below measures itself against the
+    if cols < MIN_COLS || rows < MIN_ROWS {
+        return too_small(app, &view, cols, rows);
+    }
+
+    // Feedback is carved off the bottom first, across the whole width, so a message never shares
+    // a row with the hints or gets clipped to the column beside the panel.
+    let feedback = feedback_lines(app, cols);
+    let height = rows - feedback.len();
+
+    // The panel is carved off the left next, so everything below measures itself against the
     // width that is actually left rather than the terminal's.
     let side = sidebar(app, cols);
     let cols = cols.saturating_sub(side + SIDE_GAP);
 
-    // The chrome is a fixed height: header, search, and the one-row session tab strip. Nothing
-    // here is derived from what the highlighted session contains, so the preview under it never
-    // moves as you walk the tabs.
-    let chrome = 1 + 1 + TAB_ROW + usize::from(app.draft.is_some());
-    let preview_box = rows.saturating_sub(chrome);
+    // The chrome is a fixed height: key bar, query, project context and the one-row session
+    // strip. Nothing here is derived from what the highlighted session contains, so the preview
+    // under it never moves as you walk the projects or the tabs.
+    let chrome = CHROME + usize::from(app.draft.is_some());
+    let preview_box = height.saturating_sub(chrome);
     let prev = if let Some(f) = &app.follow {
         follow_preview(app, f, cols, preview_box)
     } else if app.issues {
@@ -1241,16 +1267,106 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
         sel.map(|i| preview(app, &app.items[i], cols, reply_max)).unwrap_or_default()
     };
 
-    let mut lines: Vec<Line> = Vec::with_capacity(rows + 4);
-    lines.push(header(app, cols));
-    lines.push(query_line(app, view.len()));
-    lines.push(session_tabs(app, &view, cols));
+    let mut lines: Vec<Line> = vec![Line::default(); CHROME];
+    lines[KEYBAR_ROW] = header(app, cols);
+    lines[QUERY_ROW] = query_line(app, view.len());
+    lines[CONTEXT_ROW] = context_line(app, sel, cols);
+    lines[STRIP_ROW] = session_tabs(app, &view, cols);
     if let Some((_, text)) = &app.draft {
         lines.push(compose_line(text));
     }
     lines.extend(prev);
+    // Every row is cut to its region: a wide title, a CJK path or an emoji-laden branch ends in
+    // `…` at the region's edge instead of running on past it.
+    lines.truncate(height);
+    let lines = lines.into_iter().map(|l| clip(l, cols)).collect();
 
-    join_side(side_panel(app, side, rows), lines, side)
+    let mut out = join_side(side_panel(app, side, height), lines, side);
+    out.extend(feedback);
+    out
+}
+
+/// The frame for a window under `MIN_COLS` x `MIN_ROWS`: say so, then what you need to act on —
+/// any feedback, the reply being typed, where you are, the highlighted session and the keys that
+/// act on it. Every key still does what it does at any other size; only the drawing gives up.
+fn too_small(app: &App, view: &[usize], cols: usize, rows: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        format!("window too small (need {MIN_COLS}x{MIN_ROWS})"),
+        theme::attention(),
+    ))];
+    if !app.flash.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", app.flash_tone.mark(), sanitize(&app.flash)),
+            app.flash_tone.style(),
+        )));
+    }
+    if let Some((_, text)) = &app.draft {
+        lines.push(compose_line(text));
+    }
+    let tab = app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str);
+    let pos = if view.is_empty() {
+        "no sessions".to_string()
+    } else {
+        format!("{}/{}", app.cur + 1, view.len())
+    };
+    lines.push(Line::from(vec![
+        Span::styled(sanitize(tab), Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" · {pos}"), dim()),
+    ]));
+    if let Some(&i) = view.get(app.cur) {
+        let it = &app.items[i];
+        let mut spans = tab_marks(app, it, None);
+        spans.push(Span::styled(sanitize(it.display_name()), theme::accent()));
+        lines.push(Line::from(spans));
+    }
+    let mut keys = String::new();
+    if app.live.values().any(crate::live::Live::needs_you) {
+        keys.push_str("◆ waiting on you · ");
+    }
+    keys.push_str("↑↓ ←→ · ↵ resume · ? help · esc quit");
+    lines.push(Line::from(Span::styled(keys, dim())));
+    lines.truncate(rows);
+    lines.into_iter().map(|l| clip(l, cols)).collect()
+}
+
+/// The feedback region: the flash in its tone, wrapped onto a second row only when one row cannot
+/// hold it. One blank row when there is nothing to say, so the region is always there.
+fn feedback_lines(app: &App, cols: usize) -> Vec<Line<'static>> {
+    if app.flash.is_empty() {
+        return vec![Line::default()];
+    }
+    let text = format!("{}{}", app.flash_tone.mark(), sanitize(&app.flash));
+    // One column of margin, as the panel's rows have.
+    wrap_plain(&text, cols.saturating_sub(1), FEEDBACK_MAX)
+        .into_iter()
+        .map(|l| Line::from(vec![Span::raw(" "), Span::styled(l, app.flash_tone.style())]))
+        .collect()
+}
+
+/// A row cut to `w` display columns, ending in `…` when anything was lost. Styles are kept; a
+/// wide glyph that would straddle the edge is dropped rather than half-drawn.
+fn clip(line: Line<'static>, w: usize) -> Line<'static> {
+    if spans_width(&line.spans) <= w {
+        return line;
+    }
+    let room = w.saturating_sub(1);
+    let mut out: Vec<Span<'static>> = Vec::new();
+    let mut used = 0;
+    for sp in line.spans {
+        let sw = UnicodeWidthStr::width(sp.content.as_ref());
+        if used + sw <= room {
+            used += sw;
+            out.push(sp);
+            continue;
+        }
+        let cut = fit_width(&sp.content, room - used).trim_end().to_string();
+        out.push(Span::styled(cut, sp.style));
+        break;
+    }
+    if w > 0 {
+        out.push(Span::styled("…", dim()));
+    }
+    Line::from(out)
 }
 
 /// One hint in the key bar. `p` is how expendable it is: the bar sheds the highest `p` first.
@@ -1354,30 +1470,15 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         ];
     }
 
-    // A flash is why you pressed the key; the hints are always there. So the message is budgeted
-    // first and the bar shrinks around it — otherwise "already running (pid …)" is clipped to
-    // "already runni" and the keypress looks like it did nothing.
-    let flash = if app.flash.is_empty() {
-        String::new()
-    } else {
-        format!("{}{}", app.flash_tone.mark(), sanitize(&app.flash))
-    };
-    let flash_w = if flash.is_empty() { 0 } else { UnicodeWidthStr::width(flash.as_str()) + 2 };
-
+    // Feedback has its own region at the bottom of the frame, so the bar no longer sheds hints to
+    // make room for a message, and a message is never clipped to what the hints left over.
     let mut spans: Vec<Span<'static>> = Vec::new();
-    for (i, seg) in fit_segments(&segs, cols.saturating_sub(flash_w))
-        .into_iter()
-        .enumerate()
-    {
+    for (i, seg) in fit_segments(&segs, cols).into_iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled(SEP, dim()));
         }
         let style = if seg.accent { theme::accent() } else { dim() };
         spans.push(Span::styled(seg.t, style));
-    }
-    if !flash.is_empty() {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(flash, app.flash_tone.style()));
     }
     Line::from(spans)
 }
@@ -1418,12 +1519,17 @@ fn sidebar(app: &App, cols: usize) -> usize {
 fn side_panel(app: &App, w: usize, rows: usize) -> Vec<Line<'static>> {
     let body = rows.saturating_sub(1);
     let n = app.tabs.len();
-    let off =
-        if n <= body { 0 } else { app.p_idx.saturating_sub(body / 2).min(n - body) };
+    // The panel's rows: every tab, with a rule wherever the kind of tab changes, so the
+    // collections (everything, open, waiting), the projects and the archive read as three groups
+    // rather than one list in which `⌂ everything` looks like a project.
+    let entries = panel_entries(&app.tabs);
+    let at = entries.iter().position(|e| *e == Some(app.p_idx)).unwrap_or(0);
+    let m = entries.len();
+    let off = if m <= body { 0 } else { at.saturating_sub(body / 2).min(m - body) };
     // The key bar drops `↑↓ project` while the panel is up, so the panel has to carry it.
     let lead = if w >= 14 { " ↑↓ projects" } else { " projects" };
     let label =
-        if n > body { format!("{lead} {}/{n}", app.p_idx + 1) } else { lead.to_string() };
+        if m > body { format!("{lead} {}/{n}", app.p_idx + 1) } else { lead.to_string() };
 
     // Per tab: sessions touched in the last 24h, then all of them, right-aligned in two columns.
     // Dropped whole when the panel is too narrow to keep a readable name beside them.
@@ -1439,11 +1545,22 @@ fn side_panel(app: &App, w: usize, rows: usize) -> Vec<Line<'static>> {
     };
     let mut lines = vec![Line::from(Span::styled(fit_width(&head, w), dim()))];
     for r in 0..body {
-        let Some(name) = app.tabs.get(off + r) else {
-            lines.push(Line::from("")); // hold the column open to the full height
-            continue;
+        let t = match entries.get(off + r) {
+            Some(Some(t)) => *t,
+            Some(None) => {
+                lines.push(Line::from(Span::styled(
+                    format!(" {}", "╌".repeat(w.saturating_sub(2))),
+                    dim(),
+                )));
+                continue;
+            }
+            None => {
+                lines.push(Line::from("")); // hold the column open to the full height
+                continue;
+            }
         };
-        let style = if off + r == app.p_idx { panel_selected() } else { dim() };
+        let name = &app.tabs[t];
+        let style = if t == app.p_idx { panel_selected() } else { dim() };
         let text = match cols {
             Some((a, b)) => {
                 let (day, all) = app.tab_counts(name, now);
@@ -1460,6 +1577,27 @@ fn side_panel(app: &App, w: usize, rows: usize) -> Vec<Line<'static>> {
         lines.push(Line::from(Span::styled(fit_width(&text, w), style)));
     }
     lines
+}
+
+/// Which group a panel tab belongs to: the collections, the projects, or the archive.
+fn tab_group(tab: &str) -> u8 {
+    match tab {
+        ALL_TAB | OPEN_TAB | WAITING_TAB => 0,
+        ARCHIVED_TAB => 2,
+        _ => 1,
+    }
+}
+
+/// The panel's rows as tab indices, `None` for the rule between two groups.
+fn panel_entries(tabs: &[String]) -> Vec<Option<usize>> {
+    let mut out = Vec::with_capacity(tabs.len() + 2);
+    for (i, t) in tabs.iter().enumerate() {
+        if i > 0 && tab_group(&tabs[i - 1]) != tab_group(t) {
+            out.push(None);
+        }
+        out.push(Some(i));
+    }
+    out
 }
 
 /// The name room the panel keeps before it drops the count columns: names come first.
@@ -1521,6 +1659,79 @@ fn query_line(app: &App, matches: usize) -> Line<'static> {
         ));
     }
     Line::from(spans)
+}
+
+/// The selected project's context line, above the session strip: its whole name (the panel may
+/// have cut it to ten columns), how many sessions it holds, and where they live — or, for a
+/// collection, what it collects. The name wins the width, then the counts, then the place, which
+/// is cut from the left so the folder's own name survives.
+fn context_line(app: &App, sel: Option<usize>, cols: usize) -> Line<'static> {
+    let tab = app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str);
+    let name = sanitize(tab);
+    let name_w = UnicodeWidthStr::width(name.as_str());
+    let mut spans = vec![Span::styled(name, Style::default().add_modifier(Modifier::BOLD))];
+
+    let (day, all) = app.tab_counts(tab, model::now_ms());
+    let counts = format!(
+        " · {all} session{} · {day} in 24h",
+        if all == 1 { "" } else { "s" }
+    );
+    let counts_w = UnicodeWidthStr::width(counts.as_str());
+    if name_w + counts_w > cols {
+        return Line::from(spans);
+    }
+    spans.push(Span::styled(counts, dim()));
+
+    let place = match tab {
+        ALL_TAB => "every project".to_string(),
+        OPEN_TAB => "unfinished, in every project".to_string(),
+        WAITING_TAB => "waiting on you, in every project".to_string(),
+        ARCHIVED_TAB => "hidden with ^a · ^a brings one back".to_string(),
+        project => {
+            // The folder of the highlighted session when it is this project's, else the first.
+            let cwd = sel
+                .map(|i| &app.items[i])
+                .filter(|it| it.project == project)
+                .or_else(|| app.items.iter().find(|it| app.in_tab(tab, it)))
+                .and_then(|it| it.cwd.as_deref())
+                .unwrap_or("");
+            home_short(&sanitize(cwd))
+        }
+    };
+    let room = cols.saturating_sub(name_w + counts_w + SEP_W);
+    // A place cut to a handful of columns says nothing; leave it off instead.
+    if !place.is_empty() && room >= 8 {
+        spans.push(Span::styled(format!("{SEP}{}", fit_left(&place, room)), dim()));
+    }
+    Line::from(spans)
+}
+
+/// A path with the home folder written `~`.
+fn home_short(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && path.starts_with(&h) => format!("~{}", &path[h.len()..]),
+        _ => path.to_string(),
+    }
+}
+
+/// The last `w` display columns of `s`, led by `…` when anything was cut: for paths, whose end
+/// is the part that names them.
+fn fit_left(s: &str, w: usize) -> String {
+    if UnicodeWidthStr::width(s) <= w {
+        return s.to_string();
+    }
+    let mut kept: Vec<char> = Vec::new();
+    let mut used = 1; // the ellipsis
+    for c in s.chars().rev() {
+        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + cw > w {
+            break;
+        }
+        kept.push(c);
+        used += cw;
+    }
+    let tail: String = kept.into_iter().rev().collect();
+    format!("…{tail}")
 }
 
 /// The reply composer: one line, under the tabs and above the session it answers — so the
@@ -1612,22 +1823,31 @@ fn session_tabs(app: &App, view: &[usize], cols: usize) -> Line<'static> {
     let n = view.len();
     let cur = app.cur.min(n - 1);
 
+    // Where you are in the strip, first, so a scrolled strip still says how far along it you are.
+    let pos = format!("{}/{n} ", cur + 1);
+    let room = cols.saturating_sub(UnicodeWidthStr::width(pos.as_str()));
+
     // A cell is dot + label + the rule that gives the tab an edge. One tab may not take the whole
-    // strip, however long its title, or there is nothing left to steer by.
-    let cell = |slot: usize| -> (String, usize) {
-        let it = &app.items[view[slot]];
-        let label = tab_label(it, slot == cur);
-        let label = fit_width(&label, UnicodeWidthStr::width(label.as_str()).min(TAB_MAX));
+    // strip, however long its title, or there is nothing left to steer by. `cap` bounds the label.
+    let marks_w = |slot: usize| spans_width(&tab_marks(app, &app.items[view[slot]], None));
+    let cell_in = |slot: usize, cap: usize| -> (String, usize) {
+        let label = tab_label(&app.items[view[slot]], slot == cur);
+        let label = if UnicodeWidthStr::width(label.as_str()) > cap {
+            format!("{}…", fit_width(&label, cap.saturating_sub(1)).trim_end())
+        } else {
+            label
+        };
         // label + the rule that closes the tab + whichever status marks it actually carries.
-        let w = UnicodeWidthStr::width(label.as_str())
-            + 1
-            + spans_width(&tab_marks(app, it, None));
+        let w = UnicodeWidthStr::width(label.as_str()) + 1 + marks_w(slot);
         (label, w)
     };
 
     // Grow outwards from the focused tab, alternating sides, while the row still has room.
-    let overflows = (0..n).map(|i| cell(i).1).sum::<usize>() > cols;
-    let budget = cols.saturating_sub(if overflows { MARKERS } else { 0 });
+    let overflows = (0..n).map(|i| cell_in(i, TAB_MAX).1).sum::<usize>() > room;
+    let budget = room.saturating_sub(if overflows { MARKERS } else { 0 });
+    // The focused tab always fits: on a narrow strip its title is cut, never the tab itself.
+    let focus_cap = TAB_MAX.min(budget.saturating_sub(marks_w(cur) + 1));
+    let cell = |slot: usize| cell_in(slot, if slot == cur { focus_cap } else { TAB_MAX });
     let (mut lo, mut hi, mut used) = (cur, cur, cell(cur).1);
     loop {
         let grew_right = hi + 1 < n && used + cell(hi + 1).1 <= budget;
@@ -1645,7 +1865,7 @@ fn session_tabs(app: &App, view: &[usize], cols: usize) -> Line<'static> {
         }
     }
 
-    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut spans: Vec<Span<'static>> = vec![Span::styled(pos, dim())];
     if lo > 0 {
         spans.push(Span::styled(format!("‹{lo} "), dim()));
     }
@@ -1818,8 +2038,11 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         if reply_max > 0 {
             let rl = md_lines(reply, prose);
             let total = rl.len();
-            let mut body: Vec<Line> = rl.into_iter().take(reply_max).collect();
-            if total > reply_max {
+            // The marker comes out of the reply's own rows, so a cut reply still fits its box
+            // rather than pushing the marker off the bottom of the preview.
+            let shown = if total > reply_max { reply_max.saturating_sub(1).max(1) } else { total };
+            let mut body: Vec<Line> = rl.into_iter().take(shown).collect();
+            if total > shown {
                 body.push(Line::from(Span::styled("… ⇥ for full", dim())));
             }
             let ts = detail.and_then(|d| d.reply_ts.as_deref()).map(since).unwrap_or_default();
@@ -2469,19 +2692,25 @@ mod tests {
             .collect()
     }
 
+    /// The panel's tab rows of a rendered frame: under its label, above the feedback row, without
+    /// the rules between groups or the blank rows that hold the column open.
+    fn panel_rows(rows: &[String]) -> Vec<String> {
+        rows[1..rows.len() - 1]
+            .iter()
+            .map(|r| r.split(" │ ").next().unwrap_or("").to_string())
+            .filter(|p| !p.trim().is_empty() && !p.contains('╌'))
+            .collect()
+    }
+
     #[test]
     fn a_wide_terminal_puts_the_projects_down_the_side() {
         let mut app = fixture(&real_tabs());
         let rows = frame(&mut app, 136, 26);
         assert!(rows[0].starts_with(" ↑↓ projects"), "panel is labelled: {:?}", rows[0]);
-        // One project per row, in order, down the left edge.
+        // One project per row, in order, down the left edge, past the rule between the groups.
+        let listed = panel_rows(&rows);
         for (i, name) in real_tabs().iter().enumerate() {
-            assert!(
-                rows[i + 1].trim_start().starts_with(name),
-                "row {} should hold {name}: {:?}",
-                i + 1,
-                rows[i + 1]
-            );
+            assert!(listed[i].trim_start().starts_with(name), "row {i} should hold {name}: {listed:?}");
         }
         // And the tabs are no longer spent on a row of their own up top.
         assert!(rows[0].contains("? help"), "key bar sits beside the panel: {:?}", rows[0]);
@@ -2507,18 +2736,17 @@ mod tests {
     /// projects above the list that wrapped onto several rows; that must never come back.
     #[test]
     fn a_narrow_terminal_keeps_the_panel() {
-        for cols in [40u16, 60, 80, 100] {
+        for cols in [MIN_COLS as u16, 60, 80, 100] {
             let mut app = fixture(&real_tabs());
             let rows = frame(&mut app, cols, 26);
             assert!(rows[0].starts_with(" "), "{cols} cols: panel label first: {:?}", rows[0]);
             assert!(rows[0].contains("projects"), "{cols} cols: panel is labelled: {:?}", rows[0]);
+            let listed = panel_rows(&rows);
             for (i, name) in real_tabs().iter().enumerate() {
                 let head: String = name.chars().take(3).collect();
                 assert!(
-                    rows[i + 1].trim_start().starts_with(&head),
-                    "{cols} cols: row {} should hold {name}: {:?}",
-                    i + 1,
-                    rows[i + 1]
+                    listed[i].trim_start().starts_with(&head),
+                    "{cols} cols: row {i} should hold {name}: {listed:?}",
                 );
             }
         }
@@ -3031,18 +3259,20 @@ mod tests {
         assert_eq!(all.len(), others.len(), "{others:?}");
     }
 
-    /// Normal, waiting, error and empty frames share one hierarchy: key bar and feedback on row 0,
-    /// the query on row 1, the session strip on row 2, the preview under it. A state changes what
-    /// a row says, never which row says it.
+    /// Normal, waiting, error and empty frames share one hierarchy: the key bar on row 0, the
+    /// query on row 1, the project context on row 2, the session strip on row 3, the preview under
+    /// it and feedback on the last row. A state changes what a row says, never which row says it.
     #[test]
     fn every_state_keeps_the_same_rows() {
         let text = |l: &Line| l.spans.iter().map(|s| s.content.to_string()).collect::<String>();
         let check = |app: &mut App, what: &str| {
             let f = frame_lines(app, 140, 30);
             assert_eq!(f.len(), 30, "{what}: fills the window");
-            assert!(text(&f[0]).contains("? help"), "{what}: row 0 is the key bar: {:?}", text(&f[0]));
-            assert!(text(&f[1]).contains(SEARCH_ICON), "{what}: row 1 is the query");
-            let strip = text(&f[2]);
+            let row = |r: usize| text(&f[r]);
+            assert!(row(KEYBAR_ROW).contains("? help"), "{what}: key bar: {:?}", row(KEYBAR_ROW));
+            assert!(row(QUERY_ROW).contains(SEARCH_ICON), "{what}: query row");
+            assert!(row(CONTEXT_ROW).contains("everything"), "{what}: context: {:?}", row(CONTEXT_ROW));
+            let strip = row(STRIP_ROW);
             assert!(strip.contains('│') || strip.contains("no sessions here"), "{what}: {strip:?}");
         };
         let mut app = fixture(&real_tabs());
@@ -3064,7 +3294,8 @@ mod tests {
         app.say(Tone::Error, "reply failed · boom".into());
         check(&mut app, "error");
         let f = frame_lines(&mut app, 140, 30);
-        assert!(text(&f[0]).contains("✗ reply failed"), "the error rides in row 0");
+        assert!(text(&f[29]).contains("✗ reply failed"), "the error rides in the feedback row");
+        assert!(!text(&f[KEYBAR_ROW]).contains("reply failed"), "not in the key bar");
 
         app.q = "zzqqxxnothingmatchesthis".into();
         app.requery();
@@ -3077,15 +3308,291 @@ mod tests {
     fn a_failed_action_does_not_flash_green() {
         let mut app = fixture(&real_tabs());
         app.say(Tone::Error, "reply failed · boom".into());
-        let bar = header(&app, 140);
-        let flash = bar.spans.last().unwrap();
+        let fb = feedback_lines(&app, 140);
+        let flash = fb[0].spans.last().unwrap();
         assert!(flash.content.starts_with("✗ reply failed"), "{:?}", flash.content);
         assert_ne!(flash.style, Tone::Success.style());
 
         app.say(Tone::Success, "↩ replied · ok".into());
-        let flash = header(&app, 140).spans.last().unwrap().clone();
+        let flash = feedback_lines(&app, 140)[0].spans.last().unwrap().clone();
         assert!(!flash.content.contains('✗'));
         assert_eq!(flash.style, Tone::Success.style());
+    }
+
+    // ---------- #21: fixed regions ----------
+
+    /// The sizes the layout is held to, smallest to largest (docs/DESIGN.md, "Layout").
+    const FIXTURE_SIZES: [(u16, u16); 4] = [(60, 18), (80, 24), (104, 26), (160, 40)];
+
+    /// A rendered row read back one grapheme per glyph: a wide glyph's trailing cell is skipped,
+    /// so the string's display width is the width the terminal draws.
+    fn frame_exact(app: &mut App, cols: u16, rows: u16) -> Vec<String> {
+        let mut term = Terminal::new(ratatui::backend::TestBackend::new(cols, rows)).unwrap();
+        term.draw(|f| draw(f, app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..rows)
+            .map(|y| {
+                let mut row = String::new();
+                let mut x = 0;
+                while x < cols {
+                    let sym = buf[(x, y)].symbol();
+                    row.push_str(sym);
+                    x += UnicodeWidthStr::width(sym).max(1) as u16;
+                }
+                row
+            })
+            .collect()
+    }
+
+    /// The display column the panel's rule sits at on a frame line, if the line has one.
+    fn rule_col(l: &Line) -> Option<usize> {
+        let at = l.spans.iter().position(|s| s.content == " │ ")?;
+        Some(spans_width(&l.spans[..at]))
+    }
+
+    /// Every row of a frame is inside the terminal, and every row above the feedback region puts
+    /// the panel's rule at the same column: nothing on either side pushed it.
+    fn assert_regions_hold(app: &mut App, cols: u16, rows: u16, what: &str) {
+        let lines = frame_lines(app, cols as usize, rows as usize);
+        assert_eq!(lines.len(), rows as usize, "{what} {cols}x{rows}: fills the window exactly");
+        let side = sidebar(app, cols as usize);
+        let fb = feedback_lines(app, cols as usize).len();
+        for (y, l) in lines.iter().enumerate() {
+            let w = spans_width(&l.spans);
+            assert!(w <= cols as usize, "{what} {cols}x{rows}: row {y} is {w} wide: {l:?}");
+            if y < rows as usize - fb {
+                assert_eq!(rule_col(l), Some(side), "{what} {cols}x{rows}: row {y} moved the rule");
+            }
+        }
+        for (y, r) in frame_exact(app, cols, rows).iter().enumerate() {
+            let w = UnicodeWidthStr::width(r.as_str());
+            assert!(w <= cols as usize, "{what} {cols}x{rows}: drawn row {y} is {w} wide: {r:?}");
+        }
+    }
+
+    /// Where the preview's rule is drawn, as a row of the frame.
+    fn preview_row(app: &mut App, cols: u16, rows: u16) -> usize {
+        frame_exact(app, cols, rows)
+            .iter()
+            .position(|r| r.contains("────"))
+            .expect("the preview draws a rule")
+    }
+
+    /// The acceptance fixtures: at each supported size every region starts on its own row, and
+    /// walking every project and session — the ordinary navigation — moves none of them.
+    #[test]
+    fn the_regions_hold_their_rows_at_every_supported_size() {
+        for (cols, rows) in FIXTURE_SIZES {
+            let mut app = fixture(&real_tabs());
+            // Detail on some sessions and not others, so preview heights differ as you walk.
+            app.items[0].detail = Some(crate::parse::Detail {
+                count: 3,
+                reply: Some("a reply\n".repeat(60)),
+                ..Default::default()
+            });
+            let start = preview_row(&mut app, cols, rows);
+            assert_eq!(start, CHROME, "{cols}x{rows}: the preview starts under the chrome");
+            for p in 0..app.tabs.len() {
+                app.p_idx = p;
+                app.reset_position();
+                for s in 0..app.view().len().min(4) {
+                    app.cur = s;
+                    let what = format!("project {p} session {s}");
+                    assert_eq!(preview_row(&mut app, cols, rows), start, "{what} {cols}x{rows}");
+                    assert_regions_hold(&mut app, cols, rows, &what);
+                    let f = frame_exact(&mut app, cols, rows);
+                    let body = |y: usize| f[y].split(" │ ").nth(1).unwrap_or("").to_string();
+                    assert!(body(QUERY_ROW).contains(SEARCH_ICON), "{what}: {:?}", body(QUERY_ROW));
+                    let pos = format!("{}/{} ", s + 1, app.view().len());
+                    assert!(body(STRIP_ROW).starts_with(&pos), "{what}: {:?}", body(STRIP_ROW));
+                    assert!(f[rows as usize - 1].trim().is_empty(), "{what}: feedback row idle");
+                }
+            }
+        }
+    }
+
+    /// Feedback has a row of its own: saying something leaves the key bar and the preview where
+    /// they were, and a long message wraps into the region instead of being clipped away.
+    #[test]
+    fn feedback_takes_its_own_row_and_leaves_the_key_bar_alone() {
+        for (cols, rows) in FIXTURE_SIZES {
+            let mut app = fixture(&real_tabs());
+            let quiet = frame_exact(&mut app, cols, rows);
+            app.say(Tone::Warning, "already running (pid 68227 · ttys013 · waiting · input needed) — ↵ again to open it twice".into());
+            let loud = frame_exact(&mut app, cols, rows);
+            assert_eq!(loud[KEYBAR_ROW], quiet[KEYBAR_ROW], "{cols}x{rows}: key bar untouched");
+            assert_eq!(preview_row(&mut app, cols, rows), CHROME, "{cols}x{rows}: preview stays");
+            let tail = loud[rows as usize - FEEDBACK_MAX..].join(" ");
+            assert!(tail.contains("↵ again"), "{cols}x{rows}: the consent key survives: {tail:?}");
+            assert_regions_hold(&mut app, cols, rows, "long flash");
+        }
+    }
+
+    /// The project panel and the strip overflow; what is selected in each does not fall off.
+    #[test]
+    fn the_selected_project_and_session_stay_visible_while_lists_overflow() {
+        let many: Vec<String> = [ALL_TAB.to_string(), OPEN_TAB.to_string()]
+            .into_iter()
+            .chain((0..40).map(|i| format!("project-{i:02}")))
+            .collect();
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        for (cols, rows) in FIXTURE_SIZES {
+            let mut app = fixture(&refs);
+            app.items = (0..60).map(nth_item).collect();
+            for it in &mut app.items {
+                it.project = "project-07".into();
+            }
+            for p in [0usize, 1, 2, 9, 20, 41] {
+                app.p_idx = p;
+                app.reset_position();
+                let n = app.view().len();
+                for cur in [0, 1, n / 2, n.saturating_sub(1)].into_iter().filter(|&c| c < n.max(1)) {
+                    app.cur = cur;
+                    let lines = frame_lines(&mut app, cols as usize, rows as usize);
+                    let styled = |style: Style| {
+                        lines
+                            .iter()
+                            .flat_map(|l| l.spans.iter())
+                            .filter(|s| s.style == style)
+                            .map(|s| s.content.to_string())
+                            .collect::<String>()
+                    };
+                    let proj = styled(panel_selected());
+                    let head: String = sanitize(&app.tabs[p]).chars().take(4).collect();
+                    assert!(proj.contains(&head), "{cols}x{rows} p{p}: project {head} hidden: {proj:?}");
+                    let ctx = lines[CONTEXT_ROW].spans.iter().map(|s| s.content.to_string()).collect::<String>();
+                    assert!(ctx.contains(&sanitize(&app.tabs[p])), "{cols}x{rows}: context names it: {ctx:?}");
+                    if n > 0 {
+                        let title = app.items[app.view()[cur]].display_name().to_string();
+                        let tab = styled(tab_selected());
+                        let head: String = title.chars().take(6).collect();
+                        assert!(tab.contains(&head), "{cols}x{rows} s{cur}: focused tab hidden: {tab:?}");
+                    }
+                    assert_regions_hold(&mut app, cols, rows, "overflow");
+                }
+            }
+        }
+    }
+
+    /// The strip says where you are in it, however far it has scrolled.
+    #[test]
+    fn the_strip_shows_the_session_position() {
+        let mut app = fixture(&real_tabs());
+        app.items = (0..18).map(nth_item).collect();
+        app.tabs = vec![ALL_TAB.to_string()];
+        app.p_idx = 0;
+        app.cur = 2;
+        let view = app.view();
+        let strip: String =
+            session_tabs(&app, &view, 80).spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(strip.starts_with("3/18 "), "{strip:?}");
+    }
+
+    /// Below the minimum the frame says what it needs and keeps only what you act on — and the
+    /// keys still act, since none of them depends on the window size.
+    #[test]
+    fn below_the_minimum_the_frame_says_so_and_keeps_the_essentials() {
+        let need = format!("window too small (need {MIN_COLS}x{MIN_ROWS})");
+        for (cols, rows) in [
+            (MIN_COLS - 1, 24),
+            (80, MIN_ROWS - 1),
+            (40, 10),
+            (30, 6),
+            (12, 3),
+            (1, 1),
+            (0, 0),
+        ] {
+            let mut app = fixture(&real_tabs());
+            let lines = frame_lines(&mut app, cols, rows);
+            assert!(lines.len() <= rows, "{cols}x{rows}: {} rows", lines.len());
+            let text: Vec<String> = lines
+                .iter()
+                .map(|l| l.spans.iter().map(|s| s.content.to_string()).collect())
+                .collect();
+            for (y, t) in text.iter().enumerate() {
+                let w = UnicodeWidthStr::width(t.as_str());
+                assert!(w <= cols, "{cols}x{rows}: row {y} is {w} wide: {t:?}");
+            }
+            if cols >= need.len() && rows >= 1 {
+                assert_eq!(text[0], need, "{cols}x{rows}");
+            }
+            if cols >= 40 && rows >= 4 {
+                let all = text.join("\n");
+                assert!(all.contains("⌂ everything · 1/12"), "{cols}x{rows}: {all}");
+                assert!(all.contains(app.items[app.view()[0]].display_name()), "{cols}x{rows}: {all}");
+                assert!(all.contains("↵ resume"), "{cols}x{rows}: {all}");
+
+                // ←→ and ↑↓ still move, and the frame follows.
+                app.step_session(1);
+                let moved = frame_lines(&mut app, cols, rows);
+                let all: String = moved.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.to_string()).collect();
+                assert!(all.contains("2/12"), "{cols}x{rows}: {all}");
+                app.step_project(1);
+                let moved = frame_lines(&mut app, cols, rows);
+                let all: String = moved.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.to_string()).collect();
+                assert!(all.contains(&sanitize(&app.tabs[1])), "{cols}x{rows}: {all}");
+            }
+            if cols > 0 && rows > 0 {
+                assert_eq!(frame_exact(&mut app, cols as u16, rows as u16).len(), rows);
+            }
+        }
+        // The boundary itself lays out the dashboard.
+        let mut app = fixture(&real_tabs());
+        assert_regions_hold(&mut app, MIN_COLS as u16, MIN_ROWS as u16, "minimum");
+    }
+
+    /// CJK and emoji titles, a CJK project, an emoji branch and a very long path: each is cut at
+    /// its own region's edge, and the panel's rule never moves.
+    #[test]
+    fn unicode_titles_and_long_paths_stay_in_their_regions() {
+        let cjk = "日本語のセッションタイトルがとても長い場合のテスト日本語日本語日本語日本語";
+        let emoji = "🎉🚀 ship it 🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀🎉🚀";
+        let project = "プロジェクト名がとても長いプロジェクト";
+        let deep = format!("/Users/x/{}日本語/🎉", "a-very-deep/folder-name/".repeat(12));
+        let mut app = fixture(&[ALL_TAB, project]);
+        for (n, it) in app.items.iter_mut().enumerate() {
+            it.project = project.into();
+            it.name = [cjk, emoji][n % 2].into();
+            it.cwd = Some(deep.clone());
+            it.branch = Some("feat/🎉-日本語-".repeat(8));
+        }
+        app.items[0].detail = Some(crate::parse::Detail {
+            count: 2,
+            first: Some(cjk.repeat(3)),
+            last: Some(emoji.into()),
+            reply: Some(format!("{cjk}\n{emoji}\n`{deep}`")),
+            recap: Some(cjk.repeat(2)),
+            ..Default::default()
+        });
+        for (cols, rows) in FIXTURE_SIZES.into_iter().chain([(MIN_COLS as u16, MIN_ROWS as u16)]) {
+            for p in 0..app.tabs.len() {
+                app.p_idx = p;
+                for cur in 0..2 {
+                    app.cur = cur;
+                    app.say(Tone::Error, format!("couldn't open {deep}: {cjk}"));
+                    assert_regions_hold(&mut app, cols, rows, "unicode");
+                    app.flash.clear();
+                    assert_regions_hold(&mut app, cols, rows, "unicode");
+                }
+            }
+        }
+        // The context line cuts the path from the left, so its end — the folder — survives.
+        app.p_idx = 1;
+        app.cur = 0;
+        let ctx = context_line(&app, app.selected(), 100);
+        let t: String = ctx.spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(t.contains('…') && t.ends_with("日本語/🎉"), "{t:?}");
+        assert!(UnicodeWidthStr::width(t.as_str()) <= 100, "{t:?}");
+    }
+
+    #[test]
+    fn the_panel_rules_off_collections_projects_and_the_archive() {
+        let tabs: Vec<String> =
+            [ALL_TAB, OPEN_TAB, WAITING_TAB, "sessio", "mybit", ARCHIVED_TAB].map(String::from).to_vec();
+        let e = panel_entries(&tabs);
+        assert_eq!(e, vec![Some(0), Some(1), Some(2), None, Some(3), Some(4), None, Some(5)]);
+        let only: Vec<String> = [ALL_TAB, "sessio"].map(String::from).to_vec();
+        assert_eq!(panel_entries(&only), vec![Some(0), None, Some(1)]);
     }
 
     #[test]
@@ -3141,9 +3648,15 @@ mod tests {
             recap: Some("Goal: try a sidebar layout for sessio's project tabs.".into()),
             ..Default::default()
         });
-        // Sizes worth eyeballing: override with SESSIO_DUMP_COLS=90,181
+        // Sizes worth eyeballing: override with SESSIO_DUMP_COLS=90,181 or =80x24,60x18.
         let sizes: Vec<(u16, u16)> = match std::env::var("SESSIO_DUMP_COLS") {
-            Ok(v) => v.split(',').filter_map(|c| c.trim().parse().ok()).map(|c| (c, 34)).collect(),
+            Ok(v) => v
+                .split(',')
+                .filter_map(|c| match c.trim().split_once('x') {
+                    Some((w, h)) => Some((w.parse().ok()?, h.parse().ok()?)),
+                    None => Some((c.trim().parse().ok()?, 34)),
+                })
+                .collect(),
             Err(_) => vec![(136, 34)],
         };
         if std::env::var("SESSIO_DUMP_REPLY").is_ok() {

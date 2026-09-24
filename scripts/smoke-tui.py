@@ -158,7 +158,7 @@ def render(raw, cols, rows):
 def rule_row(raw, cols, rows):
     """1-indexed screen row of the preview's ─── separator, or None."""
     for n, line in enumerate(render(raw, cols, rows), 1):
-        if line.startswith("─" * 10):
+        if "─" * 10 in line:  # right of the project panel since it became permanent
             return n
     return None
 
