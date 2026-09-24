@@ -179,6 +179,11 @@ struct App {
     issues: bool,
     /// The highlighted row in that list.
     issue_cur: usize,
+    /// How far the latest reply is scrolled (its first line on screen) and for which session.
+    /// Any other session reads from the top.
+    reply_top: Option<(String, usize)>,
+    /// The reply's window in the frame last drawn, when the reply is taller than it.
+    reply_view: Option<ReplyView>,
     tx: Sender<Msg>,
 }
 
@@ -397,6 +402,32 @@ impl App {
     fn reset_position(&mut self) {
         self.cur = 0;
         self.follow = None;
+        self.reply_top = None;
+    }
+
+    /// The first reply line on screen for the session `key`: where the reader left it, or the top.
+    fn reply_top(&self, key: &str) -> usize {
+        match &self.reply_top {
+            Some((k, top)) if k == key => *top,
+            _ => 0,
+        }
+    }
+
+    /// `PgUp` / `PgDn`: move the latest reply's window a page, less a line kept for context. Only
+    /// the reply moves — never the project or the session — and only while it is on screen and
+    /// taller than its window.
+    fn scroll_reply(&mut self, down: bool) {
+        if self.follow.is_some() || self.issues || self.help {
+            return;
+        }
+        let Some(v) = self.reply_view.clone() else { return };
+        if self.selected().map(|i| self.items[i].key.as_str()) != Some(v.key.as_str()) {
+            return;
+        }
+        let step = v.shown.saturating_sub(1).max(1);
+        let last = v.total.saturating_sub(v.shown);
+        let top = if down { (v.top + step).min(last) } else { v.top.saturating_sub(step) };
+        self.reply_top = Some((v.key, top));
     }
 
     /// The projects are a column, so they move on ↑↓; the sessions move on ←→. Kept here rather
@@ -413,6 +444,7 @@ impl App {
 
     fn step_session(&mut self, delta: isize) {
         self.follow = None;
+        self.reply_top = None;
         if delta < 0 {
             self.cur = self.cur.saturating_sub(delta.unsigned_abs());
         } else if self.cur + 1 < self.view().len() {
@@ -686,6 +718,8 @@ pub fn run() -> io::Result<()> {
         follow: None,
         issues: false,
         issue_cur: 0,
+        reply_top: None,
+        reply_view: None,
         tx: tx.clone(),
     };
 
@@ -862,12 +896,13 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
     let sel_key = app.selected().map(|i| app.items[i].key.clone());
     let active_tab = app.tabs.get(app.p_idx).cloned();
     app.items = new_items;
-    // Re-attach any details already read, so the preview doesn't blank on every tick.
+    // Re-attach any details already read, so the preview doesn't blank on every tick. One read
+    // at an older mtime stays up until the fresh read lands (`ensure_detail` asks for it): a
+    // live session is written to every few seconds, and blanking it to `reading transcript…` on
+    // each write would throw whoever is reading its reply back to the top.
     for it in &mut app.items {
-        if let Some((m, d)) = app.details.get(&it.key) {
-            if *m == it.mtime {
-                apply_detail(it, d.clone());
-            }
+        if let Some((_, d)) = app.details.get(&it.key) {
+            apply_detail(it, d.clone());
         }
     }
     // A session you archived but have since worked in again is not one you are done with.
@@ -996,6 +1031,10 @@ fn handle_key(
         KeyCode::Char('k') if ctrl => app.kill_key(),
         KeyCode::Tab => app.expand = !app.expand,
         KeyCode::Char('e') if ctrl => app.expand = !app.expand,
+        // The reply scrolls on the page keys, which nothing else here uses: the arrows already
+        // mean project and session, and they keep meaning that.
+        KeyCode::PageDown => app.scroll_reply(true),
+        KeyCode::PageUp => app.scroll_reply(false),
         // Each axis matches the shape of the thing it moves: the projects are a column, so they
         // take ↑↓, and the sessions take ←→. This holds whichever layout is on screen — a key
         // that changed meaning when the window got narrow would be worse than a mismatched arrow.
@@ -1385,23 +1424,26 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     // under it never moves as you walk the projects or the tabs.
     let chrome = CHROME + usize::from(app.draft.is_some());
     let preview_box = height.saturating_sub(chrome);
-    let prev = if let Some(f) = &app.follow {
-        follow_preview(app, f, cols, preview_box)
+    let (prev, window) = if let Some(f) = &app.follow {
+        (follow_preview(app, f, cols, preview_box), None)
     } else if app.issues {
-        issues_list(app, cols, preview_box)
+        (issues_list(app, cols, preview_box), None)
     } else {
-        let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
-        let reply_max = preview_box.saturating_sub(base).max(1);
         match sel {
-            Some(i) => preview(app, &app.items[i], cols, reply_max),
+            Some(i) => preview(app, &app.items[i], cols, preview_box),
             // Nothing to preview: the space says how to get something back instead.
-            None => empty_state(app, &state)
-                .1
-                .into_iter()
-                .map(|l| Line::from(Span::styled(format!("  {l}"), dim())))
-                .collect(),
+            None => (
+                empty_state(app, &state)
+                    .1
+                    .into_iter()
+                    .map(|l| Line::from(Span::styled(format!("  {l}"), dim())))
+                    .collect(),
+                None,
+            ),
         }
     };
+    // What `PgUp` / `PgDn` step from: the window this frame actually drew.
+    app.reply_view = window;
 
     let mut lines: Vec<Line> = vec![Line::default(); CHROME];
     lines[KEYBAR_ROW] = header(app, cols);
@@ -2134,8 +2176,76 @@ const GUTTER: usize = 12;
 /// line. This tracks the window and stops growing once the line is genuinely too long to scan.
 const MEASURE_MAX: usize = 140;
 
-fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'static>> {
+/// Below this many columns the preview's labels lead their text (`recap 3h: …`) instead of
+/// holding a `GUTTER`-wide column open beside it: a narrow window cannot spare twelve columns on
+/// every row to line up four labels.
+const GUTTER_MIN: usize = 72;
+/// Rows the latest reply keeps (three of it and its indicator), when the window has them,
+/// before context above it is shed.
+const REPLY_MIN: usize = 4;
+/// The shed rank of the recap's first rows: the one block a short window keeps over the reply.
+const RECAP_KEEP: u8 = 7;
+/// The recap's rows: at most `RECAP_MAX`, down to `RECAP_MIN` in a short window.
+const RECAP_MAX: usize = 6;
+const RECAP_MIN: usize = 2;
+
+/// Where the preview puts a block's label: in a gutter beside it, or leading its first row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Labels {
+    Gutter,
+    Inline,
+}
+
+fn labels_for(w: usize) -> Labels {
+    if w >= GUTTER_MIN {
+        Labels::Gutter
+    } else {
+        Labels::Inline
+    }
+}
+
+/// The prose measure for a preview `w` wide: the gutter comes out of it only when there is one.
+fn measure(w: usize, labels: Labels) -> usize {
+    match labels {
+        Labels::Gutter => prose_width(w),
+        Labels::Inline => w.clamp(1, MEASURE_MAX),
+    }
+}
+
+/// The latest reply's window in the frame last drawn: which session, its first line on screen,
+/// how many lines are on screen and how many there are. `PgUp` / `PgDn` step from it.
+#[derive(Clone, Debug, PartialEq)]
+struct ReplyView {
+    key: String,
+    top: usize,
+    shown: usize,
+    total: usize,
+}
+
+/// One block of the preview under the fixed state rows, and when it gives way to a short
+/// window: `shed` is the order blocks are dropped in, lowest first; `None` is never dropped.
+struct Part {
+    id: &'static str,
+    shed: Option<u8>,
+    lines: Vec<Line<'static>>,
+}
+
+/// The highlighted session, top to bottom by what you need first: its title and state (fixed
+/// rows), where it is, Claude's recap, the conversation's first and last prompts, and then the
+/// latest reply, which takes the rest of the box and scrolls. What the file is — token totals,
+/// its size and how its title was come by — sits under the task-relevant facts and is the first
+/// thing a short window drops.
+///
+/// Returns the rows and, when the reply is taller than its window, where that window is.
+fn preview(
+    app: &App,
+    it: &Item,
+    width: usize,
+    rows: usize,
+) -> (Vec<Line<'static>>, Option<ReplyView>) {
     let w = width.max(1);
+    let labels = labels_for(w);
+    let prose = measure(w, labels);
     let mut lines: Vec<Line> = vec![Line::from(Span::styled("─".repeat(w), dim()))];
 
     // The title owns its line; what state the session is in has fixed rows of its own under it.
@@ -2155,8 +2265,39 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         lines.extend(state_lines(&unfinished_segments(it), w, STATE_INDENT));
     }
 
-    // Where it is, in one quiet line: the locators lead, and how the title was come by trails,
-    // because it is the least actionable thing here. The age lives on the list row already.
+    let fact = |s: Span<'static>| Line::from(vec![Span::raw(" ".repeat(STATE_INDENT)), s]);
+    let mut parts: Vec<Part> = Vec::new();
+
+    // Where it is: the project, the branch, how far the conversation went. The age is on the
+    // state row already.
+    let prompts = match it.prompt_count() {
+        Some(c) => format!(" · {c} prompt{}", if c == 1 { "" } else { "s" }),
+        None => String::new(),
+    };
+    let location = format!(
+        "{}{}{prompts}",
+        sanitize(&it.project),
+        it.branch.as_deref().map(|b| format!(" · {}", sanitize(b))).unwrap_or_default(),
+    );
+    parts.push(Part { id: "location", shed: Some(5), lines: vec![fact(Span::styled(location, dim()))] });
+    if let Some(d) = &app.deep {
+        let contains = format!("✓ contains \"{}\"", sanitize(&d.query));
+        parts.push(Part {
+            id: "contains",
+            shed: None,
+            lines: vec![fact(Span::styled(contains, theme::attention()))],
+        });
+    }
+    if app.archived(it) {
+        let note = "🗄 archived · hidden from other tabs · ^a to unarchive";
+        parts.push(Part { id: "archived", shed: None, lines: vec![fact(Span::styled(note, dim()))] });
+    }
+    if let Some(l) = app.issue_status().as_ref().and_then(issues_line) {
+        parts.push(Part { id: "issues", shed: Some(3), lines: vec![l] });
+    }
+
+    // What the file is, below what it is about: token totals, the transcript's size, and whether
+    // the title was given, generated or neither. The least actionable row, so the first to go.
     let kind = if it.custom.is_some() {
         "named"
     } else if it.ai.is_some() {
@@ -2164,117 +2305,287 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     } else {
         "unnamed"
     };
-    let prompts = match it.prompt_count() {
-        Some(c) => format!(" · {c} prompt{}", if c == 1 { "" } else { "s" }),
-        None => String::new(),
-    };
-    let facts = format!(
-        "{}{}{prompts} · {} · {kind}",
-        sanitize(&it.project),
-        it.branch.as_deref().map(|b| format!(" · {}", sanitize(b))).unwrap_or_default(),
-        size_fmt(it.size),
-    );
-    lines.push(Line::from(vec![Span::raw("   "), Span::styled(facts, dim())]));
-    if let Some(t) = it.detail.as_ref().and_then(|d| d.tokens.as_ref()) {
-        let tokens = format!("tokens  {}", tokens_fmt(t));
-        lines.push(Line::from(vec![Span::raw("   "), Span::styled(tokens, dim())]));
-    }
-    if let Some(l) = app.issue_status().as_ref().and_then(issues_line) {
-        lines.push(l);
-    }
+    let tokens = it
+        .detail
+        .as_ref()
+        .and_then(|d| d.tokens.as_ref())
+        .map(|t| format!("tokens  {} · ", tokens_fmt(t)))
+        .unwrap_or_default();
+    let about = format!("{tokens}{} · {kind}", size_fmt(it.size));
+    parts.push(Part { id: "about", shed: Some(1), lines: vec![fact(Span::styled(about, dim()))] });
 
-    if app.archived(it) {
-        lines.push(Line::from(vec![
-            Span::raw("   "),
-            Span::styled("🗄 archived · hidden from other tabs · ^a to unarchive", dim()),
-        ]));
-    }
-    if let Some(d) = &app.deep {
-        lines.push(Line::from(vec![
-            Span::raw("   "),
-            Span::styled(
-                format!("✓ contains \"{}\"", sanitize(&d.query)),
-                theme::attention(),
-            ),
-        ]));
-    }
     let detail = it.detail.as_ref();
 
     // The recap is newer, shorter and says whose move it is — prefer it over the compact
     // summary. The full read supersedes the tail read once it lands.
     let recap = detail.and_then(|d| d.recap.as_deref()).or(it.recap.as_deref());
     let recap_ts = detail.and_then(|d| d.recap_ts.as_deref()).or(it.recap_ts.as_deref());
-
-    // One column. This used to split recap against thread, on the theory that you would read one
-    // against the other — but there is not enough here to split: the recap caps at six lines and
-    // the reply runs to twenty, so the left column sat empty for most of the preview's height
-    // while the right one did all the work.
-    let prose = prose_width(w);
-
-    let mut recap_block: Vec<Line> = Vec::new();
-    if let Some(recap) = recap {
-        let body: Vec<Line> = md_lines(recap, prose).into_iter().take(6).map(italic).collect();
-        recap_block = gutter_block(
-            &format!("recap {}", recap_ts.map(since).unwrap_or_default()),
+    let summary = detail.and_then(|d| d.summary.as_deref());
+    let recap_block = match (recap, summary) {
+        (Some(r), _) => Some((
+            format!("recap {}", recap_ts.map(since).unwrap_or_default()),
             theme::voice().add_modifier(Modifier::BOLD),
-            body,
-        );
-    } else if let Some(summary) = detail.and_then(|d| d.summary.as_ref()) {
-        let body: Vec<Line> = md_lines(summary, prose).into_iter().take(6).map(italic).collect();
-        let ts = detail.and_then(|d| d.summary_ts.as_deref()).map(since).unwrap_or_default();
-        recap_block = gutter_block(&format!("summary {ts}"), dim(), body);
-    }
-
-    // Three things, and no more: where it got to, what it was for, and where you left off.
-    // A full turn-by-turn tail was tried here and read as a wall — you cannot skim eight
-    // alternating speakers, and the whole point of a preview is that it is skimmable.
-    let mut thread: Vec<Line> = Vec::new();
-    if !app.expand {
-        thread.extend(gutter_block(
-            &format!("first {}", it.first_ts.as_deref().map(since).unwrap_or_default()),
+            r,
+        )),
+        (None, Some(s)) => Some((
+            format!(
+                "summary {}",
+                detail.and_then(|d| d.summary_ts.as_deref()).map(since).unwrap_or_default()
+            ),
             dim(),
-            wrap_plain(it.first.as_deref().unwrap_or(""), prose, 2)
-                .into_iter()
-                .map(Line::from)
-                .collect(),
-        ));
-        if let Some(d) = detail.filter(|d| d.count > 1) {
-            thread.extend(gutter_block(
-                &format!("last {}", d.last_ts.as_deref().map(since).unwrap_or_default()),
-                dim(),
-                wrap_plain(d.last.as_deref().unwrap_or(""), prose, 2)
-                    .into_iter()
-                    .map(Line::from)
-                    .collect(),
-            ));
-        }
-    }
-    if detail.is_none() {
-        thread.push(Line::from(Span::styled("…", dim()))); // detail still loading
-    }
-    if let Some(reply) = detail.and_then(|d| d.reply.as_ref()) {
-        if reply_max > 0 {
-            let rl = md_lines(reply, prose);
-            let total = rl.len();
-            // The marker comes out of the reply's own rows, so a cut reply still fits its box
-            // rather than pushing the marker off the bottom of the preview.
-            let shown = if total > reply_max { reply_max.saturating_sub(1).max(1) } else { total };
-            let mut body: Vec<Line> = rl.into_iter().take(shown).collect();
-            if total > shown {
-                body.push(Line::from(Span::styled("… ⇥ for full", dim())));
+            s,
+        )),
+        (None, None) => None,
+    };
+    // Whether the recap has more rows than it is shown with, before and after a short window
+    // takes its share: a cut recap says so with `…` rather than stopping mid-thought.
+    let mut recap_cut = false;
+    match &recap_block {
+        Some((label, style, text)) => {
+            let label = label.trim_end();
+            let mut body = md_body(label, *style, text, labels, prose, italic);
+            recap_cut = body.len() > RECAP_MAX;
+            body.truncate(RECAP_MAX);
+            let more = body.split_off(RECAP_MIN.min(body.len()));
+            parts.push(Part { id: "recap", shed: Some(RECAP_KEEP), lines: framed(label, *style, body, labels) });
+            if !more.is_empty() {
+                parts.push(Part { id: "recap more", shed: Some(6), lines: framed("", *style, more, labels) });
             }
-            let ts = detail.and_then(|d| d.reply_ts.as_deref()).map(since).unwrap_or_default();
-            thread.extend(gutter_block(
-                &format!("reply {ts}"),
-                theme::voice(),
-                body,
-            ));
+        }
+        // Only once the transcript has been read, and only for Claude: nothing else writes one,
+        // and "yet" would promise it.
+        None if detail.is_some() && it.source == Source::Claude => {
+            let note = vec![italic(Line::from(Span::styled("no recap yet", dim())))];
+            parts.push(Part { id: "no recap", shed: Some(2), lines: framed("", dim(), note, labels) });
+        }
+        None => {}
+    }
+    let recap_split = parts.iter().any(|p| p.id == "recap more");
+
+    // The conversation's two ends: what it was for, and where you left off. A full turn-by-turn
+    // tail was tried here and read as a wall. `⇥` gives their rows to the reply.
+    if !app.expand {
+        let label = format!("first {}", it.first_ts.as_deref().map(since).unwrap_or_default());
+        let first = it.first.as_deref().unwrap_or("");
+        let lines = plain_block(label.trim_end(), dim(), first, labels, prose, 2);
+        parts.push(Part { id: "first", shed: Some(2), lines });
+        if let Some(d) = detail.filter(|d| d.count > 1) {
+            let label = format!("last {}", d.last_ts.as_deref().map(since).unwrap_or_default());
+            let last = d.last.as_deref().unwrap_or("");
+            let lines = plain_block(label.trim_end(), dim(), last, labels, prose, 2);
+            parts.push(Part { id: "last", shed: Some(4), lines });
         }
     }
 
-    lines.extend(recap_block);
-    lines.extend(thread);
-    lines
+    // The latest reply, rendered whole: its window scrolls over it rather than cutting it.
+    let reply = detail.and_then(|d| d.reply.as_deref()).map(|r| {
+        let ts = detail.and_then(|d| d.reply_ts.as_deref()).map(since).unwrap_or_default();
+        let label = format!("reply {ts}").trim_end().to_string();
+        let body = md_body(&label, theme::voice(), r, labels, prose, |l| l);
+        (label, body)
+    });
+    let mut reply_need = reply.as_ref().map_or(1, |(_, b)| b.len().min(REPLY_MIN));
+
+    // A short window sheds context, least actionable first, before the reply loses its rows —
+    // except the recap's first rows, which say whose move it is: the reply goes down to one line
+    // and its indicator before they do.
+    let room = rows.saturating_sub(lines.len());
+    loop {
+        let used: usize = parts.iter().map(|p| p.lines.len()).sum();
+        if used + reply_need <= room {
+            break;
+        }
+        let shed = parts
+            .iter()
+            .enumerate()
+            .filter_map(|(n, p)| p.shed.map(|s| (n, s)))
+            .min_by_key(|&(_, s)| s);
+        match shed {
+            Some((_, s)) if s >= RECAP_KEEP && reply_need > 2 => reply_need = 2,
+            Some((n, _)) => {
+                parts.remove(n);
+            }
+            None => break,
+        }
+    }
+    if recap_cut || (recap_split && !parts.iter().any(|p| p.id == "recap more")) {
+        if let Some(l) = parts
+            .iter_mut()
+            .rev()
+            .find(|p| p.id == "recap" || p.id == "recap more")
+            .and_then(|p| p.lines.last_mut())
+        {
+            l.spans.push(Span::styled(" …", dim()));
+        }
+    }
+    lines.extend(parts.into_iter().flat_map(|p| p.lines));
+
+    let left = rows.saturating_sub(lines.len());
+    let mut view = None;
+    match reply {
+        None => {
+            let note = if detail.is_none() { "reading transcript…" } else { "no reply yet" };
+            lines.extend(framed("", dim(), vec![Line::from(Span::styled(note, dim()))], labels));
+        }
+        Some((label, body)) if body.len() <= left.max(1) => {
+            lines.extend(framed(&label, theme::voice(), body, labels));
+        }
+        Some((label, body)) => {
+            // The indicator comes out of the reply's own rows, so the window and what it says
+            // about itself always fit the box together. An inline label scrolls away with the
+            // reply's first row, so a scrolled window says whose words these are on a row of its
+            // own: without it they read on from the recap above as if they were part of it.
+            let total = body.len();
+            let inline = labels == Labels::Inline;
+            let window = |top: usize| left.saturating_sub(1 + usize::from(inline && top > 0)).max(1);
+            let wanted = app.reply_top(&it.key);
+            let top = wanted.min(total.saturating_sub(window(wanted)));
+            let shown = window(top);
+            let mut vis: Vec<Line> = Vec::new();
+            if inline && top > 0 {
+                vis.push(Line::from(vec![
+                    Span::styled(format!("{label}:"), theme::voice()),
+                    Span::styled(format!(" ↑ {top} line{} above", if top == 1 { "" } else { "s" }), dim()),
+                ]));
+            }
+            vis.extend(body.into_iter().skip(top).take(shown));
+            let room = match labels {
+                Labels::Gutter => w.saturating_sub(GUTTER),
+                Labels::Inline => w,
+            };
+            vis.push(reply_indicator(top, shown, total, app.expand, room));
+            lines.extend(framed(&label, theme::voice(), vis, labels));
+            view = Some(ReplyView { key: it.key.clone(), top, shown, total });
+        }
+    }
+    (lines, view)
+}
+
+/// Where the reply's window is and what moves it, on the row under it: `↓ 40 more lines · PgDn`
+/// at the top, `lines 20–38 of 88 · ↓ 50 more · PgUp PgDn` in the middle, `… · end of reply`
+/// at the bottom. Parts are dropped from the end, never cut, until it fits `width`.
+fn reply_indicator(top: usize, shown: usize, total: usize, expanded: bool, width: usize) -> Line<'static> {
+    let end = (top + shown).min(total);
+    let rest = total - end;
+    let s = if rest == 1 { "" } else { "s" };
+    let mut segs: Vec<String> = Vec::new();
+    if top == 0 {
+        segs.push(format!("↓ {rest} more line{s}"));
+        segs.push("PgDn scrolls".into());
+    } else {
+        segs.push(format!("lines {}–{end} of {total}", top + 1));
+        if rest == 0 {
+            segs.push("end of reply".into());
+            segs.push("PgUp".into());
+        } else {
+            segs.push(format!("↓ {rest} more"));
+            segs.push("PgUp PgDn".into());
+        }
+    }
+    if !expanded {
+        segs.push("⇥ more room".into());
+    }
+    let mut text = String::new();
+    for (n, seg) in segs.iter().enumerate() {
+        let next = if n == 0 { seg.clone() } else { format!("{text}{SEP}{seg}") };
+        if n > 0 && UnicodeWidthStr::width(next.as_str()) > width {
+            break;
+        }
+        text = next;
+    }
+    Line::from(Span::styled(text, dim()))
+}
+
+/// Whether markdown opens on a paragraph, which can take a label in front of its first word. A
+/// fence, table, heading or list item would stop being one with a label glued to it.
+fn opens_on_prose(text: &str) -> bool {
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    // `## Title` is a heading; `#23 is merged` is a sentence.
+    let hashes = first.trim_start_matches('#');
+    let heading = hashes.len() < first.len() && hashes.starts_with(' ');
+    let listed = first.starts_with("- ")
+        || first.starts_with("* ")
+        || first.starts_with("+ ")
+        || first.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    !(first.is_empty()
+        || first.starts_with("```")
+        || first.starts_with('|')
+        || heading
+        || listed)
+}
+
+/// A markdown block's rows, before any gutter. With inline labels the label leads the first row
+/// (`reply 3h: Added…`), or takes a row of its own when the text opens on something a prefix
+/// would break; with a gutter the label is left to `framed`.
+fn md_body(
+    label: &str,
+    style: Style,
+    text: &str,
+    labels: Labels,
+    prose: usize,
+    each: fn(Line<'static>) -> Line<'static>,
+) -> Vec<Line<'static>> {
+    if labels == Labels::Gutter {
+        return md_lines(text, prose).into_iter().map(each).collect();
+    }
+    let lead = format!("{label}:");
+    if !opens_on_prose(text) {
+        let mut v = vec![Line::from(Span::styled(lead, style))];
+        v.extend(md_lines(text, prose).into_iter().map(each));
+        return v;
+    }
+    let mut v: Vec<Line<'static>> =
+        md_lines(&format!("{lead} {}", text.trim_start()), prose).into_iter().map(each).collect();
+    // The label is its own words at the start of the first row: restyle exactly those spans.
+    if let Some(first) = v.first_mut() {
+        let mut want = UnicodeWidthStr::width(lead.as_str());
+        for sp in first.spans.iter_mut() {
+            if want == 0 {
+                break;
+            }
+            want = want.saturating_sub(UnicodeWidthStr::width(sp.content.as_ref()));
+            sp.style = style;
+        }
+    }
+    v
+}
+
+/// Plain text in a labelled block, `max` rows at most, ending in `…` when cut.
+fn plain_block(
+    label: &str,
+    style: Style,
+    text: &str,
+    labels: Labels,
+    prose: usize,
+    max: usize,
+) -> Vec<Line<'static>> {
+    match labels {
+        Labels::Gutter => {
+            gutter_block(label, style, wrap_plain(text, prose, max).into_iter().map(Line::from).collect())
+        }
+        Labels::Inline => {
+            let lead = format!("{label}:");
+            wrap_plain(&format!("{lead} {text}"), prose, max)
+                .into_iter()
+                .enumerate()
+                .map(|(n, row)| match row.strip_prefix(&lead) {
+                    Some(rest) if n == 0 => {
+                        Line::from(vec![Span::styled(lead.clone(), style), Span::raw(rest.to_string())])
+                    }
+                    _ => Line::from(row),
+                })
+                .collect()
+        }
+    }
+}
+
+/// Rows set in the preview's layout: beside the gutter, the label on the first and the rest
+/// lined up under it; inline, as they are (the label, if any, is already in them).
+fn framed(label: &str, style: Style, body: Vec<Line<'static>>, labels: Labels) -> Vec<Line<'static>> {
+    match labels {
+        Labels::Gutter => gutter_block(label, style, body),
+        Labels::Inline => body,
+    }
 }
 
 /// One part of a state summary: its words and how they are drawn.
@@ -2617,7 +2928,7 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
         k("^a", "archive / unarchive (a session you work in again comes back)"),
         k("^r", "reply without opening: sends one turn, stays in the list (Claude only)"),
         k("^t", "follow a running session's tail, read-only; any move stops"),
-        k("⇥ ^e", "expand / collapse the reply preview"),
+        k("⇥ ^e", "give the latest reply more room / less · PgUp PgDn scroll it"),
         k("^g", "GitHub issues for the session's repo (needs gh; ↵ opens one)"),
         k("↵", "resume here. Running (◉ ◆): under Ghostty, switches to its terminal"),
         k("", "by tty; otherwise says its pid · tty. ↵ again opens a second copy"),
@@ -3246,6 +3557,8 @@ mod tests {
             follow: None,
             issues: false,
             issue_cur: 0,
+            reply_top: None,
+            reply_view: None,
             tx,
         }
     }
@@ -3753,7 +4066,7 @@ mod tests {
 
         app.items[i].source = Source::Copilot;
         assert!(text(&tab_marks(&app, &app.items[i], None)).contains("copilot"));
-        let head = &preview(&app, &app.items[i], 100, 5)[1];
+        let head = &preview(&app, &app.items[i], 100, 5).0[1];
         assert!(text(&head.spans).starts_with("copilot "), "{head:?}");
     }
 
@@ -4679,6 +4992,253 @@ mod tests {
         }
         assert!(at(60, 18).last().unwrap().contains("taller window"), "{:?}", at(60, 18));
     }
+
+    // ---------- #24: a readable, navigable preview ----------
+
+    /// The highlighted session (`id1`) read in full: a recap, both prompts and `reply`.
+    fn reading(reply: &str) -> App {
+        let mut app = fixture(&real_tabs());
+        app.p_idx = 0;
+        app.cur = 0;
+        for it in &mut app.items {
+            it.open = false;
+        }
+        app.items[0].detail = Some(crate::parse::Detail {
+            count: 5,
+            first: Some("first prompt".into()),
+            last: Some("use seconds, and document it".into()),
+            reply: Some(reply.into()),
+            recap: Some("Goal: settle the limiter's units. Your move.".into()),
+            ..Default::default()
+        });
+        app
+    }
+
+    fn numbered(n: usize) -> String {
+        (1..=n).map(|i| format!("row {i} of the reply")).collect::<Vec<_>>().join("\n")
+    }
+
+    /// The body width the preview gets at `cols`.
+    fn body_width(app: &App, cols: u16) -> usize {
+        cols as usize - sidebar(app, cols as usize) - SIDE_GAP
+    }
+
+    /// Page through the reply from the top to the end, and return every preview row seen on the
+    /// way. Asserts the frame stays inside the window and nothing but the reply moves.
+    fn page_through(app: &mut App, cols: u16, rows: u16) -> Vec<String> {
+        let (p, cur) = (app.p_idx, app.cur);
+        let mut seen = Vec::new();
+        for _ in 0..500 {
+            assert_regions_hold(app, cols, rows, "paging");
+            seen.extend(body_rows(app, cols, rows).into_iter().map(|r| r.trim().to_string()));
+            let before = app.reply_view.clone();
+            app.scroll_reply(true);
+            let _ = frame_lines(app, cols as usize, rows as usize);
+            if app.reply_view == before {
+                break;
+            }
+        }
+        assert_eq!((app.p_idx, app.cur), (p, cur), "scrolling moved the selection");
+        seen
+    }
+
+    /// Every rendered line of `reply` at `cols`, as the preview lays it out.
+    fn reply_rows(app: &App, reply: &str, cols: u16) -> Vec<String> {
+        let w = body_width(app, cols);
+        let labels = labels_for(w);
+        md_body("reply", Style::default(), reply, labels, measure(w, labels), |l| l)
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.to_string()).collect::<String>().trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn every_reply_line_is_reachable_without_resuming() {
+        let reply = numbered(88);
+        for (cols, rows) in FIXTURE_SIZES.into_iter().chain([(MIN_COLS as u16, MIN_ROWS as u16)]) {
+            let mut app = reading(&reply);
+            let seen = page_through(&mut app, cols, rows);
+            for i in 1..=88 {
+                let row = format!("row {i} of the reply");
+                assert!(seen.iter().any(|s| s.ends_with(&row)), "{cols}x{rows}: {row} unreachable");
+            }
+            assert!(seen.iter().any(|s| s.contains("end of reply")), "{cols}x{rows}: {seen:?}");
+            // And back up to the top.
+            for _ in 0..200 {
+                app.scroll_reply(false);
+                let _ = frame_lines(&mut app, cols as usize, rows as usize);
+            }
+            assert_eq!(app.reply_view.as_ref().map(|v| v.top), Some(0), "{cols}x{rows}");
+        }
+    }
+
+    #[test]
+    fn a_cut_reply_says_how_much_is_left_and_how_to_reach_it() {
+        let mut app = reading(&numbered(88));
+        let rows = body_rows(&mut app, 80, 24);
+        let all = rows.join("\n");
+        assert!(!all.contains("for full"), "the old promise is gone:\n{all}");
+        let v = app.reply_view.clone().expect("the reply is cut at 80x24");
+        let left = v.total - v.shown;
+        assert!(all.contains(&format!("↓ {left} more lines · PgDn")), "{all}");
+
+        app.scroll_reply(true);
+        let all = body_rows(&mut app, 80, 24).join("\n");
+        let v = app.reply_view.clone().unwrap();
+        assert!(
+            all.contains(&format!("lines {}–{} of 88", v.top + 1, v.top + v.shown)),
+            "the position once scrolled:\n{all}"
+        );
+        // The inline label scrolled away with the first row; the window still says it is the reply.
+        assert!(all.contains(&format!("reply: ↑ {} lines above", v.top)), "{all}");
+        // A reply that fits says nothing about scrolling.
+        let mut app = reading("short and done");
+        let all = body_rows(&mut app, 80, 24).join("\n");
+        assert!(!all.contains("PgDn") && app.reply_view.is_none(), "{all}");
+    }
+
+    #[test]
+    fn scrolling_never_moves_the_selection_and_a_new_session_starts_at_the_top() {
+        let mut app = reading(&numbered(88));
+        let _ = frame_lines(&mut app, 80, 24);
+        let (p, cur) = (app.p_idx, app.cur);
+        app.scroll_reply(true);
+        app.scroll_reply(true);
+        assert_eq!((app.p_idx, app.cur), (p, cur));
+        assert!(app.reply_top(&app.items[0].key) > 0);
+
+        // Away and back: the reply reads from the top again.
+        app.step_session(1);
+        app.step_session(-1);
+        let _ = frame_lines(&mut app, 80, 24);
+        assert_eq!(app.reply_view.as_ref().map(|v| v.top), Some(0), "←→ resets the scroll");
+
+        app.scroll_reply(true);
+        app.step_project(1);
+        app.step_project(-1);
+        app.cur = 0;
+        let _ = frame_lines(&mut app, 80, 24);
+        assert_eq!(app.reply_view.as_ref().map(|v| v.top), Some(0), "↑↓ resets the scroll");
+
+        // While `^g` or `^t` owns the preview there is no reply on screen to scroll.
+        app.issues = true;
+        app.scroll_reply(true);
+        assert_eq!(app.reply_top, None, "nothing scrolls behind the issues list");
+    }
+
+    #[test]
+    fn a_refresh_does_not_move_a_reader_off_their_place() {
+        let mut app = reading(&numbered(88));
+        let key = app.items[0].key.clone();
+        let detail = app.items[0].detail.clone().unwrap();
+        app.details.insert(key.clone(), (app.items[0].mtime, detail));
+        let _ = frame_lines(&mut app, 80, 24);
+        app.scroll_reply(true);
+        app.scroll_reply(true);
+        let before = body_rows(&mut app, 80, 24);
+        let top = app.reply_view.as_ref().unwrap().top;
+
+        // The session is written to again: the refresh brings a newer mtime and no detail yet.
+        let mut fresh = app.items.clone();
+        fresh[0].mtime += 1_000;
+        fresh[0].detail = None;
+        absorb_items(&mut app, fresh);
+        let after = body_rows(&mut app, 80, 24);
+        assert_eq!(app.reply_view.as_ref().unwrap().top, top);
+        assert!(!after.join("\n").contains("reading transcript"), "the reply stays up:\n{after:?}");
+        let reply_part = |rows: &[String]| rows.iter().filter(|r| r.contains("of the reply")).cloned().collect::<Vec<_>>();
+        assert_eq!(reply_part(&after), reply_part(&before), "same lines on screen");
+    }
+
+    #[test]
+    fn narrow_previews_lead_with_their_labels_and_wide_ones_line_them_up() {
+        let mut app = reading(&numbered(5));
+        assert_eq!(labels_for(body_width(&app, 80)), Labels::Inline, "80 columns is narrow");
+        let rows = body_rows(&mut app, 80, 24);
+        for label in ["recap:", "first:", "last:", "reply:"] {
+            assert!(rows.iter().any(|r| r.starts_with(label)), "{label} leads its row: {rows:?}");
+        }
+        let rows = body_rows(&mut app, 160, 40);
+        for label in ["recap", "first", "last", "reply"] {
+            let lead = format!("{}  ", fit_right(label, GUTTER - 2));
+            assert!(rows.iter().any(|r| r.starts_with(&lead)), "{label} in the gutter: {rows:?}");
+        }
+        let reply = rows.iter().position(|r| r.contains("reply  row 1")).unwrap();
+        assert_eq!(rows[reply + 1].find("row 2"), Some(GUTTER), "continuation lines up: {rows:?}");
+    }
+
+    #[test]
+    fn the_preview_reads_state_then_recap_then_context_then_reply() {
+        let mut app = reading(&numbered(5));
+        app.items[0].detail.as_mut().unwrap().tokens =
+            Some(crate::parse::Usage { input: 10, output: 20, cache_write: 0, cache_read: 0 });
+        let rows = body_rows(&mut app, 160, 40);
+        let at = |needle: &str| {
+            rows.iter().position(|r| r.contains(needle)).unwrap_or_else(|| panic!("{needle}: {rows:?}"))
+        };
+        let order = [
+            at(app.items[0].display_name()),
+            at("not running"),
+            at("lifelab · main · 5 prompts"),
+            at("tokens  in 10"),
+            at("recap  Goal"),
+            at("first  first prompt"),
+            at("last  use seconds"),
+            at("reply  row 1"),
+        ];
+        assert!(order.windows(2).all(|p| p[0] < p[1]), "{order:?}\n{}", rows.join("\n"));
+        // File size and naming sit with the token totals, below where the session is.
+        assert!(rows[at("tokens")].contains("1K · unnamed"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_short_window_keeps_what_you_act_on() {
+        let mut app = reading(&numbered(40));
+        let rows = body_rows(&mut app, 60, 17).join("\n");
+        assert!(!rows.contains("1K · unnamed"), "file facts go first:\n{rows}");
+        for kept in ["not running", "recap:", "reply:", "PgDn"] {
+            assert!(rows.contains(kept), "{kept}:\n{rows}");
+        }
+        // At the minimum the recap's first rows outlast the reply's third line.
+        let rows = body_rows(&mut app, MIN_COLS as u16, 13).join("\n");
+        assert!(rows.contains("recap:") && rows.contains("↓"), "{rows}");
+    }
+
+    #[test]
+    fn loading_and_missing_content_say_so() {
+        let mut app = reading("x");
+        app.items[0].detail = None;
+        app.items[0].recap = None;
+        assert!(body_rows(&mut app, 80, 24).join("\n").contains("reading transcript…"));
+
+        app.items[0].detail = Some(crate::parse::Detail { count: 1, ..Default::default() });
+        let rows = body_rows(&mut app, 80, 24).join("\n");
+        assert!(rows.contains("no recap yet") && rows.contains("no reply yet"), "{rows}");
+
+        // Another agent never writes a recap, so it is not promised one.
+        app.items[0].source = Source::Copilot;
+        assert!(!body_rows(&mut app, 80, 24).join("\n").contains("no recap yet"));
+    }
+
+    #[test]
+    fn code_tables_and_cjk_stay_inside_the_preview_and_reachable() {
+        let code = format!("```rust\nfn main() {{ {} }}\n```", "let x = compute(1, 2, 3); ".repeat(12));
+        let table = "| name | kind | owner | status | notes |\n|---|---|---|---|---|\n\
+                     | limiter | middleware | api-team | shipped | seconds, documented |";
+        let cjk = "日本語のテキストは空白なしで長く続くので、折り返しが必要です。".repeat(4);
+        for reply in [code.as_str(), table, cjk.as_str()] {
+            let reply = format!("{reply}\n\n{}", numbered(30));
+            for (cols, rows) in [(60, 18), (80, 24), (104, 26), (160, 40)] {
+                let mut app = reading(&reply);
+                let want = reply_rows(&app, &reply, cols);
+                let seen = page_through(&mut app, cols, rows);
+                for row in &want {
+                    assert!(seen.iter().any(|s| s.ends_with(row.as_str())), "{cols}x{rows}: {row:?} unreachable");
+                }
+            }
+        }
+    }
 }
 
 
@@ -4795,6 +5355,8 @@ pub mod demo {
             follow: None,
             issues: false,
             issue_cur: 0,
+            reply_top: None,
+            reply_view: None,
             tx,
         }
     }
@@ -4854,6 +5416,8 @@ pub mod demo {
                 "ArrowLeft" => app.step_session(-1),
                 "ArrowRight" => app.step_session(1),
                 "Tab" => app.expand = !app.expand,
+                "PageDown" => app.scroll_reply(true),
+                "PageUp" => app.scroll_reply(false),
                 "?" => app.help = !app.help,
                 "Escape" => {
                     if app.draft.is_some() {

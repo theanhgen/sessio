@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **The whole reply is readable without resuming.** `PgUp` / `PgDn` scroll Claude's latest reply
+  a page at a time, and its last row says where you are: `↓ 40 more lines · PgDn scrolls` at the
+  top, `lines 20–38 of 88 · ↓ 50 more · PgUp PgDn` further down, `end of reply` at the bottom. The
+  old `… ⇥ for full` is gone: `⇥` never showed the full reply, it only hid the first/last prompts,
+  and still does. Scrolling moves only the reply; another session starts at its top, and the live
+  refresh no longer blanks a session that was just written to (it used to flash `…` and drop you
+  back to the top). The preview reads top-down by what you act on: title and state, where it is
+  (project · branch · prompts), then token totals with the file's size and naming, then the recap,
+  the first and last prompts, and the reply. A preview narrower than 72 columns (an 80-column window)
+  puts the labels in front of the text (`recap: …`, `reply: …`) instead of a 12-column gutter, and a short window
+  drops the file facts, then the prompts, before it squeezes the recap or the reply. The preview
+  says `reading transcript…` while it loads and `no recap yet` / `no reply yet` when there is none.
+  Long headings wrap instead of being cut, and a table too wide for the window is set as one
+  `header: cell` line per row instead of cutting cells to `…`.
+
 - **Filtering and full-text search say what they are doing.** The query row names the mode and
   what it covers — `filter · sessio` or, after `^f`, `search in text · all sessions` — and what it
   found: `4 matches`, `3 fuzzy matches · none exact` when nothing contained the query as typed,

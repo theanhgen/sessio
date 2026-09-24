@@ -60,7 +60,7 @@ Marks: ◆ waiting on you · ◉ running · ▸ unfinished
 
 KEYS:
   ↑/↓ project · ←/→ session · type to filter · ^f search-in-text
-  ^a archive · ⇥ expand-reply · ^r reply · ^k end-stale
+  ^a archive · ⇥ expand-reply · PgUp/PgDn scroll-reply · ^r reply · ^k end-stale
   ↵ resume · ^o new-window · ? help · esc quit
 ",
         env!("CARGO_PKG_VERSION")

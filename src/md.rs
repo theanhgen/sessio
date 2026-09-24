@@ -194,7 +194,8 @@ fn fit(raw: &str, w: usize) -> String {
 }
 
 /// Render a markdown table. `rows[0]` is the header; the separator row is already dropped.
-/// Columns shrink widest-first until the table fits, never below 6, as in the JS.
+/// Set side by side when the columns fit at their natural widths; otherwise one wrapped line of
+/// `header: cell` pairs per row. (The JS shrank columns and cut cells; nothing is cut here.)
 fn render_table(rows: &[Vec<String>], w: usize) -> Vec<Line<'static>> {
     let ncol = rows.iter().map(|r| r.len()).max().unwrap_or(0);
     if ncol == 0 {
@@ -209,7 +210,7 @@ fn render_table(rows: &[Vec<String>], w: usize) -> Vec<Line<'static>> {
         })
         .collect();
 
-    let mut widths: Vec<usize> = (0..ncol)
+    let widths: Vec<usize> = (0..ncol)
         .map(|i| {
             padded
                 .iter()
@@ -221,14 +222,28 @@ fn render_table(rows: &[Vec<String>], w: usize) -> Vec<Line<'static>> {
         .collect();
 
     let gap = 2 * ncol.saturating_sub(1);
-    let mut over = (widths.iter().sum::<usize>() + gap) as i64 - w as i64;
-    while over > 0 {
-        let (mi, _) = widths.iter().enumerate().max_by_key(|(_, v)| **v).unwrap();
-        if widths[mi] <= 6 {
-            break;
+    if widths.iter().sum::<usize>() + gap > w {
+        // Too wide to stand side by side. Shrinking columns used to cut cells to `…` (and past
+        // six columns each, the window cut the ones on the right off), which the preview had no
+        // way to show. Each row becomes a wrapped line of `header: cell` pairs instead, so every
+        // cell is still there to read and still says which column it is.
+        let bold = Style::default().add_modifier(Modifier::BOLD);
+        let mut out = Vec::new();
+        let body = if padded.len() > 1 { &padded[1..] } else { &padded[..] };
+        for r in body {
+            let mut segs: Vec<Seg> = Vec::new();
+            for (h, c) in padded[0].iter().zip(r).filter(|(_, c)| !c.is_empty()) {
+                if !segs.is_empty() {
+                    segs.push(seg(" · ", theme::dim()));
+                }
+                if !h.is_empty() && padded.len() > 1 {
+                    segs.push(seg(format!("{h}: "), bold));
+                }
+                segs.extend(inline(c, Style::default()));
+            }
+            out.extend(wrap_segs(segs, w, "", "  "));
         }
-        widths[mi] -= 1;
-        over -= 1;
+        return out;
     }
 
     let mut out = Vec::new();
@@ -343,7 +358,9 @@ pub fn md_lines(text: &str, w: usize) -> Vec<Line<'static>> {
         let indent = &line[..line.len() - trimmed.len()];
 
         if let Some(rest) = heading(trimmed) {
-            res.push(to_line(inline(rest, Style::default().add_modifier(Modifier::BOLD))));
+            // Wrapped like prose: a heading wider than the window was cut, and the preview has
+            // no other way to show the rest of it.
+            res.extend(wrap_segs(inline(rest, Style::default().add_modifier(Modifier::BOLD)), w, "", ""));
         } else if let Some(rest) = bullet(trimmed) {
             res.extend(wrap_segs(
                 inline(rest, Style::default()),
@@ -499,6 +516,30 @@ mod tests {
         assert!(p[0].starts_with('a'));
         assert!(p[1].chars().all(|c| c == '─'));
         assert!(p[2].starts_with('1'));
+    }
+
+    #[test]
+    fn a_table_too_wide_to_set_keeps_every_cell() {
+        let t = "| name | kind | owner | status | notes |\n|---|---|---|---|---|\n\
+                 | limiter | middleware | api-team | shipped | seconds, documented |";
+        let out = md_lines(t, 24);
+        let p = plain(&out);
+        for l in &p {
+            assert!(width(l) <= 24, "{l:?} is wider than the window: {p:?}");
+        }
+        let all = p.join(" ");
+        for cell in ["limiter", "middleware", "api-team", "shipped", "documented", "owner", "notes"] {
+            assert!(all.contains(cell), "{cell} lost: {p:?}");
+        }
+    }
+
+    #[test]
+    fn a_long_heading_wraps_instead_of_being_cut() {
+        let out = md_lines("## A heading far wider than the narrow window it is drawn in", 20);
+        assert!(out.len() > 1);
+        assert!(plain(&out).join(" ").ends_with("drawn in"));
+        assert!(out[0].spans.iter().all(|s| s.content.trim().is_empty()
+            || s.style.add_modifier.contains(Modifier::BOLD)));
     }
 
     #[test]

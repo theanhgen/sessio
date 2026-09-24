@@ -121,6 +121,7 @@ def run_case(cols, rows, keys, label, quits_itself=False):
 
 
 DOWN, UP, LEFT, RIGHT = b"\x1b[B", b"\x1b[A", b"\x1b[D", b"\x1b[C"
+PGUP, PGDN = b"\x1b[5~", b"\x1b[6~"
 
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 CUP = re.compile(r"\x1b\[(\d+);(\d+)H")
@@ -196,6 +197,9 @@ CASES = [
     (80, 24, [DOWN, DOWN, UP, RIGHT, LEFT], "navigate", False),
     (80, 24, [b"?", b"x"], "help overlay opens and any key closes", False),
     (80, 24, [b"\t", b"\t", b"\x05"], "expand / collapse reply", False),
+    # PgDn / PgUp scroll the latest reply, past its end and back past its top.
+    (80, 24, [PGDN] * 8 + [PGUP] * 10 + [RIGHT, PGDN, LEFT], "scroll the reply", False),
+    (60, 18, [PGDN] * 8 + [b"\t", PGDN, PGUP], "scroll the reply, narrow", False),
     (120, 40, [DOWN] * 15, "deep scroll reveals more", False),
     (60, 15, [DOWN, b"\t"], "narrow terminal", False),
     (200, 60, [DOWN, RIGHT], "wide terminal", False),
