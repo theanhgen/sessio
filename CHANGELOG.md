@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The website demo is built on deploy.** `docs/demo/` was built by hand and committed, so a
+  layout change reached the binary and left the site showing the previous UI until someone
+  reran the script. The Pages deploy now builds it from the commit it publishes, CI builds it on
+  every pull request, and it is no longer committed.
 - **`^g` shows the GitHub issues for a session's repo.** The preview says how many are open
   (`⚑ 12 open issues · owner/repo`); `^g` lists them, `↵` opens one in the browser. Fetched through
   `gh` in the background and cached for five minutes, so the dashboard never waits on the network.
