@@ -2,158 +2,148 @@
 
 ## Unreleased
 
-- **The website is rebuilt around what sessio does, and its demo is honest.** The page leads with
-  the task, then installing (a copy button that says when the browser refused and selects the
-  command instead), the live demo, find / understand / continue, the 1.1 CLI and agent skill, the
-  keys and the requirements (Claude Code; ripgrep, Ghostty, `gh` and Copilot CLI optional). The key
-  table was wrong: `^o` opens a new Ghostty window behind the running guard, and `^n`, `^t`, `^g`,
-  `^k` and `^c` were missing. The demo is entered with **Try the demo** and left with `esc`,
-  **Exit demo** or `Tab`, which it no longer takes; it shows a focus ring while it has the
-  keyboard and announces its feedback to screen readers. It reads keys the way the terminal does —
-  any key closes help, the reply composer owns the keyboard — and what a browser cannot do (`↵`,
-  `^o`, `^n`, sending a reply, `^k`, `^t`, `^g`) says `browser demo: …` in the warning tone instead
-  of looking like it worked. `^f` searches the fixtures' text. New fixtures cover a session waiting
-  on you, a running one, an archived one, a Copilot session and a reply long enough to `PgDn`,
-  with shortcuts to each and to a search with no matches. The frame is laid out for the width it
-  has (104x26 down to 60x18) instead of shrinking to 9px, the page never scrolls sideways at phone
-  width, and if the demo fails to load the rest of the page still works.
+The dashboard is redesigned around one spec (`docs/DESIGN.md`): fixed regions that never move,
+every state said in words as well as colour, feedback that names what it is about, and a reply you
+can read to the end without resuming. It also lists GitHub Copilot CLI sessions, tells you when a
+session starts waiting on you, and gains `^t`, `^g`, `^n` and `^k`. The website is rebuilt around
+a demo that runs the real renderer.
 
-- **Reply, archive and resume say what happened, and to which session.** Every message about a
-  session names it (`"fix login redirect…" is running (pid 4242 · ttys009 · busy) — answer it in
-  that terminal`), so it still makes sense after you have moved on, and a reply or `^k` result
-  that lands later names the session it was for, not the one you are on. `^r`'s composer reads
-  `↳ reply to "x"`; while a reply is on its way its session's tab and preview carry `⏳` until it
-  lands, and a second send to it is refused. A failed reply is no longer lost: the feedback and the
-  preview say why, and the next `^r` on that session puts your text back in the composer — it is
-  never resent on its own. `^a` says `🗄 archived "x"` and how to get it back (`↑↓ to 🗄 archived,
-  then ^a`), and unarchiving says where it went. The `↵` / `^o` warning on a running session names
-  it with its pid, tty and status; the consent it asks for is still the very next key only, and a
-  background result that replaces the warning now withdraws it too. In-progress messages have
-  their own `⏳` pending tone; nothing refused or failed is green. With `SESSIO_FOCUS=1` the
-  title match says it *raised* a Ghostty window rather than that it focused one, and the README
-  and help say plainly that outside Ghostty sessio does not move you to a running session.
+### New
 
-- **The whole reply is readable without resuming.** `PgUp` / `PgDn` scroll Claude's latest reply
-  a page at a time, and its last row says where you are: `↓ 40 more lines · PgDn scrolls` at the
-  top, `lines 20–38 of 88 · ↓ 50 more · PgUp PgDn` further down, `end of reply` at the bottom. The
-  old `… ⇥ for full` is gone: `⇥` never showed the full reply, it only hid the first/last prompts,
-  and still does. Scrolling moves only the reply; another session starts at its top, and the live
-  refresh no longer blanks a session that was just written to (it used to flash `…` and drop you
-  back to the top). The preview reads top-down by what you act on: title and state, where it is
-  (project · branch · prompts), then token totals with the file's size and naming, then the recap,
-  the first and last prompts, and the reply. A preview narrower than 72 columns (an 80-column window)
-  puts the labels in front of the text (`recap: …`, `reply: …`) instead of a 12-column gutter, and a short window
-  drops the file facts, then the prompts, before it squeezes the recap or the reply. The preview
-  says `reading transcript…` while it loads and `no recap yet` / `no reply yet` when there is none.
-  Long headings wrap instead of being cut, and a table too wide for the window is set as one
-  `header: cell` line per row instead of cutting cells to `…`.
-
-- **Filtering and full-text search say what they are doing.** The query row names the mode and
-  what it covers — `filter · sessio` or, after `^f`, `search in text · all sessions` — and what it
-  found: `4 matches`, `3 fuzzy matches · none exact` when nothing contained the query as typed,
-  `no matches`, `searching…`, or `✗ failed · esc back to filter`. An empty list says which of
-  these it is — no sessions yet, nothing in this tab, no filter match, no transcript match, a search
-  running, a search that failed and why — and names the key out of it. The help and README explain
-  that typing filters the newest 300 sessions while `^f` reads every transcript on disk. Without
-  ripgrep, `^f` says `brew install ripgrep` instead of doing nothing, and the help still lists it;
-  `^f` on an empty query asks for a word. While `^f` owns the list the key bar reads
-  `esc back-to-filter`, and `esc` also cancels a search still running or leaves a failed one
-  (it used to quit). A search result that lands after the query has changed is still dropped, now
-  under test.
-
-- **A session's state is said in words, in the same place every time.** The row under the preview's
-  title is always the state: `◆ waiting on you · input needed · pid 4242 · ttys009`,
-  `◉ running · busy · pid · tty` (or `idle`, or `stale · idle 3d`), `● recently updated · 2m ago ·
-  not running`, or `updated 3d ago · not running`. An unfinished session gets the row under it,
-  with the reason: `▸ unfinished · your prompt got no reply` (or the recap says your move, Claude
-  asked / proposed next, uncommitted changes); it used to read `▸ pick up` further down. The
-  running details no longer vanish when the title is long, and on a narrow window, or below the
-  minimum size, the state wraps instead of losing the pid and tty. The key bar counts waiting
-  sessions exactly (`◆ 3 waiting on you`, not "several"), the same number the `◆ waiting` tab
-  holds. The `?` legend now covers every mark, grouped as process, transcript, unfinished and
-  agent, and explains what makes a session unfinished and what `↵` does on a running one inside
-  and outside Ghostty. What counts as open, waiting or running, and `sessions --json`, are
-  unchanged.
-
-- **The dashboard is fixed regions.** Messages ("already running … ↵ again", "✗ reply failed")
-  have their own row at the bottom of the window, full width, instead of pushing hints off the key
-  bar; a long one wraps onto a second row. A context line above the session tabs spells out the
-  selected project's whole name, its session counts and its folder, and the tab strip leads with
-  your place in it (`3/18`). A rule in the project panel sets `⌂ everything`, `⏸ open` and
-  `◆ waiting` apart from the projects, and `🗄 archived` apart from both. Every row is cut to its
-  own region, so CJK or emoji titles and long paths end in `…` instead of running on, and the
-  focused tab's title is cut rather than the tab on a narrow strip. Below 50x12 the window says
-  `window too small (need 50x12)` and shows just the selected project and session, any feedback
-  and the keys. A reply cut to fit now keeps its `… ⇥ for full` marker on screen.
-
-- **A design spec, and colours that mean one thing.** `docs/DESIGN.md` names the colour roles
-  (attention, running, recent, success, error…), the status glyphs, the keys and the layout rules,
-  and `src/theme.rs` is now the only file that picks a colour — a test fails on one anywhere else.
-  A failed action no longer flashes green: errors are red and lead with `✗`, warnings are yellow.
-  The 24-hour dot is a hollow `○`, so it reads apart from the five-minute `●` without colour, and
-  the orange, purple and blue that no light theme remaps were darkened to stay legible on white.
-  The website follows the system's light or dark setting, its faintest text now passes WCAG AA,
-  and its CSS uses the same role names.
-- **The project panel counts.** Each tab shows how many of its sessions were touched in the last
-  24 hours and how many it holds, right-aligned in two columns under `24h all`. The `🗄 archived`
-  label now measures two cells wide, as terminals draw it, so its row no longer sits one off.
-- **The website demo is built on deploy.** `docs/demo/` was built by hand and committed, so a
-  layout change reached the binary and left the site showing the previous UI until someone
-  reran the script. The Pages deploy now builds it from the commit it publishes, CI builds it on
-  every pull request, and it is no longer committed.
-- **`^g` shows the GitHub issues for a session's repo.** The preview says how many are open
-  (`⚑ 12 open issues · owner/repo`); `^g` lists them, `↵` opens one in the browser. Fetched through
-  `gh` in the background and cached for five minutes, so the dashboard never waits on the network.
-  Folders without a GitHub `origin` show nothing.
-- **`^t` follows a running session.** It pins the preview to the highlighted `◉` session and
-  shows the end of its transcript, newest at the bottom, re-read on every refresh: your prompts,
-  Claude's text and the names of the tools it called. It only reads, at most the last 256 KB of
-  the file, and never attaches to the `claude` running it. A session that stops keeps its tail on
-  screen, marked ended. Any move stops following, and so does `^t` again.
-- **Token totals per session.** The preview and `sessions show` get one line —
-  `tokens  in 10.8k · out 5.6M · cache w 31.6M · r 727M` — and `show --json` a `tokens` object.
-  Claude Code writes one transcript line per content block of a response, each repeating that
-  response's usage, so the totals count each message id once; summing every line roughly doubles
-  them. Tokens only: there is no price table to keep current.
-- **`^n` starts a new session in the selected session's folder.** No more quitting, `cd`-ing and
-  running `claude` after finding the project: under Ghostty it opens a new window the same way
-  `^o` does (and says why if it can't, rather than falling back), everywhere else it starts in
-  this window. `^n` rather than a bare `n` because plain letters filter the list.
-- **`↵` on a running session takes you to it under Ghostty.** Ghostty 1.3's AppleScript
-  dictionary reports each terminal's tty, and sessio already knows the tty of every running
-  session, so it focuses that exact terminal — background tab or unfocused split included — instead
-  of only saying `pid · tty` and leaving you to hunt for it.
-- **A `◆ waiting` tab.** Right below `⏸ open`, present only while a running session is stopped
-  on a question or permission prompt, and holding exactly those — the key bar's "waiting on you"
-  now has somewhere to go.
-- **The dashboard tells you when a session starts waiting on you.** `◆` only helped while you
-  were looking at the list, and a session parked on a question in a forgotten window is the one
-  you are not looking at. Now the flip to `waiting` posts a macOS notification (the terminal bell
-  elsewhere) naming the session and what it wants, once per wait, and several at once are one
-  notification that counts them. Sessions already waiting when sessio opens stay quiet.
-  `SESSIO_NOTIFY=0` turns it off.
-- **`^k` ends a running session that has sat idle for more than 48 hours.** A `claude` left open
-  in a forgotten window keeps its process alive and keeps the session `◉`, so every resume of it
-  has to be forced. The preview now marks such a session `stale · idle Nd`; the first `^k` names
-  the pid, tty and idle time, and a second `^k` sends `SIGTERM`, waits up to 3s and says whether it
-  went. It refuses, and says why, a session that is not running, was written to within 48 hours,
-  or is `busy` or `waiting` on you. Just before signalling it re-reads `ps` to check the pid is
-  still that session's `claude`, and it never ends the session sessio is itself running inside.
-  No `SIGKILL`. `sessions kill <id> [--json]` does the same from a script, under the same rules.
 - **GitHub Copilot CLI sessions, next to Claude Code's.** Sessions under `~/.copilot/session-state`
   (or `$COPILOT_HOME`) join the same list, grouped by folder and tagged `copilot`: preview, filter,
   `^f` search, archive, `↵` / `^o` resume (`copilot --resume=<id>`), and `sessions ls` / `show` /
   `find` / `resume`. `--json` gains a `"source"` field (`claude` or `copilot`); nothing else in it
-  changes. `^r` / `sessions reply`, `^t` and `^k` / `sessions kill` stay Claude-only and say so; running detection and
-  token totals do not cover Copilot yet. Without `~/.copilot` nothing changes.
-- **`↵` resumes in this window; `^o` opens a new one.** Swapped, and `^o` now gets the same
-  already-running guard as `↵` instead of skipping it — a second `claude` on a live transcript is
-  the same mistake in either window.
-- **A new window no longer brings twenty with it.** macOS opened it with `open -na Ghostty.app`,
-  which starts a second Ghostty, and a fresh Ghostty restores every saved window — so each press
-  reopened all of them on top of the one asked for, and could leave two `claude`s on one
-  conversation. sessio now asks the Ghostty already running for one window through its AppleScript
-  dictionary (Ghostty 1.3+). If that fails it says why and stays put rather than falling back.
+  changes. `^r` / `sessions reply`, `^t` and `^k` / `sessions kill` stay Claude-only and say so;
+  running detection and token totals do not cover Copilot yet. Without `~/.copilot` nothing changes.
+- **sessio tells you when a session starts waiting on you.** While the dashboard is open, a running
+  session that flips to `waiting` (a permission prompt, a question) posts a macOS notification (the
+  terminal bell elsewhere) naming the session and what it wants, once per wait; several at once are
+  one notification that counts them, and sessions already waiting when sessio opens stay quiet.
+  `SESSIO_NOTIFY=0` turns it off.
+- **A `◆ waiting` tab**, right below `⏸ open` while any running session is stopped on you, holding
+  exactly those. The key bar counts them exactly (`◆ 3 waiting on you`) and never drops that hint.
+- **`^k` ends a running session idle for more than 48 hours** — a `claude` left open in a forgotten
+  window, which keeps the session `◉` and makes every resume of it a forced one. The preview marks
+  it `stale · idle Nd`; the first `^k` names the pid, tty and idle time, a second sends `SIGTERM`,
+  waits up to 3s and says whether it went. It refuses, with the reason, a session that is not
+  running, was written to within 48 hours, or is `busy` or `waiting`; re-reads `ps` just before
+  signalling so a recycled pid is never hit; never ends the session sessio runs inside; and never
+  sends `SIGKILL`. `sessions kill <id> [--json]` does the same from a script.
+- **`^t` follows a running session**: the preview pinned to its transcript's tail — your prompts,
+  Claude's text, the names of the tools it called — re-read on every refresh. Read-only, at most
+  the last 256 KB, never attached to the `claude` running it. A session that stops keeps its tail,
+  marked `◌ ended`; any move or `^t` again stops following.
+- **`^g` shows the GitHub issues for a session's repo.** The preview counts them
+  (`⚑ 12 open issues · owner/repo`); `^g` lists them and `↵` opens one in the browser. Fetched
+  through `gh` in the background and cached for five minutes, so the dashboard never waits on the
+  network.
+- **`^n` starts a new session in the highlighted session's folder**: a new window under Ghostty
+  (and it says why if it can't, rather than falling back), this window elsewhere.
+- **`↵` on a running session takes you to it under Ghostty 1.3+**, which reports each terminal's
+  tty: sessio focuses that exact terminal, background tab or split included, instead of only
+  printing `pid · tty`.
+- **Token totals per session**: `tokens  in 10.8k · out 5.6M · cache w 31.6M · r 727M` in the
+  preview and `sessions show`, and a `tokens` object in `show --json`. Each API response is counted
+  once (Claude Code repeats its usage on every content block, so summing lines doubles it). No
+  prices.
+- **The project panel counts**: sessions touched in the last 24 hours and all of them, right-aligned
+  beside every tab.
+
+### Changed: the dashboard redesign
+
+- **Fixed regions.** Key bar, query, a context line naming the selected project (its whole name,
+  its counts, its folder) and a one-row session strip that leads with your place (`3/18`), then the
+  preview. Messages have their own row at the bottom, full width, and wrap onto a second one rather
+  than pushing hints off the key bar. A rule in the project panel sets the collections (`⌂
+  everything`, `⏸ open`, `◆ waiting`) and `🗄 archived` apart from the projects. Every row is cut to
+  its own region, so CJK or emoji titles and long paths end in `…` instead of running on. Below 50x12
+  the window says `window too small (need 50x12)` and keeps the selected session, its state, any
+  feedback and the keys.
+- **A session's state is said in words, in the same place every time.** The row under the preview's
+  title: `◆ waiting on you · input needed · pid 4242 · ttys009`, `◉ running · busy · pid · tty` (or
+  `idle`, or `stale · idle 3d`), `● recently updated · 2m ago · not running`, or `updated 3d ago ·
+  not running` — a fresh transcript is no longer mistaken for a running one. An unfinished session
+  gets `▸ unfinished · <reason>` under it (your prompt got no reply, the recap says your move, Claude
+  asked / proposed next, uncommitted changes). A narrow window wraps the state instead of losing the
+  pid and tty. The `?` legend covers every mark, grouped as process, transcript, unfinished and
+  agent. What counts as open, waiting or running, and `sessions --json`, are unchanged.
+- **Filtering and full-text search say what they are doing.** The query row names the mode, what it
+  covers and what it found: `filter · sessio · 4 matches`, `3 fuzzy matches · none exact`, `no
+  matches`, or after `^f`, `search in text · all sessions` with `searching…`, a count or `✗ failed ·
+  esc back to filter`. An empty list says which of these it is and names the key out. Without
+  ripgrep `^f` says `brew install ripgrep` instead of doing nothing; on an empty query it asks for a
+  word. While `^f` owns the list, `esc` goes back to filtering (it used to quit) and cancels a search
+  still running. A result that lands after the query changed is dropped.
+- **The whole reply is readable without resuming.** `PgUp` / `PgDn` scroll Claude's latest reply a
+  page at a time, and its last row says where you are (`↓ 40 more lines · PgDn scrolls`, `lines
+  20–38 of 88 · ↓ 50 more`, `end of reply`). Only the reply moves; another session starts at its
+  top, and the live refresh keeps your place instead of blanking the preview. The preview reads
+  top-down by what you act on: title and state, where it is, token totals and file facts, recap,
+  first and last prompts, reply. Under 72 columns the labels lead their text instead of taking a
+  12-column gutter; a short window drops file facts, then prompts, before it squeezes the recap or
+  the reply. `reading transcript…`, `no recap yet` and `no reply yet` say what is missing. Long
+  headings wrap, and a table too wide for the window is set as one `header: cell` line per row.
+- **Reply, archive and resume say what happened, and to which session.** Every message about a
+  session names it, so it still makes sense after you have moved on, and a reply or `^k` result that
+  lands later names the session it was for. `^r`'s composer reads `↳ reply to "x"`; a reply in
+  flight marks its tab and preview `⏳` and a second send to it is refused. A failed reply keeps your
+  text: the next `^r` on that session puts it back, and nothing is ever resent on its own. `^a` says
+  `🗄 archived "x"` and how to get it back. The `↵` / `^o` warning on a running session names its
+  pid, tty and status; its consent is still the very next key only, and a background result that
+  replaces the warning withdraws it. Nothing refused or failed is green: in progress is `⏳`,
+  refused is yellow, failed is red with `✗`.
+- **Colours mean one thing.** `src/theme.rs` is the only file that picks a colour (a test fails on
+  one anywhere else), and every role is named in `docs/DESIGN.md`. The 24-hour dot is a hollow `○`,
+  told apart from the five-minute `●` without colour, and the orange, purple and blue no light theme
+  remaps were darkened to stay legible on white.
+- **`↵` resumes in this window; `^o` opens a new one**, swapped, and `^o` now has the same
+  already-running guard as `↵`.
+- **`sessions --help` lists every dashboard key**, including `^t`, `^g`, `^n`, `^e`, the word keys
+  and `^c`, and the README, the agent skill (notifications, `kill` on Copilot) and the site match.
+
+### Fixed
+
+- **A new Ghostty window no longer brings twenty with it.** `open -na Ghostty.app` started a second
+  Ghostty, which restored every saved window on top of the one asked for and could leave two
+  `claude`s on one conversation. sessio now asks the running Ghostty for one window through its
+  AppleScript dictionary (1.3+), and says why and stays put if that fails.
+- A failed action no longer flashes green.
+- The `🗄 archived` label measures two cells wide, as terminals draw it, so its row no longer sits
+  one column off — including when a narrow panel cuts it, where it used to push its row one column
+  past the window.
+
+### Website
+
+- **Rebuilt around what sessio does, with an honest demo.** The page leads with the task, then
+  install (a copy button that says when the browser refused and selects the command instead), the
+  live demo, find / understand / continue, the CLI and agent skill, the keys and the requirements.
+  The key table was wrong about `^o` and missed `^n`, `^t`, `^g`, `^k` and `^c`. The demo is entered
+  with **Try the demo** and left with `esc`, **Exit demo** or `Tab`; it shows a focus ring while it
+  has the keyboard, announces its feedback to screen readers, and reads keys the way the terminal
+  does. What a browser cannot do (`↵`, `^o`, `^n`, sending a reply, `^k`, `^t`, `^g`) says `browser
+  demo: …` in the warning tone instead of looking like it worked. It lays out for its width (104x26
+  down to 60x18) instead of shrinking the text, the page never scrolls sideways at phone width, it
+  follows the system's light or dark setting with text that passes WCAG AA, and if the demo fails to
+  load the rest of the page still works.
+- **The demo is built on deploy** from the commit being published, and on every pull request;
+  `docs/demo/` is no longer committed, so the site can no longer show a previous layout.
+
+### Tests
+
+- **A release gate for the redesign.** Golden text frames of every dashboard state (`tests/frames/`)
+  at 60x18, 80x24, 104x26, 160x40 and below the minimum, including CJK and emoji, forty projects,
+  long drafts and replies, a refresh while reading and several messages at once; regenerate them
+  with `SESSIO_BLESS=1 cargo test frames`. The website demo's key handler is checked against the
+  terminal's, frame for frame. A test fails when a key in the `?` overlay is missing from the README,
+  `sessions --help`, the site or the spec.
+- **The pty smoke test never touches real history.** `scripts/smoke-tui.py` runs against a
+  throwaway `HOME` of synthetic transcripts, with a decoy waiting session and stand-ins for `claude`,
+  `copilot` and `gh` that fail the run if called, and now runs in CI on Linux and macOS, as does a
+  check that the demo builds, exports what the page calls and is not committed.
+  `scripts/site-check.cjs` checks the site in a headless browser for a release: the demo's layout
+  at desktop and phone width, entering and leaving it, the fallback without wasm, and light and
+  dark screenshots.
 
 ## 1.1.0 - 2026-09-18
 

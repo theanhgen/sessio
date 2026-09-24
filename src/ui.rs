@@ -673,6 +673,11 @@ impl App {
     /// GitHub issues for the highlighted session's folder, from cache; a miss queues a fetch.
     /// `None` when there is no folder to ask about, and always in the browser, which has no `gh`.
     fn issue_status(&self) -> Option<crate::issues::Status> {
+        #[cfg(test)]
+        if let Some(e) = pin::get() {
+            self.selected()?;
+            return Some(e.issues.unwrap_or(crate::issues::Status::NoRemote));
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             let i = self.selected()?;
@@ -1036,12 +1041,54 @@ enum Flow {
     Quit,
 }
 
+/// What a key leaves for the event loop to do after `key_step` has updated the `App`: the parts
+/// that start a process, open a window or hand the terminal over. Kept out of `key_step` so the
+/// whole key mapping runs in a test — and in the demo parity tests — without ever launching
+/// `claude`, `rg`, `gh` or a browser.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, PartialEq)]
+enum Step {
+    Continue,
+    Quit,
+    /// `↵` (`new_window: false`) or `^o`.
+    Resume { new_window: bool },
+    /// `^n`.
+    NewSession,
+    /// `^f` was accepted: run ripgrep for `query` under generation `gen`.
+    TextSearch { gen: u64, query: String },
+    /// `↵` in the composer, with something to send.
+    Send { id: String, body: String },
+    /// `↵` in the issues list.
+    OpenIssue,
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn handle_key(
     term: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     k: KeyEvent,
 ) -> io::Result<Flow> {
+    match key_step(app, k) {
+        Step::Continue => {}
+        Step::Quit => return Ok(Flow::Quit),
+        Step::Resume { new_window } => return resume_selected(term, app, new_window),
+        Step::NewSession => return new_session(term, app),
+        Step::TextSearch { gen, query } => {
+            let tx = app.tx.clone();
+            std::thread::spawn(move || {
+                let files = search::content_search(&query, &search::roots());
+                let _ = tx.send(Msg::Search { gen, query, files });
+            });
+        }
+        Step::Send { id, body } => send_reply(app, &id, &body),
+        Step::OpenIssue => open_issue(app),
+    }
+    Ok(Flow::Continue)
+}
+
+/// Every key's effect on the dashboard, and what (if anything) is left for `handle_key` to do.
+#[cfg(not(target_arch = "wasm32"))]
+fn key_step(app: &mut App, k: KeyEvent) -> Step {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
 
     // While the composer is open it takes every key, so typing a reply cannot also filter the
@@ -1053,11 +1100,11 @@ fn handle_key(
     disarm(app, &k);
 
     if ctrl && k.code == KeyCode::Char('c') {
-        return Ok(Flow::Quit);
+        return Step::Quit;
     }
     if app.help {
         app.help = false; // any key closes the overlay
-        return Ok(Flow::Continue);
+        return Step::Continue;
     }
 
     // The issues list borrows ↑↓ and ↵ from the dashboard while it is up; everything else keeps
@@ -1066,24 +1113,21 @@ fn handle_key(
         match k.code {
             KeyCode::Esc => {
                 app.issues = false;
-                return Ok(Flow::Continue);
+                return Step::Continue;
             }
             KeyCode::Char('g') if ctrl => {
                 app.issues = false;
-                return Ok(Flow::Continue);
+                return Step::Continue;
             }
             KeyCode::Up => {
                 app.issue_cur = app.issue_cur.saturating_sub(1);
-                return Ok(Flow::Continue);
+                return Step::Continue;
             }
             KeyCode::Down => {
                 app.issue_cur += 1; // clamped against the list when it is drawn
-                return Ok(Flow::Continue);
+                return Step::Continue;
             }
-            KeyCode::Enter => {
-                open_issue(app);
-                return Ok(Flow::Continue);
-            }
+            KeyCode::Enter => return Step::OpenIssue,
             _ => {}
         }
     }
@@ -1095,17 +1139,13 @@ fn handle_key(
             if app.in_text_search() {
                 app.leave_text_search();
             } else {
-                return Ok(Flow::Quit);
+                return Step::Quit;
             }
         }
         KeyCode::Char('f') if ctrl => {
             // The query row says `searching…` for as long as it runs; no flash repeats it.
-            if let Some((gen, term_q)) = app.begin_text_search(search::rg_path().is_some()) {
-                let tx = app.tx.clone();
-                std::thread::spawn(move || {
-                    let files = search::content_search(&term_q, &search::roots());
-                    let _ = tx.send(Msg::Search { gen, query: term_q, files });
-                });
+            if let Some((gen, query)) = app.begin_text_search(rg_found()) {
+                return Step::TextSearch { gen, query };
             }
         }
         KeyCode::Char('a') if ctrl => app.toggle_archive(),
@@ -1147,37 +1187,40 @@ fn handle_key(
             app.q.pop();
             app.requery();
         }
-        KeyCode::Enter => return resume_selected(term, app, false),
-        KeyCode::Char('o') if ctrl => return resume_selected(term, app, true),
+        KeyCode::Enter => return Step::Resume { new_window: false },
+        KeyCode::Char('o') if ctrl => return Step::Resume { new_window: true },
         // A fresh `claude` in the highlighted session's folder: ↵'s launch with nothing to
         // resume. `^n` rather than a bare `n` for the reason `^r` is: plain letters filter.
-        KeyCode::Char('n') if ctrl => {
-            if let Some(i) = app.selected() {
-                let (cwd, project) = (app.items[i].cwd.clone(), app.items[i].project.clone());
-                // Without a recorded folder there is nowhere to start it; sessio's own folder
-                // would be a guess dressed up as the project.
-                let Some(dir) = cwd else {
-                    let who = target(app.items[i].display_name());
-                    app.say(Tone::Warning, format!("{who} has no folder recorded — nowhere to start a new session"));
-                    return Ok(Flow::Continue);
-                };
-                if !resume::in_ghostty() {
-                    start_over(term, &dir);
-                }
-                // Stay put and say why on failure, as ^o does: falling back to this window would
-                // replace sessio with something the user did not ask for.
-                match resume::ghostty_launch_fresh(std::path::Path::new(&dir)) {
-                    Ok(()) => app.say(Tone::Success, format!("↗ new session in {} in a new Ghostty window", sanitize(&project))),
-                    Err(why) => app.say(Tone::Error, format!("couldn't open a new window for {} ({why})", sanitize(&project))),
-                }
-                return Ok(Flow::Continue);
-            }
-        }
+        KeyCode::Char('n') if ctrl => return Step::NewSession,
         KeyCode::Char(c) if !ctrl && !k.modifiers.contains(KeyModifiers::ALT) && c >= ' ' => {
             app.q.push(c);
             app.requery();
         }
         _ => {}
+    }
+    Step::Continue
+}
+
+/// `^n`: a fresh `claude` in the highlighted session's folder — a new Ghostty window, or this one.
+#[cfg(not(target_arch = "wasm32"))]
+fn new_session(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<Flow> {
+    let Some(i) = app.selected() else { return Ok(Flow::Continue) };
+    let (cwd, project) = (app.items[i].cwd.clone(), app.items[i].project.clone());
+    // Without a recorded folder there is nowhere to start it; sessio's own folder would be a
+    // guess dressed up as the project.
+    let Some(dir) = cwd else {
+        let who = target(app.items[i].display_name());
+        app.say(Tone::Warning, format!("{who} has no folder recorded — nowhere to start a new session"));
+        return Ok(Flow::Continue);
+    };
+    if !resume::in_ghostty() {
+        start_over(term, &dir);
+    }
+    // Stay put and say why on failure, as ^o does: falling back to this window would replace
+    // sessio with something the user did not ask for.
+    match resume::ghostty_launch_fresh(std::path::Path::new(&dir)) {
+        Ok(()) => app.say(Tone::Success, format!("↗ new session in {} in a new Ghostty window", sanitize(&project))),
+        Err(why) => app.say(Tone::Error, format!("couldn't open a new window for {} ({why})", sanitize(&project))),
     }
     Ok(Flow::Continue)
 }
@@ -1204,8 +1247,8 @@ fn disarm(app: &mut App, k: &KeyEvent) {
 /// Keys while the reply composer is open. Esc abandons the draft, ↵ sends it, everything else
 /// types. Deliberately small: this is a one-line composer, not an editor.
 #[cfg(not(target_arch = "wasm32"))]
-fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
-    let Some((id, text)) = app.draft.clone() else { return Ok(Flow::Continue) };
+fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> Step {
+    let Some((id, text)) = app.draft.clone() else { return Step::Continue };
     match k.code {
         KeyCode::Esc => {
             app.draft = None;
@@ -1219,7 +1262,7 @@ fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
             if body.is_empty() {
                 app.say(Tone::Warning, format!("nothing to send to {} — composer closed", app.target_of(&id)));
             } else {
-                send_reply(app, &id, &body);
+                return Step::Send { id, body };
             }
         }
         KeyCode::Backspace if k.modifiers.contains(KeyModifiers::ALT) => {
@@ -1243,7 +1286,7 @@ fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
         }
         _ => {}
     }
-    Ok(Flow::Continue)
+    Step::Continue
 }
 
 /// Send one turn to a session without opening it: `claude -p --resume <id>` appends to the same
@@ -1312,6 +1355,71 @@ fn open_issue(app: &mut App) {
             app.say(Tone::Success, format!("↗ opened #{} in the browser", issue.number));
         }
         Err(e) => app.say(Tone::Error, format!("couldn't open a browser ({e}) · {}", issue.url)),
+    }
+}
+
+/// Whether ripgrep is there for `^f`. A test pins it (`pin::Env`) so a frame reads the same on a
+/// machine with ripgrep and one without.
+fn rg_found() -> bool {
+    #[cfg(test)]
+    if let Some(e) = pin::get() {
+        return e.rg;
+    }
+    search::rg_path().is_some()
+}
+
+/// Whether sessio runs under Ghostty, which puts `^o` on the key bar. Pinned like `rg_found`.
+fn ghostty() -> bool {
+    #[cfg(test)]
+    if let Some(e) = pin::get() {
+        return e.ghostty;
+    }
+    resume::in_ghostty()
+}
+
+/// What a test fixes about the machine it runs on, so golden frames and parity checks never
+/// depend on it: ripgrep, Ghostty, and the `gh` issues answer. Per thread, like the tests.
+#[cfg(test)]
+mod pin {
+    use std::cell::RefCell;
+
+    #[derive(Clone, Default)]
+    pub struct Env {
+        pub rg: bool,
+        pub ghostty: bool,
+        /// What `^g` finds for every folder. `None` answers as a folder with no GitHub remote,
+        /// without asking `gh`.
+        pub issues: Option<crate::issues::Status>,
+    }
+
+    thread_local! {
+        static ENV: RefCell<Option<Env>> = const { RefCell::new(None) };
+    }
+
+    pub fn get() -> Option<Env> {
+        ENV.with(|e| e.borrow().clone())
+    }
+
+    /// Change what is pinned, without a new guard. Nothing when nothing is pinned.
+    pub fn update(f: impl FnOnce(&mut Env)) {
+        ENV.with(|e| {
+            if let Some(env) = e.borrow_mut().as_mut() {
+                f(env)
+            }
+        });
+    }
+
+    /// Pin `env` until the guard drops.
+    pub fn set(env: Env) -> Guard {
+        ENV.with(|e| *e.borrow_mut() = Some(env));
+        Guard
+    }
+
+    pub struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            ENV.with(|e| *e.borrow_mut() = None);
+        }
     }
 }
 
@@ -1720,7 +1828,7 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     // column it moves through, which is a better place for it than a bar of ten hints.
     let mut segs: Vec<Seg> =
         vec![Seg { p: 3, t: Cow::Borrowed("←→ session"), accent: false }, Seg { p: 4, t: Cow::Borrowed("type"), accent: false }];
-    if search::rg_path().is_some() {
+    if rg_found() {
         segs.push(Seg { p: 5, t: Cow::Borrowed("^f search-in-text"), accent: false });
     }
     segs.push(if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
@@ -1733,7 +1841,7 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     } else {
         Seg { p: 4, t: Cow::Borrowed("⇥ expand-reply"), accent: false }
     });
-    if resume::in_ghostty() {
+    if ghostty() {
         segs.push(Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false });
         segs.push(Seg { p: 2, t: Cow::Borrowed("^o new-window"), accent: false });
     } else {
@@ -2021,7 +2129,7 @@ fn empty_state(app: &App, state: &QueryState) -> (String, Vec<String>) {
         ),
         QueryState::Browse => ("no sessions here".into(), vec!["↑↓ picks another project".into()]),
         QueryState::Filter { .. } => {
-            let text = if search::rg_path().is_some() {
+            let text = if rg_found() {
                 "^f searches the full text of every session instead".to_string()
             } else {
                 format!("^f would search the full text, but needs ripgrep: {}", search::INSTALL_HINT)
@@ -3083,7 +3191,7 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
     // The browser demo searches its fixtures without ripgrep, so it is never missing there.
     v.push(Line::from(vec![
         Span::styled(format!("{:<7}", "^f"), key),
-        if cfg!(target_arch = "wasm32") || search::rg_path().is_some() {
+        if cfg!(target_arch = "wasm32") || rg_found() {
             Span::raw(format!(
                 "full-text search of every transcript on disk, past the newest {} too",
                 crate::discover::CAP
@@ -3216,13 +3324,17 @@ fn italic(l: Line<'static>) -> Line<'static> {
 fn fit_width(s: &str, w: usize) -> String {
     let mut out = String::new();
     let mut used = 0;
+    // Measured as a string, not char by char: `🗄️` is `🗄` plus a zero-width U+FE0F that makes
+    // it two columns, and summing the chars called it one — so a cut `🗄️ archived` came out a
+    // column wider than the panel and pushed its row past the terminal.
     for c in s.chars() {
-        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + cw > w {
+        out.push(c);
+        let now = UnicodeWidthStr::width(out.as_str());
+        if now > w {
+            out.pop();
             break;
         }
-        out.push(c);
-        used += cw;
+        used = now;
     }
     out.push_str(&" ".repeat(w.saturating_sub(used)));
     out
@@ -3289,6 +3401,16 @@ fn wrap_plain(text: &str, width: usize, max_lines: usize) -> Vec<String> {
         lines
     }
 }
+
+// Golden frames of every key state (`tests/frames/`, `SESSIO_BLESS=1` to regenerate), the
+// shipped documents checked against the `?` overlay, and the website demo's key handler checked
+// against the terminal's.
+#[cfg(test)]
+mod frames;
+#[cfg(test)]
+mod guidance;
+#[cfg(test)]
+mod parity;
 
 #[cfg(test)]
 mod tests {
@@ -5691,10 +5813,14 @@ mod tests {
 /// start or switch to a `claude`, open a window, send a reply, end a process, follow a live
 /// transcript, ask `gh` — says so in the feedback row in the warning tone, naming what the key
 /// does in a terminal. It never answers with the success message the terminal would print.
-#[cfg(target_arch = "wasm32")]
+///
+/// Native test builds compile it too, without the bindings, so `ui::parity` can press the same
+/// keys here and in `key_step` and compare the frames.
+#[cfg(any(target_arch = "wasm32", test))]
 pub mod demo {
     use super::*;
     use std::cell::RefCell;
+    #[cfg(target_arch = "wasm32")]
     use wasm_bindgen::prelude::*;
 
     thread_local! {
@@ -5811,8 +5937,11 @@ pub mod demo {
         s
     }
 
-    fn build() -> App {
+    pub(in crate::ui) fn build() -> App {
+        #[cfg(target_arch = "wasm32")]
         crate::model::DEMO_NOW.store(NOW, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::model::TEST_NOW.with(|t| t.set(Some(NOW)));
         let claude = Source::Claude;
         let fixtures = [
             Fixture {
@@ -6005,7 +6134,7 @@ pub mod demo {
     }
 
     /// One frame of the real dashboard, as HTML.
-    #[wasm_bindgen]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
     pub fn render(cols: usize, rows: usize) -> String {
         APP.with(|a| {
             let mut app = a.borrow_mut();
@@ -6040,7 +6169,7 @@ pub mod demo {
 
     /// The feedback row's message, for the page to announce to a screen reader. Empty when there
     /// is none.
-    #[wasm_bindgen]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
     pub fn feedback() -> String {
         APP.with(|a| a.borrow().flash.clone())
     }
@@ -6165,96 +6294,96 @@ pub mod demo {
     ///
     /// Returns true when the dashboard would quit (`esc` with nothing to leave, `^c`): on the page
     /// that is leaving the demo.
-    #[wasm_bindgen]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
     pub fn key(name: &str) -> bool {
-        APP.with(|a| {
-            let mut app = a.borrow_mut();
-            let app = &mut *app;
+        APP.with(|a| key_on(&mut a.borrow_mut(), name))
+    }
 
-            // While the composer is open it takes every key, as in the terminal.
-            if app.draft.is_some() {
-                compose(app, name);
-                return false;
-            }
-            // `disarm`: the demo never arms a consent, but keep the rule where it is written.
-            app.confirm = None;
-            app.kill_confirm = None;
+    /// `key`, on any `App` rather than the page's.
+    pub(in crate::ui) fn key_on(app: &mut App, name: &str) -> bool {
+        // While the composer is open it takes every key, as in the terminal.
+        if app.draft.is_some() {
+            compose(app, name);
+            return false;
+        }
+        // `disarm`: the demo never arms a consent, but keep the rule where it is written.
+        app.confirm = None;
+        app.kill_confirm = None;
 
-            if name == "^c" {
-                return true;
-            }
-            if app.help {
-                app.help = false; // any key closes the overlay
-                return false;
-            }
+        if name == "^c" {
+            return true;
+        }
+        if app.help {
+            app.help = false; // any key closes the overlay
+            return false;
+        }
 
-            match name {
-                "^g" => browser_cannot(app, "no gh here · ^g lists the GitHub issues for the session's repo".into()),
-                "?" => app.help = true,
-                "Escape" => {
-                    if app.in_text_search() {
-                        app.leave_text_search();
-                    } else {
-                        return true;
+        match name {
+            "^g" => browser_cannot(app, "no gh here · ^g lists the GitHub issues for the session's repo".into()),
+            "?" => app.help = true,
+            "Escape" => {
+                if app.in_text_search() {
+                    app.leave_text_search();
+                } else {
+                    return true;
+                }
+            }
+            "^f" => text_search(app),
+            "^a" => app.toggle_archive(),
+            "^r" => app.begin_reply(),
+            // A session with nothing to follow gets the terminal's own refusal; only the
+            // follow itself needs a transcript the browser does not have.
+            "^t" => {
+                let running = app.selected().is_some_and(|i| {
+                    app.items[i].source == Source::Claude && app.live.contains_key(&app.items[i].id)
+                });
+                if running {
+                    browser_cannot(app, "no live transcript to follow · ^t tails this ◉ session, read-only".into());
+                } else {
+                    app.toggle_follow();
+                }
+            }
+            "^k" => browser_cannot(app, "nothing ended · ^k ends a claude idle over 48h, after a second ^k".into()),
+            "Tab" | "^e" => app.expand = !app.expand,
+            "PageDown" => app.scroll_reply(true),
+            "PageUp" => app.scroll_reply(false),
+            "ArrowUp" => app.step_project(-1),
+            "ArrowDown" => app.step_project(1),
+            "ArrowLeft" => app.step_session(-1),
+            "ArrowRight" => app.step_session(1),
+            "M-Backspace" | "^w" => {
+                let kept = drop_word(&app.q);
+                app.q.truncate(kept);
+                app.requery();
+            }
+            "^u" => {
+                app.q.clear();
+                app.requery();
+            }
+            "Backspace" => {
+                app.q.pop();
+                app.requery();
+            }
+            "Enter" => launch_key(app, "↵"),
+            "^o" => launch_key(app, "^o"),
+            "^n" => launch_key(app, "^n"),
+            _ => {
+                let mut ch = name.chars();
+                if let (Some(c), None) = (ch.next(), ch.next()) {
+                    if c >= ' ' {
+                        app.q.push(c);
+                        app.requery();
                     }
                 }
-                "^f" => text_search(app),
-                "^a" => app.toggle_archive(),
-                "^r" => app.begin_reply(),
-                // A session with nothing to follow gets the terminal's own refusal; only the
-                // follow itself needs a transcript the browser does not have.
-                "^t" => {
-                    let running = app.selected().is_some_and(|i| {
-                        app.items[i].source == Source::Claude && app.live.contains_key(&app.items[i].id)
-                    });
-                    if running {
-                        browser_cannot(app, "no live transcript to follow · ^t tails this ◉ session, read-only".into());
-                    } else {
-                        app.toggle_follow();
-                    }
-                }
-                "^k" => browser_cannot(app, "nothing ended · ^k ends a claude idle over 48h, after a second ^k".into()),
-                "Tab" | "^e" => app.expand = !app.expand,
-                "PageDown" => app.scroll_reply(true),
-                "PageUp" => app.scroll_reply(false),
-                "ArrowUp" => app.step_project(-1),
-                "ArrowDown" => app.step_project(1),
-                "ArrowLeft" => app.step_session(-1),
-                "ArrowRight" => app.step_session(1),
-                "M-Backspace" | "^w" => {
-                    let kept = drop_word(&app.q);
-                    app.q.truncate(kept);
-                    app.requery();
-                }
-                "^u" => {
-                    app.q.clear();
-                    app.requery();
-                }
-                "Backspace" => {
-                    app.q.pop();
-                    app.requery();
-                }
-                "Enter" => launch_key(app, "↵"),
-                "^o" => launch_key(app, "^o"),
-                "^n" => launch_key(app, "^n"),
-                _ => {
-                    let mut ch = name.chars();
-                    if let (Some(c), None) = (ch.next(), ch.next()) {
-                        if c >= ' ' {
-                            app.q.push(c);
-                            app.requery();
-                        }
-                    }
-                }
             }
-            false
-        })
+        }
+        false
     }
 
     /// Put the demo in one of the states the page offers as a shortcut. Each is reached the way
     /// a user would reach it — the same tabs, query and search — so it draws exactly what those
     /// keys would; the shortcut only saves the walk. Unknown names change nothing.
-    #[wasm_bindgen]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
     pub fn scenario(name: &str) {
         APP.with(|a| {
             let mut app = a.borrow_mut();

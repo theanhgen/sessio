@@ -455,6 +455,30 @@ Automated (in `cargo test`):
   `the_preview_reads_state_then_recap_then_context_then_reply`, `a_short_window_keeps_what_you_act_on`,
   `loading_and_missing_content_say_so`, `code_tables_and_cjk_stay_inside_the_preview_and_reachable`;
   `md::tests::a_table_too_wide_to_set_keeps_every_cell`, `a_long_heading_wraps_instead_of_being_cut`.
+- #27, the release gate:
+  - `ui::frames::every_scene_matches_its_golden_frames`: golden text frames (`tests/frames/`) of
+    every state above — normal, waiting, running, unfinished, archived, no sessions, filter (literal,
+    fuzzy, none), text search (running, failed, results, none), a scrolled reply, the composer with
+    a long draft, a reply sending and failed, help, `^t`, `^g` (stubbed issues), a Copilot session,
+    CJK and emoji, forty projects, a refresh while reading, concurrent feedback — at every
+    supported size, the minimum and below it. The clock, ripgrep, Ghostty and `gh` are pinned, so
+    the frames are the same on every machine. `SESSIO_BLESS=1 cargo test frames` rewrites them;
+    review the diff. `every_golden_file_has_a_scene`, `no_scene_overflows_any_size`,
+    `a_refresh_keeps_the_reader_on_the_same_lines_in_every_size`,
+    `concurrent_feedback_keeps_every_message_in_its_place`.
+  - `ui::parity`: `ui::demo::key_on` and `key_step` pressed with the same keys on the demo's
+    fixture must draw the same frame after every key, at 104x26 and 60x18 — navigation, help
+    dismissal, `PgUp` `PgDn` and `⇥` / `^e`, filtering and the word keys, `^f` states and `esc`,
+    the composer (it owns the keyboard, `esc` discards, an empty `↵` sends nothing), archive. `↵`,
+    `^o`, `^n` and a composer `↵` must answer `browser demo: …` in the warning tone on the page and
+    ask for the launch in the terminal (`Step`), which the test never carries out.
+  - `ui::guidance::every_overlay_key_is_documented_everywhere`: every key in the `?` overlay is in
+    the README key table, `sessions --help`'s `KEYS`, the site's key table and the table above.
+  - `scripts/smoke-tui.py` (CI, Linux and macOS): the binary through a pty against a throwaway
+    `HOME` of synthetic transcripts with a decoy waiting session; `claude`, `copilot`, `gh`, `git`
+    and the browser openers are stubs that fail the run if called.
+  - `scripts/check-demo.sh` (CI, after the demo build): `docs/demo/` is not committed, the build
+    left a module, and it exports every function `docs/index.html` calls.
 
 Manual, for a release or a change to this file:
 
@@ -468,6 +492,11 @@ Manual, for a release or a change to this file:
    `^r` then `↵` on a session with `claude` missing from `PATH` is an error) shows `✗`.
 4. **Website**: open `docs/index.html` with the OS in dark and then light mode. Text is readable in
    both; the terminal windows stay dark in light mode.
+5. **Website, desktop and mobile**: at a desktop width the demo lays out 104x26; at phone width
+   (about 390px) the page does not scroll sideways, the demo narrows toward 60x18 and scrolls
+   inside its own window below that. **Try the demo** gives it the keyboard with a visible ring,
+   `esc`, **Exit demo** and `Tab` give it back, and with the wasm blocked the screen says so and
+   the rest of the page works.
 
 ## Known divergences
 

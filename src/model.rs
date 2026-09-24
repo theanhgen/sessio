@@ -314,10 +314,21 @@ pub static DEMO_NOW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64
 #[cfg(not(target_arch = "wasm32"))]
 pub fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
+    #[cfg(test)]
+    if let Some(ms) = TEST_NOW.with(std::cell::Cell::get) {
+        return ms;
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+thread_local! {
+    /// A test's fixed clock, per thread, so a golden frame's ages (`3m`, `2d`) never depend on
+    /// when the test ran. `None` is the real clock.
+    pub static TEST_NOW: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]

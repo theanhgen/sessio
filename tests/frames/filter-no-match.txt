@@ -1,0 +1,133 @@
+=== 60x18 ===
+ projects  │ ↵ resume · ◆ 1 waiting on you · ? help
+ ⌂ everyth │ 🔍 kubernetes▏  filter · ⌂ everything · no mat…
+ ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
+ ◆ waiting │   nothing in ⌂ everything matches "kubernetes"
+ ╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and firs…
+ web-app   │   ^f searches the full text of every session i…
+ api       │   ^w drops a word · ^u clears the query
+ cli-tool  │
+ docs      │
+ ╌╌╌╌╌╌╌╌  │
+ 🗄️ archiv │
+           │
+           │
+           │
+           │
+           │
+           │
+
+=== 80x24 ===
+ projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
+ ⌂ everyth │ 🔍 kubernetes▏  filter · ⌂ everything · no matches
+ ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
+ ◆ waiting │   nothing in ⌂ everything matches "kubernetes"
+ ╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the new…
+ web-app   │   ^f searches the full text of every session instead
+ api       │   ^w drops a word · ^u clears the query
+ cli-tool  │
+ docs      │
+ ╌╌╌╌╌╌╌╌  │
+ 🗄️ archiv │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+
+=== 104x26 ===
+ ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
+ ⌂ everything  6   7  │ 🔍 kubernetes▏  filter · ⌂ everything · no matches
+ ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
+ ◆ waiting     1   1  │   nothing in ⌂ everything matches "kubernetes"
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the newest 300
+ web-app       2   2  │   ^f searches the full text of every session instead
+ api           2   2  │   ^w drops a word · ^u clears the query
+ cli-tool      2   2  │
+ docs          ·   1  │
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
+ 🗄️ archived   ·   1  │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+
+=== 160x40 ===
+ ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
+ ⌂ everything   6   7  │ 🔍 kubernetes▏  filter · ⌂ everything · no matches
+ ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
+ ◆ waiting      1   1  │   nothing in ⌂ everything matches "kubernetes"
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the newest 300
+ web-app        2   2  │   ^f searches the full text of every session instead
+ api            2   2  │   ^w drops a word · ^u clears the query
+ cli-tool       2   2  │
+ docs           ·   1  │
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
+ 🗄️ archived    ·   1  │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+
+=== 50x12 ===
+ projects  │ ◆ 1 waiting on you · ? help
+ ⌂ everyth │ 🔍 kubernetes▏  filter · ⌂ everythin…
+ ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
+ ◆ waiting │   nothing in ⌂ everything matches "k…
+ ╌╌╌╌╌╌╌╌  │   filtering looks at titles, project…
+ web-app   │   ^f searches the full text of every…
+ api       │   ^w drops a word · ^u clears the qu…
+ cli-tool  │
+ docs      │
+ ╌╌╌╌╌╌╌╌  │
+ 🗄️ archiv │
+
+=== 49x12 ===
+window too small (need 50x12)
+⌂ everything · no sessions
+◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help ·…
+=== 80x11 ===
+window too small (need 50x12)
+⌂ everything · no sessions
+◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help · esc quit

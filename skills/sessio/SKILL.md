@@ -52,7 +52,8 @@ Filters combine: `sessions ls --here --open --json`. `--archived` lists only arc
 ```
 
 - `source`: `claude` or `copilot` (GitHub Copilot CLI). A Copilot session's `transcript` is its
-  `events.jsonl`, its `running` is always `null` (not detected), and it cannot be replied to.
+  `events.jsonl`, its `running` is always `null` (not detected), and it cannot be replied to or
+  killed. `resume` works for both.
 - `open_reason`: `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next`
   (only for 3 days), `uncommitted changes` (the folder has git changes), or `null`.
 - `running` is `null` unless a `claude` process has the session open. Its `status` is `idle`,
@@ -83,7 +84,16 @@ prefix fails and lists the candidates.
   running, its transcript is untouched for more than 48 hours, and it is neither `busy` nor
   `waiting`. Anything else exits `1` with the reason. It ends a process the user may still want,
   so run it only on a session the user named for ending; `ended: false` means the process was
-  signalled and was still there after 3s.
+  signalled and was still there after 3s. A Copilot session is refused ("kill is Claude-only").
+
+## The dashboard, when the user runs it
+
+You never run a bare `sessions` yourself, but the user may ask about what it shows. While it is
+open, a running session that starts waiting on the user (`◆`, a permission prompt or a question)
+posts a macOS notification titled `sessio` (the terminal bell elsewhere) and shows in the
+dashboard's bottom row; `SESSIO_NOTIFY=0` turns that off. `sessions ls --waiting --json` is the
+same list without the dashboard. Its keys are listed under `KEYS` in `sessions --help`, and `?`
+inside it explains every key and mark.
 
 ## Rules
 
