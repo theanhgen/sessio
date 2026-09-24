@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`^g` shows the GitHub issues for a session's repo.** The preview says how many are open
+  (`⚑ 12 open issues · owner/repo`); `^g` lists them, `↵` opens one in the browser. Fetched through
+  `gh` in the background and cached for five minutes, so the dashboard never waits on the network.
+  Folders without a GitHub `origin` show nothing.
 - **`^t` follows a running session.** It pins the preview to the highlighted `◉` session and
   shows the end of its transcript, newest at the bottom, re-read on every refresh: your prompts,
   Claude's text and the names of the tools it called. It only reads, at most the last 256 KB of

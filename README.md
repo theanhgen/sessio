@@ -61,6 +61,7 @@ sessions
 | `^a` | archive / unarchive the selected session (sessio-local hide only) |
 | `^r` | reply to the selected session without opening it |
 | `^t` | follow the selected running (`◉`) session's tail, read-only; any move stops following |
+| `^g` | open GitHub issues for the session's repo (needs `gh`); `↵` opens one in the browser |
 | `⇥` / `^e` | expand / collapse the reply preview |
 | `↵` | resume the selected session in its directory, in **this** window, replacing sessio — if it's already running, switches to its window under Ghostty (or says where elsewhere), and a second `↵` opens it twice anyway |
 | `^o` | Ghostty only: resume in a **new** window and keep sessio open — the same already-running guard, confirmed with a second `^o` |

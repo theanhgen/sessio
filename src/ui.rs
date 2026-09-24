@@ -148,6 +148,10 @@ struct App {
     reply_ok: bool,
     /// The running session `^t` pinned the preview to. Any move unpins it.
     follow: Option<Follow>,
+    /// Whether `^g` has swapped the preview for the highlighted folder's GitHub issues.
+    issues: bool,
+    /// The highlighted row in that list.
+    issue_cur: usize,
     tx: Sender<Msg>,
 }
 
@@ -334,6 +338,7 @@ impl App {
             entries: None,
             ended: false,
         });
+        self.issues = false; // both take the preview's place; only one can have it
         self.say(format!("following \"{short}\" — read-only · any move stops it"));
         self.read_tail();
     }
@@ -359,6 +364,38 @@ impl App {
     fn note_follow_live(&mut self) {
         if let Some(f) = &mut self.follow {
             f.ended = !self.live.contains_key(&f.id);
+        }
+    }
+
+    /// GitHub issues for the highlighted session's folder, from cache; a miss queues a fetch.
+    /// `None` when there is no folder to ask about, and always in the browser, which has no `gh`.
+    fn issue_status(&self) -> Option<crate::issues::Status> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let i = self.selected()?;
+            self.items[i].cwd.as_deref().map(crate::issues::status)
+        }
+        #[cfg(target_arch = "wasm32")]
+        None
+    }
+
+    /// `^g`: show the issues list, or say why there is none to show.
+    fn toggle_issues(&mut self) {
+        use crate::issues::Status;
+        if self.issues {
+            self.issues = false;
+            return;
+        }
+        match self.issue_status() {
+            Some(Status::Ready { issues, .. }) if !issues.is_empty() => {
+                self.issues = true;
+                self.issue_cur = 0;
+                self.follow = None; // both take the preview's place; only one can have it
+            }
+            Some(Status::Ready { slug, .. }) => self.say(format!("no open issues in {slug}")),
+            Some(Status::Loading) => self.say("issues still loading…".into()),
+            Some(Status::Failed(why)) => self.say(format!("issues: {why}")),
+            Some(Status::NoRemote) | None => self.say("no GitHub remote for this folder".into()),
         }
     }
 
@@ -426,6 +463,8 @@ pub fn run() -> io::Result<()> {
         sending: HashSet::new(),
         reply_ok: false,
         follow: None,
+        issues: false,
+        issue_cur: 0,
         tx: tx.clone(),
     };
 
@@ -650,7 +689,36 @@ fn handle_key(
         return Ok(Flow::Continue);
     }
 
+    // The issues list borrows ↑↓ and ↵ from the dashboard while it is up; everything else keeps
+    // its usual meaning, so ←→ still walks the sessions and the list follows their folder.
+    if app.issues {
+        match k.code {
+            KeyCode::Esc => {
+                app.issues = false;
+                return Ok(Flow::Continue);
+            }
+            KeyCode::Char('g') if ctrl => {
+                app.issues = false;
+                return Ok(Flow::Continue);
+            }
+            KeyCode::Up => {
+                app.issue_cur = app.issue_cur.saturating_sub(1);
+                return Ok(Flow::Continue);
+            }
+            KeyCode::Down => {
+                app.issue_cur += 1; // clamped against the list when it is drawn
+                return Ok(Flow::Continue);
+            }
+            KeyCode::Enter => {
+                open_issue(app);
+                return Ok(Flow::Continue);
+            }
+            _ => {}
+        }
+    }
+
     match k.code {
+        KeyCode::Char('g') if ctrl => app.toggle_issues(),
         KeyCode::Char('?') if !ctrl => app.help = true,
         KeyCode::Esc => {
             if app.deep.is_some() {
@@ -835,6 +903,36 @@ fn send_reply(app: &mut App, id: &str, body: &str) {
             Err(e) => Msg::Replied { key, ok: false, text: e.to_string() },
         };
         let _ = tx.send(msg);
+    });
+}
+
+/// ↵ in the issues list: open the highlighted issue in the default browser.
+#[cfg(not(target_arch = "wasm32"))]
+fn open_issue(app: &mut App) {
+    let Some(crate::issues::Status::Ready { issues, .. }) = app.issue_status() else { return };
+    let Some(issue) = issues.get(app.issue_cur.min(issues.len().saturating_sub(1))) else { return };
+    // The URL came off the network. Only ever hand the opener a GitHub page, never a scheme or a
+    // path it would act on some other way.
+    if !issue.url.starts_with("https://github.com/") {
+        app.say(format!("#{} has no GitHub URL to open", issue.number));
+        return;
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let spawned = std::process::Command::new(opener)
+        .arg(&issue.url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    app.say(match spawned {
+        Ok(mut child) => {
+            // Reaped off the input path, so no zombie is left for the rest of the run.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            format!("↗ opened #{} in the browser", issue.number)
+        }
+        Err(e) => format!("couldn't open a browser ({e}) · {}", issue.url),
     });
 }
 
@@ -1034,6 +1132,8 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     let preview_box = rows.saturating_sub(chrome);
     let prev = if let Some(f) = &app.follow {
         follow_preview(app, f, cols, preview_box)
+    } else if app.issues {
+        issues_list(app, cols, preview_box)
     } else {
         let base = sel.map(|i| preview(app, &app.items[i], cols, 0).len()).unwrap_or(0);
         let reply_max = preview_box.saturating_sub(base).max(1);
@@ -1121,6 +1221,7 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     } else {
         Seg { p: 5, t: "^t follow", accent: false }
     });
+    segs.push(Seg { p: 4, t: "^g issues", accent: false });
     // Never shed: a session waiting on you is the most urgent thing the bar can say, so it
     // outranks every hint including `? help`.
     if waiting > 0 {
@@ -1133,6 +1234,15 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     segs.push(Seg { p: 0, t: "? help", accent: false });
     segs.push(Seg { p: 2, t: "esc quit", accent: false });
     segs.push(Seg { p: 5, t: "live", accent: true });
+    // The issues list has keys of its own, and the dashboard's would be wrong while it is up.
+    if app.issues {
+        segs = vec![
+            Seg { p: 0, t: "↑↓ issue", accent: false },
+            Seg { p: 0, t: "↵ open in browser", accent: false },
+            Seg { p: 2, t: "←→ session", accent: false },
+            Seg { p: 0, t: "^g esc back", accent: true },
+        ];
+    }
 
     // A flash is why you pressed the key; the hints are always there. So the message is budgeted
     // first and the bar shrinks around it — otherwise "already running (pid …)" is clipped to
@@ -1443,6 +1553,9 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         let tokens = format!("tokens  {}", tokens_fmt(t));
         lines.push(Line::from(vec![Span::raw("   "), Span::styled(tokens, dim())]));
     }
+    if let Some(l) = app.issue_status().as_ref().and_then(issues_line) {
+        lines.push(l);
+    }
 
     if it.open {
         lines.push(Line::from(vec![
@@ -1611,6 +1724,100 @@ fn follow_preview(app: &App, f: &Follow, width: usize, rows: usize) -> Vec<Line<
     lines
 }
 
+/// The one-line issues summary under a session's facts. `None` for a folder with no GitHub
+/// remote: most folders are not repos, and a line saying so on each of them is noise.
+fn issues_line(st: &crate::issues::Status) -> Option<Line<'static>> {
+    use crate::issues::Status;
+    let text = |t: String| Some(Line::from(vec![Span::raw("   "), Span::styled(t, dim())]));
+    match st {
+        Status::NoRemote => None,
+        Status::Loading => text("⚑ loading issues…".into()),
+        Status::Failed(why) => text(format!("⚑ issues: {why}")),
+        Status::Ready { slug, issues, .. } if issues.is_empty() => {
+            text(format!("⚑ no open issues · {slug}"))
+        }
+        Status::Ready { slug, issues, .. } => Some(Line::from(vec![
+            Span::raw("   "),
+            Span::styled(
+                format!("⚑ {} open issue{}", issue_count(issues.len()), if issues.len() == 1 { "" } else { "s" }),
+                Style::default().fg(theme::NAMED),
+            ),
+            Span::styled(format!(" · {slug} · ^g show"), dim()),
+        ])),
+    }
+}
+
+/// `100+` once the fetch hit its limit, since there may be more than it asked for.
+fn issue_count(n: usize) -> String {
+    if n >= crate::issues::LIMIT {
+        format!("{n}+")
+    } else {
+        n.to_string()
+    }
+}
+
+/// `^g`: the preview's place taken by the highlighted folder's open issues, newest-updated
+/// first as `gh` returns them, scrolling to keep the highlighted one on screen.
+fn issues_list(app: &mut App, width: usize, height: usize) -> Vec<Line<'static>> {
+    use crate::issues::Status;
+    let w = width.max(1);
+    let mut lines: Vec<Line> = vec![Line::from(Span::styled("─".repeat(w), dim()))];
+    let (slug, issues, fetched_ms) = match app.issue_status() {
+        Some(Status::Ready { slug, issues, fetched_ms }) => (slug, issues, fetched_ms),
+        // The session moved under the list to a folder with nothing to show: say so in place,
+        // rather than silently closing a view the user opened.
+        other => {
+            let why = match other {
+                Some(Status::Loading) => "⚑ loading issues…".to_string(),
+                Some(Status::Failed(why)) => format!("⚑ issues: {why}"),
+                _ => "⚑ no GitHub remote for this folder".to_string(),
+            };
+            lines.push(Line::from(Span::styled(why, dim())));
+            return lines;
+        }
+    };
+    if issues.is_empty() {
+        lines.push(Line::from(Span::styled(format!("⚑ no open issues · {slug}"), dim())));
+        return lines;
+    }
+    app.issue_cur = app.issue_cur.min(issues.len() - 1);
+
+    let title = format!("⚑ {slug} · {} open", issue_count(issues.len()));
+    let right = format!("fetched {} ago", ago(fetched_ms));
+    let gap = w.saturating_sub(UnicodeWidthStr::width(title.as_str()) + UnicodeWidthStr::width(right.as_str()));
+    let mut head = vec![Span::styled(title, Style::default().fg(theme::ACCENT))];
+    if gap >= 2 {
+        head.push(Span::raw(" ".repeat(gap)));
+        head.push(Span::styled(right, dim()));
+    }
+    lines.push(Line::from(head));
+
+    let rows = height.saturating_sub(lines.len()).max(1);
+    let off = app.issue_cur.saturating_sub(rows / 2).min(issues.len().saturating_sub(rows));
+    let num_w = issues.iter().map(|i| i.number.to_string().len()).max().unwrap_or(1) + 1;
+    for (n, issue) in issues.iter().enumerate().skip(off).take(rows) {
+        let sel = n == app.issue_cur;
+        let label = issue.labels.first().map(|l| fit_width(l, 12).trim_end().to_string()).unwrap_or_default();
+        let age = since(&issue.updated);
+        // Right edge: label then age, each in a fixed column so the titles line up.
+        let tail = format!("  {label:>12}  {age:>4}");
+        let lead = format!("{} {:>num_w$}  ", if sel { "▸" } else { " " }, format!("#{}", issue.number));
+        let room = w.saturating_sub(UnicodeWidthStr::width(lead.as_str()) + UnicodeWidthStr::width(tail.as_str()));
+        let mut t = issue.title.clone();
+        if UnicodeWidthStr::width(t.as_str()) > room {
+            t = format!("{}…", fit_width(&t, room.saturating_sub(1)).trim_end());
+        }
+        let t = fit_width(&t, room);
+        let style = if sel { tab_selected() } else { Style::default() };
+        lines.push(Line::from(vec![
+            Span::styled(lead, if sel { style } else { dim() }),
+            Span::styled(t, style),
+            Span::styled(tail, if sel { style } else { dim() }),
+        ]));
+    }
+    lines
+}
+
 /// How wide the preview sets its prose, given the room it has: all of it, up to a measure that
 /// is still scannable. Narrow windows fill completely; wide ones fill to `MEASURE_MAX` and give
 /// the remainder back as margin rather than running a line the eye cannot track.
@@ -1677,6 +1884,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list")]),
         Line::from(vec![Span::styled("^t", key), Span::raw("     follow a running (◉) session's tail, read-only — any move stops following")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
+        Line::from(vec![Span::styled("^g", key), Span::raw("     open GitHub issues for the session's repo (needs gh; ↵ opens one in the browser)")]),
         Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ goes to its window under Ghostty, else says where; ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
         Line::from(vec![Span::styled("^n", key), Span::raw("     new session in the selected session's folder (new window under Ghostty)")]),
@@ -2039,6 +2247,8 @@ mod tests {
             sending: HashSet::new(),
             reply_ok: false,
             follow: None,
+            issues: false,
+            issue_cur: 0,
             tx,
         }
     }
@@ -2849,6 +3059,8 @@ pub mod demo {
             sending: HashSet::new(),
             reply_ok: false,
             follow: None,
+            issues: false,
+            issue_cur: 0,
             tx,
         }
     }
