@@ -1,0 +1,133 @@
+=== 60x18 ===
+ projects  │ ↵ resume · ^r reply · ? help · esc quit
+ ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+           │ ⌂ everything · 0 sessions · 0 in 24h · …project
+           │   no sessions yet
+           │   sessio reads Claude Code (~/.claude/projects…
+           │   Start claude or copilot in a folder; it show…
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+
+=== 80x24 ===
+ projects  │ ←→ session · ↵ resume · ^r reply · ? help · esc quit
+ ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+           │ ⌂ everything · 0 sessions · 0 in 24h · every project
+           │   no sessions yet
+           │   sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~…
+           │   Start claude or copilot in a folder; it shows up here within 2s.
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+           │
+
+=== 104x26 ===
+ ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ? help · esc quit
+ ⌂ everything  ·   0  │ 🔍 ▏  filter · ⌂ everything
+                      │ ⌂ everything · 0 sessions · 0 in 24h · every project
+                      │   no sessions yet
+                      │   sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~/.copilot).
+                      │   Start claude or copilot in a folder; it shows up here within 2s.
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+
+=== 160x40 ===
+ ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ? help · esc quit
+ ⌂ everything   ·   0  │ 🔍 ▏  filter · ⌂ everything
+                       │ ⌂ everything · 0 sessions · 0 in 24h · every project
+                       │   no sessions yet
+                       │   sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~/.copilot).
+                       │   Start claude or copilot in a folder; it shows up here within 2s.
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+                       │
+
+=== 50x12 ===
+ projects  │ ↵ resume · ? help
+ ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+           │ ⌂ everything · 0 sessions · 0 in 24h
+           │   no sessions yet
+           │   sessio reads Claude Code (~/.claud…
+           │   Start claude or copilot in a folde…
+           │
+           │
+           │
+           │
+           │
+
+=== 49x12 ===
+window too small (need 50x12)
+⌂ everything · no sessions
+↑↓ ←→ · ↵ resume · ? help · esc quit
+=== 80x11 ===
+window too small (need 50x12)
+⌂ everything · no sessions
+↑↓ ←→ · ↵ resume · ? help · esc quit

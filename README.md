@@ -9,7 +9,7 @@
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
 ```
-↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ^t follow · ^k end-stale · ↵ resume · ^o new-window · ? help · esc quit · live
+↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · PgUp/PgDn scroll-reply · ^r reply · ^t follow · ^g issues · ^k end-stale · ↵ resume · ^o new-window · ^n new-session · ? help · esc quit · live
 ```
 
 ## Install
@@ -50,6 +50,8 @@ sessions
 - **`^r` reply without opening** — send one turn to a session and stay in the list. `claude -p --resume` appends to the same transcript, so the answer shows up in the preview on the next refresh. It refuses on a session that is already running (`◉`) — there is no safe way to put text into the stdin of a `claude` you are sitting in front of — and the first `^r` of a run warns that this spends tokens before the second one opens the composer. The composer says which session it answers (`↳ reply to "x"`), and while the reply is on its way that session's tab and preview carry `⏳` — one reply at a time per session, so a second send is refused. If it fails, the feedback and the preview say why and your text is kept: the next `^r` on that session puts it back in the composer, and nothing is ever resent on its own. `esc` discards the draft. It is `^r` rather than a bare `r` because plain letters filter the list.
 - **`^t` follow a running session** — pins the preview to the highlighted `◉` session and shows the end of its transcript (your prompts, Claude's text, and the names of the tools it called), newest at the bottom, re-read on every 2s refresh. Read-only: it reads at most the last 256 KB of the transcript and never writes to it or attaches to the `claude` running it. If the session stops, the tail stays on screen marked `◌ ended`. Any move — a project, a session, a keystroke into the filter — or `^t` again stops following. On a session that is not running it says so and does nothing.
 - **`^k` end a stale session** — a `claude` left open in a forgotten window keeps running and keeps the session `◉`. When one has been running with its transcript untouched for more than 48 hours, the preview says `stale · idle Nd` beside `◉ running`, and `^k` ends it: the first press names the pid, tty and idle time, a second `^k` sends it `SIGTERM`. Anything else is refused with the reason — not running, active within the last 48 hours, `busy` mid-turn, or `waiting` on you. Just before signalling, sessio re-reads `ps` to check the pid is still that session's `claude` (not a recycled pid), and it never ends the session it is itself running inside. It waits up to 3s and says whether the process went; it never escalates to `SIGKILL`.
+- **`^g` GitHub issues** — the preview counts the open issues of the highlighted session's repo (`⚑ 12 open issues · owner/repo`); `^g` swaps the preview for the list, `↑↓` walks it, `↵` opens one in the browser, `esc` or `^g` goes back. Fetched through `gh` in the background and cached for five minutes, so the dashboard never waits on the network; a folder without a GitHub `origin` shows nothing.
+- **`^n` new session** — starts a fresh `claude` in the highlighted session's folder: a new window under Ghostty (it says why and stays put if it can't), this window everywhere else.
 - **`?` help** — the keys, then a status legend grouped by what each mark is evidence of: a process attached (`◆ waiting`, `◉ running`, `stale`), the transcript's age (`●` `○`), unfinished work (`▸` and its reasons), another agent (`copilot`). Any key closes it.
 - **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
 
@@ -185,6 +187,43 @@ cargo install wasm-bindgen-cli --version "$(grep -A1 'name = "wasm-bindgen"' Car
 rustup target add wasm32-unknown-unknown
 ./scripts/build-demo.sh      # → docs/demo/
 ```
+
+CI also runs `scripts/check-demo.sh` after the build: it fails if `docs/demo/` was committed or
+if the module does not export every function the page calls. For a release, or a change to the
+site, `node scripts/site-check.cjs` (needs Playwright) checks the page in a headless browser —
+the demo's layout at desktop and phone width, no sideways scroll, entering and leaving the demo,
+the fallback when the wasm is blocked — and saves light and dark screenshots of each.
+
+## Development
+
+```sh
+cargo clippy --all-targets -- -D warnings
+cargo test                                   # unit, golden-frame, parity and CLI tests
+npm test                                     # the npm launcher
+cargo build --release && npm run smoke       # drive the TUI through a pty
+```
+
+None of it reads your sessions or spends a token. The CLI tests and the pty smoke test
+(`scripts/smoke-tui.py`) run against a throwaway `HOME` of synthetic transcripts, with stand-ins
+for `claude`, `copilot`, `gh` and the browser that fail the run if anything calls them. CI runs
+all four on Linux and macOS.
+
+- **Golden frames.** `tests/frames/<scene>.txt` holds the dashboard as text for every key state —
+  normal, waiting, running, unfinished, archived, no sessions, each filter and search state, a
+  scrolled reply, the composer, a reply sending and failed, help, `^t`, `^g`, a Copilot session,
+  CJK and emoji, forty projects, a refresh while reading, several messages at once — at 60x18,
+  80x24, 104x26 and 160x40, the 50x12 minimum and below it. A layout change fails
+  `ui::frames`; when the change is intended, regenerate them and review the diff:
+
+  ```sh
+  SESSIO_BLESS=1 cargo test frames
+  git diff tests/frames
+  ```
+- **Demo parity.** `ui::parity` presses the same keys in the website demo's handler and the
+  terminal's and requires the same frame after each: navigation, help, the composer, `PgUp`/`PgDn`,
+  filtering and search, archive. What only a terminal can do is checked to say `browser demo: …`.
+- **Shipped guidance.** `ui::guidance` fails when a key in the `?` overlay is missing from the key
+  table above, `sessions --help`, the website or `docs/DESIGN.md`.
 
 ## How it works
 

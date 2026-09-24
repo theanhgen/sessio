@@ -39,6 +39,14 @@ jobs:
       - name: Test
         run: cargo test
 
+      # The dashboard through a real pty, against a throwaway HOME of synthetic transcripts with
+      # stand-ins for claude, copilot and gh: never real history, never a token. A debug build,
+      # which the test step has already compiled most of.
+      - name: Smoke-test the TUI
+        run: |
+          cargo build
+          python3 scripts/smoke-tui.py target/debug/sessio
+
   # The site's demo is built on deploy (pages.yml), after the merge. Building it here too means
   # a change that breaks the wasm build fails its PR instead of the next deploy of main.
   demo:
@@ -56,6 +64,10 @@ jobs:
 
       - name: Build the demo
         run: scripts/build-demo.sh
+
+      # docs/demo is not committed, the build left a module, and it exports what the page calls.
+      - name: Check the demo
+        run: scripts/check-demo.sh
 
   launcher:
     runs-on: ubuntu-22.04

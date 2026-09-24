@@ -1,0 +1,132 @@
+=== 60x18 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selection (→ revea…
+type   filter the newest 300 by name/project/prompt · ^w ⌥⌫…
+^f     full-text search of every transcript on disk, past t…
+^a     archive / unarchive (a session you work in again com…
+^r     reply without opening, one turn (Claude only); faile…
+^t     follow a running session's tail, read-only; any move…
+⇥ ^e   give the latest reply more room / less · PgUp PgDn s…
+^g     GitHub issues for the session's repo (needs gh; ↵ op…
+↵      resume here. Running (◉ ◆): under Ghostty, switches…
+       by tty; otherwise says its pid · tty. ↵ again opens…
+^o     resume in a new Ghostty window, keeping sessio open…
+^n     new session in its folder: a new Ghostty window, els…
+^k     end a running session idle over 48h; ^k again to con…
+? esc  this help · esc leaves ^f text search, otherwise qui…
+
+process    ◆ waiting  stopped on a question or permission p…
+… a taller window shows the rest · any key closes
+=== 80x24 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selection (→ reveals more)
+type   filter the newest 300 by name/project/prompt · ^w ⌥⌫ word · ^u ⌘⌫ all
+^f     full-text search of every transcript on disk, past the newest 300 too
+^a     archive / unarchive (a session you work in again comes back)
+^r     reply without opening, one turn (Claude only); failed text is kept
+^t     follow a running session's tail, read-only; any move stops
+⇥ ^e   give the latest reply more room / less · PgUp PgDn scroll it
+^g     GitHub issues for the session's repo (needs gh; ↵ opens one)
+↵      resume here. Running (◉ ◆): under Ghostty, switches to its terminal
+       by tty; otherwise says its pid · tty. ↵ again opens a second copy
+^o     resume in a new Ghostty window, keeping sessio open (same guard)
+^n     new session in its folder: a new Ghostty window, else replaces sessio
+^k     end a running session idle over 48h; ^k again to confirm
+? esc  this help · esc leaves ^f text search, otherwise quits · ^c quits
+
+process    ◆ waiting  stopped on a question or permission prompt: your move
+           ◉ running  a claude is attached, busy or idle (preview: pid · tty)
+           stale      running but idle for over 48h; ^k can end it
+transcript ● ○        written in the last 5 min / 24 h; not running
+unfinished ▸          your prompt got no reply · its recap says your move ·
+                      Claude asked or proposed next (for 3 days) · uncommitted
+                      changes in its folder (git WIP, newest session there)
+agent      copilot    a GitHub Copilot CLI session: no ^r, no ^k
+=== 104x26 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selection (→ reveals more)
+type   filter the newest 300 by name/project/prompt · ^w ⌥⌫ word · ^u ⌘⌫ all
+^f     full-text search of every transcript on disk, past the newest 300 too
+^a     archive / unarchive (a session you work in again comes back)
+^r     reply without opening, one turn (Claude only); failed text is kept
+^t     follow a running session's tail, read-only; any move stops
+⇥ ^e   give the latest reply more room / less · PgUp PgDn scroll it
+^g     GitHub issues for the session's repo (needs gh; ↵ opens one)
+↵      resume here. Running (◉ ◆): under Ghostty, switches to its terminal
+       by tty; otherwise says its pid · tty. ↵ again opens a second copy
+^o     resume in a new Ghostty window, keeping sessio open (same guard)
+^n     new session in its folder: a new Ghostty window, else replaces sessio
+^k     end a running session idle over 48h; ^k again to confirm
+? esc  this help · esc leaves ^f text search, otherwise quits · ^c quits
+
+process    ◆ waiting  stopped on a question or permission prompt: your move
+           ◉ running  a claude is attached, busy or idle (preview: pid · tty)
+           stale      running but idle for over 48h; ^k can end it
+transcript ● ○        written in the last 5 min / 24 h; not running
+unfinished ▸          your prompt got no reply · its recap says your move ·
+                      Claude asked or proposed next (for 3 days) · uncommitted
+                      changes in its folder (git WIP, newest session there)
+agent      copilot    a GitHub Copilot CLI session: no ^r, no ^k
+=== 160x40 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selection (→ reveals more)
+type   filter the newest 300 by name/project/prompt · ^w ⌥⌫ word · ^u ⌘⌫ all
+^f     full-text search of every transcript on disk, past the newest 300 too
+^a     archive / unarchive (a session you work in again comes back)
+^r     reply without opening, one turn (Claude only); failed text is kept
+^t     follow a running session's tail, read-only; any move stops
+⇥ ^e   give the latest reply more room / less · PgUp PgDn scroll it
+^g     GitHub issues for the session's repo (needs gh; ↵ opens one)
+↵      resume here. Running (◉ ◆): under Ghostty, switches to its terminal
+       by tty; otherwise says its pid · tty. ↵ again opens a second copy
+^o     resume in a new Ghostty window, keeping sessio open (same guard)
+^n     new session in its folder: a new Ghostty window, else replaces sessio
+^k     end a running session idle over 48h; ^k again to confirm
+? esc  this help · esc leaves ^f text search, otherwise quits · ^c quits
+
+process    ◆ waiting  stopped on a question or permission prompt: your move
+           ◉ running  a claude is attached, busy or idle (preview: pid · tty)
+           stale      running but idle for over 48h; ^k can end it
+transcript ● ○        written in the last 5 min / 24 h; not running
+unfinished ▸          your prompt got no reply · its recap says your move ·
+                      Claude asked or proposed next (for 3 days) · uncommitted
+                      changes in its folder (git WIP, newest session there)
+agent      copilot    a GitHub Copilot CLI session: no ^r, no ^k
+=== 50x12 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selectio…
+type   filter the newest 300 by name/project/prom…
+^f     full-text search of every transcript on di…
+^a     archive / unarchive (a session you work in…
+^r     reply without opening, one turn (Claude on…
+^t     follow a running session's tail, read-only…
+⇥ ^e   give the latest reply more room / less · P…
+^g     GitHub issues for the session's repo (need…
+↵      resume here. Running (◉ ◆): under Ghostty,…
+       by tty; otherwise says its pid · tty. ↵ ag…
+… a taller window shows the rest · any key closes
+=== 49x12 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selecti…
+type   filter the newest 300 by name/project/pro…
+^f     full-text search of every transcript on d…
+^a     archive / unarchive (a session you work i…
+^r     reply without opening, one turn (Claude o…
+^t     follow a running session's tail, read-onl…
+⇥ ^e   give the latest reply more room / less ·…
+^g     GitHub issues for the session's repo (nee…
+↵      resume here. Running (◉ ◆): under Ghostty…
+       by tty; otherwise says its pid · tty. ↵ a…
+… a taller window shows the rest · any key closes
+=== 80x11 ===
+sessio — keys and marks · any key closes
+↑ ↓    switch project · ← → move session selection (→ reveals more)
+type   filter the newest 300 by name/project/prompt · ^w ⌥⌫ word · ^u ⌘⌫ all
+^f     full-text search of every transcript on disk, past the newest 300 too
+^a     archive / unarchive (a session you work in again comes back)
+^r     reply without opening, one turn (Claude only); failed text is kept
+^t     follow a running session's tail, read-only; any move stops
+⇥ ^e   give the latest reply more room / less · PgUp PgDn scroll it
+^g     GitHub issues for the session's repo (needs gh; ↵ opens one)
+↵      resume here. Running (◉ ◆): under Ghostty, switches to its terminal
+… a taller window shows the rest · any key closes

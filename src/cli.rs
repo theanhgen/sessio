@@ -58,10 +58,11 @@ FILTERS (ls, find):
 An <id> is any prefix only one session has; ls prints eight characters.
 Marks: ◆ waiting on you · ◉ running · ▸ unfinished
 
-KEYS:
-  ↑/↓ project · ←/→ session · type to filter · ^f search-in-text
-  ^a archive · ⇥ expand-reply · PgUp/PgDn scroll-reply · ^r reply · ^k end-stale
-  ↵ resume · ^o new-window · ? help · esc quit
+KEYS (the dashboard; ? there explains each):
+  ↑/↓ project · ←/→ session · type to filter · ^w/⌥⌫ word · ^u/⌘⌫ clear
+  ^f search-in-text · ^a archive · ⇥/^e expand-reply · PgUp/PgDn scroll-reply
+  ^r reply · ^t follow · ^g issues · ^k end-stale
+  ↵ resume · ^o new-window · ^n new-session · ? help · esc quit · ^c quit
 ",
         env!("CARGO_PKG_VERSION")
     )
