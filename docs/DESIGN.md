@@ -13,7 +13,7 @@ the colour roles behind it (`src/theme.rs`) and the website (`docs/index.html`).
    colour-blind reader or a greyscale screenshot loses nothing.
 4. **Keys mean one thing everywhere.** A key does not change meaning with window size or layout.
 5. **Nothing moves under you.** The chrome is a fixed height, and a state changes what a row says,
-   never which row says it.
+   never which row says it. Feedback has its own region; it never displaces the hints or the preview.
 
 ## Colour roles
 
@@ -56,7 +56,7 @@ hold up on both: see the contrast tables.
 
 ### Feedback tones
 
-Flashes (the message at the end of the key bar) have a `theme::Tone`. They used to be green
+Flashes (the message in the feedback row at the bottom of the frame) have a `theme::Tone`. They used to be green
 whatever they said, including failures.
 
 | Tone | Colour | Mark | Used for |
@@ -66,7 +66,7 @@ whatever they said, including failures.
 | Warning | attention (yellow) | none: worded as what to press next or why not | refused preconditions, `↵ again` / `^k again` confirmations, "waiting on you" |
 | Error | error (red) | `✗ ` added by the renderer | reply failed, window or browser could not open, search or issues failed, `^k` could not end |
 
-A typed feedback region, pending state and per-session targets are #25.
+The region exists (see Layout); pending state, per-session targets and the rest of its design are #25.
 
 ## Status vocabulary
 
@@ -134,21 +134,51 @@ Invariants:
 
 ## Layout, spacing and truncation
 
-- **Fixed chrome**: row 0 key bar and feedback, row 1 query, row 2 session strip (`TAB_ROW = 1`,
-  never wraps), then the reply composer when open, then the preview. The preview's first row does
-  not depend on the highlighted session (`every_state_keeps_the_same_rows`).
+- **Regions.** The frame is fixed regions, each starting on a fixed row whatever is selected,
+  typed or said:
+
+  | Region | Where | Rows |
+  |---|---|---|
+  | Key bar | body row 0 (`KEYBAR_ROW`) | 1 |
+  | Query | body row 1 (`QUERY_ROW`) | 1 |
+  | Project context | body row 2 (`CONTEXT_ROW`): the selected tab's whole name, `N sessions · M in 24h`, then its folder (`~`-shortened, cut from the left) or, for a collection, what it collects. Name first, counts next, place last. | 1 |
+  | Session strip | body row 3 (`STRIP_ROW`), never wraps, leads with the position `3/18` | 1 |
+  | Reply composer | under the strip while `^r` is open | 0 or 1 |
+  | Preview | from row `CHROME = 4` (5 with the composer) to the feedback region | the rest |
+  | Feedback | the bottom row, the full terminal width, under the panel too | 1, or 2 while a message needs it; blank when idle |
+  | Project panel | left column, from row 0 down to the feedback region | all but feedback |
+
+  The preview's first row never depends on the highlighted project or session
+  (`the_regions_hold_their_rows_at_every_supported_size`). A long message takes the feedback
+  region's second row from the bottom of the preview and the panel, never from the top.
+- **Every row is cut to its region** (`clip`): a row wider than its region ends in `…` at the
+  region's edge, measured in display columns, so a CJK or emoji title, a long branch or a deep path
+  cannot push the panel's rule or run past the terminal
+  (`unicode_titles_and_long_paths_stay_in_their_regions`).
+- **Minimum size**: `MIN_COLS = 50` x `MIN_ROWS = 12`, the panel at its narrowest plus a body that
+  holds a readable strip, and the chrome plus a few lines of preview and the feedback row. Below it
+  the frame is `window too small (need 50x12)`, then any feedback, the composer if open, the
+  selected tab and position, the highlighted session, and the keys, each cut to the width. Every
+  key keeps its meaning; only the drawing gives up
+  (`below_the_minimum_the_frame_says_so_and_keeps_the_essentials`).
+- **Supported sizes** held by fixtures: 60x18, 80x24, 104x26 (the website demo), 160x40, the
+  minimum itself and sizes below it.
 - **Project panel** on the left at every size, separated by ` │ ` (`SIDE_GAP = 3`). Width is the
   widest name + 2 + the count columns, clamped to `SIDE_MIN = 10`…`SIDE_MAX = 22` (plus counts),
   and it gives up columns before the body drops under `BODY_MIN = 80`. Names are cut by
   `fit_width`, never wrapped. The old wrapping project strip must not return.
 - **Counts**: `24h` and `all`, right-aligned, each at least 3 wide, `·` for zero in the 24h column.
   Dropped whole when the name would get fewer than `COUNT_NAME_MIN = 12` columns.
-- **Panel scrolling**: centred on the selection; the label then shows `N/total`.
+- **Panel groups**: a dim `╌` rule sits wherever the kind of tab changes: collections
+  (`⌂ everything`, `⏸ open`, `◆ waiting`), then projects, then `🗄 archived`.
+- **Panel scrolling**: centred on the selection (rules included); the label then shows `N/total`.
 - **Session strip**: the focused tab shows its whole title up to `TAB_MAX = 44` columns, others
-  their first two words. It grows outwards from the focused tab and shows `‹N` / `+N›` for hidden
-  tabs, holding `MARKERS = 12` columns for them. The status dot survives at any width.
-- **Key bar shedding**: the flash is budgeted first, then hints drop from the highest priority
-  number down until the bar fits:
+  their first two words. It leads with the position (`3/18`), grows outwards from the focused tab
+  and shows `‹N` / `+N›` for hidden tabs, holding `MARKERS = 12` columns for them. The focused tab
+  always fits: on a narrow strip its title is cut with `…`, never the tab. The status dot survives
+  at any width.
+- **Key bar shedding**: hints drop from the highest priority number down until the bar fits (the
+  flash no longer competes for it):
 
   | Priority | Hints |
   |---|---|
@@ -164,7 +194,7 @@ Invariants:
 - **Preview**: gutter labels right-aligned in `GUTTER = 12` columns; prose measure is the width
   minus the gutter, capped at `MEASURE_MAX = 140`. Recap and summary at most 6 lines; first and
   last prompts 2 lines each; the reply gets the rest of the height and ends `… ⇥ for full` when
-  cut. Times are one format everywhere: `22m`, `3h`, `2d`.
+  cut, the marker counted inside the preview's height. Times are one format everywhere: `22m`, `3h`, `2d`.
 - **Feedback** lasts `FLASH = 5s` and the list refreshes every `REFRESH = 2s`.
 - **Every string from a transcript** passes through `sanitize` before it is drawn.
 
@@ -242,6 +272,12 @@ Automated (in `cargo test`):
 - `ui::tests::every_status_reads_apart_without_colour`: every status glyph distinct.
 - `ui::tests::a_failed_action_does_not_flash_green`: errors carry `✗` and not the success colour.
 - `ui::tests::every_state_keeps_the_same_rows`: normal, waiting, error and empty frames share rows.
+- `ui::tests::the_regions_hold_their_rows_at_every_supported_size`,
+  `feedback_takes_its_own_row_and_leaves_the_key_bar_alone`,
+  `the_selected_project_and_session_stay_visible_while_lists_overflow`,
+  `below_the_minimum_the_frame_says_so_and_keeps_the_essentials`,
+  `unicode_titles_and_long_paths_stay_in_their_regions`: the region layout at 60x18, 80x24,
+  104x26, 160x40 and below the minimum, with width assertions on every row.
 - `ui::tests::the_panel_and_the_tab_strip_highlight_differently`: no reverse video.
 
 Manual, for a release or a change to this file:

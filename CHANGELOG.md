@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The dashboard is fixed regions.** Messages ("already running … ↵ again", "✗ reply failed")
+  have their own row at the bottom of the window, full width, instead of pushing hints off the key
+  bar; a long one wraps onto a second row. A context line above the session tabs spells out the
+  selected project's whole name, its session counts and its folder, and the tab strip leads with
+  your place in it (`3/18`). A rule in the project panel sets `⌂ everything`, `⏸ open` and
+  `◆ waiting` apart from the projects, and `🗄 archived` apart from both. Every row is cut to its
+  own region, so CJK or emoji titles and long paths end in `…` instead of running on, and the
+  focused tab's title is cut rather than the tab on a narrow strip. Below 50x12 the window says
+  `window too small (need 50x12)` and shows just the selected project and session, any feedback
+  and the keys. A reply cut to fit now keeps its `… ⇥ for full` marker on screen.
+
 - **A design spec, and colours that mean one thing.** `docs/DESIGN.md` names the colour roles
   (attention, running, recent, success, error…), the status glyphs, the keys and the layout rules,
   and `src/theme.rs` is now the only file that picks a colour — a test fails on one anywhere else.
