@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A design spec, and colours that mean one thing.** `docs/DESIGN.md` names the colour roles
+  (attention, running, recent, success, error…), the status glyphs, the keys and the layout rules,
+  and `src/theme.rs` is now the only file that picks a colour — a test fails on one anywhere else.
+  A failed action no longer flashes green: errors are red and lead with `✗`, warnings are yellow.
+  The 24-hour dot is a hollow `○`, so it reads apart from the five-minute `●` without colour, and
+  the orange, purple and blue that no light theme remaps were darkened to stay legible on white.
+  The website follows the system's light or dark setting, its faintest text now passes WCAG AA,
+  and its CSS uses the same role names.
 - **The project panel counts.** Each tab shows how many of its sessions were touched in the last
   24 hours and how many it holds, right-aligned in two columns under `24h all`. The `🗄 archived`
   label now measures two cells wide, as terminals draw it, so its row no longer sits one off.

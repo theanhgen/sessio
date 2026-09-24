@@ -35,41 +35,8 @@ use crate::safety::sanitize;
 use crate::store::Archive;
 use crate::{discover, resume, search};
 
-pub mod theme {
-    use ratatui::style::Color;
-    pub const DIM: Color = Color::DarkGray;
-    pub const CODE: Color = Color::Cyan;
-    pub const ACCENT: Color = Color::Cyan;
-    pub const NAMED: Color = Color::Yellow;
-    pub const ACTIVE: Color = Color::Green;
-    pub const RECENT: Color = Color::Indexed(208);
-    pub const REPLY: Color = Color::Indexed(141);
-    /// The `copilot` tag on sessions GitHub Copilot CLI wrote.
-    pub const COPILOT: Color = Color::Indexed(75);
-
-    /// Selection backgrounds. Reversing the terminal's own colours made every selection the same
-    /// slab of black, so the panel and the tab strip could not be told apart at a glance — and on
-    /// a light theme it was the heaviest thing on screen.
-    ///
-    /// One hue, and value does the hierarchy: the session you are reading is plum, the project
-    /// that contains it is neutral. Two competing colours read as two things of equal weight,
-    /// which is not what they are — the panel is context, the tab is focus.
-    pub const PANEL_SEL: Color = Color::Indexed(238);
-    pub const TAB_SEL: Color = Color::Indexed(54);
-    /// Text on either of them, bright enough to read on both.
-    pub const ON_SEL: Color = Color::Indexed(255);
-}
-
-/// The highlight for the project the panel is sitting on.
-fn panel_selected() -> Style {
-    Style::default().bg(theme::PANEL_SEL).fg(theme::ON_SEL)
-}
-
-/// The highlight for the session tab in focus. A different hue from the panel's on purpose: two
-/// selections are on screen at once and they answer different questions.
-fn tab_selected() -> Style {
-    Style::default().bg(theme::TAB_SEL).fg(theme::ON_SEL).add_modifier(Modifier::BOLD)
-}
+pub use crate::theme;
+use crate::theme::{dim, panel_selected, tab_selected, Tone};
 
 const REFRESH: Duration = Duration::from_secs(2);
 /// How long a flash stays on screen. It has to be a duration, not a frame: this loop redraws on
@@ -88,10 +55,6 @@ const MARKERS: usize = 12;
 /// preview can bottom-anchor on whole entries rather than run out of them.
 const FOLLOW_ENTRIES: usize = 40;
 
-fn dim() -> Style {
-    Style::default().fg(theme::DIM)
-}
-
 enum Msg {
     Items(Vec<Item>, crate::live::LiveMap),
     Detail { key: String, mtime: i64, detail: Box<Detail> },
@@ -99,7 +62,7 @@ enum Msg {
     /// A headless reply came back (or failed). `key` identifies the session it belongs to.
     Replied { key: String, ok: bool, text: String },
     /// A `^k` finished: what happened to the process, ready to flash.
-    Ended(String),
+    Ended(Tone, String),
     /// A fresh read of the followed session's tail.
     Tail { key: String, entries: Vec<Entry> },
 }
@@ -134,6 +97,8 @@ struct App {
     expand: bool,
     help: bool,
     flash: String,
+    /// What kind of thing the flash is saying: success, warning, error or neither.
+    flash_tone: Tone,
     /// When the current flash stops being shown. `None` means there is nothing to expire.
     flash_until: Option<Instant>,
     deep: Option<Deep>,
@@ -165,8 +130,10 @@ struct App {
 
 impl App {
     /// Say something back about the key just pressed, and keep saying it long enough to be read.
-    fn say(&mut self, msg: String) {
+    /// `tone` picks its colour and, for an error, its `✗`: see `theme::Tone`.
+    fn say(&mut self, tone: Tone, msg: String) {
         self.flash = msg;
+        self.flash_tone = tone;
         // `Instant::now()` is not implemented on wasm32-unknown-unknown and panics outright. The
         // browser has no event loop expiring these anyway — `flash_expired` runs only in the
         // terminal — so there it simply has no deadline.
@@ -303,18 +270,18 @@ impl App {
         if self.items[i].source != Source::Claude {
             // `claude -p --resume` is the only headless turn there is; Copilot has no equivalent
             // sessio drives.
-            self.say("reply is Claude-only — ↵ resumes this Copilot session".into());
+            self.say(Tone::Warning, "reply is Claude-only — ↵ resumes this Copilot session".into());
         } else if let Some(live) = self.live.get(&id) {
             // The guard ↵ already uses: there is no safe way to put text into the stdin of a
             // `claude` someone is sitting in front of.
             let where_ = running_where(live);
-            self.say(format!("that session is running — {where_} · answer it there"));
+            self.say(Tone::Warning, format!("that session is running — {where_} · answer it there"));
         } else if self.sending.contains(&id) {
-            self.say("still waiting on the last reply".into());
+            self.say(Tone::Warning, "still waiting on the last reply".into());
         } else if !self.reply_ok {
             // Once per run: this spends tokens from a list, with no turn-by-turn to watch.
             self.reply_ok = true;
-            self.say(format!(
+            self.say(Tone::Warning, format!(
                 "^r sends a turn to \"{}\" and spends tokens — ^r again to write it",
                 first_words(&name, 4)
             ));
@@ -344,7 +311,7 @@ impl App {
     /// running session has a tail worth following; on anything else it says so and does nothing.
     fn toggle_follow(&mut self) {
         if self.follow.take().is_some() {
-            self.say("stopped following".into());
+            self.say(Tone::Info, "stopped following".into());
             return;
         }
         let Some(i) = self.selected() else { return };
@@ -352,11 +319,11 @@ impl App {
         let short = first_words(&it.name, 4);
         if it.source != Source::Claude {
             // Neither the running check nor the tail reader knows Copilot's events.
-            self.say("follow is Claude-only".into());
+            self.say(Tone::Warning, "follow is Claude-only".into());
             return;
         }
         if !self.live.contains_key(&it.id) {
-            self.say(format!("\"{short}\" is not running — nothing to follow"));
+            self.say(Tone::Warning, format!("\"{short}\" is not running — nothing to follow"));
             return;
         }
         self.follow = Some(Follow {
@@ -368,7 +335,7 @@ impl App {
             ended: false,
         });
         self.issues = false; // both take the preview's place; only one can have it
-        self.say(format!("following \"{short}\" — read-only · any move stops it"));
+        self.say(Tone::Info, format!("following \"{short}\" — read-only · any move stops it"));
         self.read_tail();
     }
 
@@ -421,10 +388,10 @@ impl App {
                 self.issue_cur = 0;
                 self.follow = None; // both take the preview's place; only one can have it
             }
-            Some(Status::Ready { slug, .. }) => self.say(format!("no open issues in {slug}")),
-            Some(Status::Loading) => self.say("issues still loading…".into()),
-            Some(Status::Failed(why)) => self.say(format!("issues: {why}")),
-            Some(Status::NoRemote) | None => self.say("no GitHub remote for this folder".into()),
+            Some(Status::Ready { slug, .. }) => self.say(Tone::Warning, format!("no open issues in {slug}")),
+            Some(Status::Loading) => self.say(Tone::Info, "issues still loading…".into()),
+            Some(Status::Failed(why)) => self.say(Tone::Error, format!("issues: {why}")),
+            Some(Status::NoRemote) | None => self.say(Tone::Warning, "no GitHub remote for this folder".into()),
         }
     }
 
@@ -440,7 +407,7 @@ impl App {
         if it.source != Source::Claude {
             // The running check and the pid guard only know Claude's registry.
             self.kill_confirm = None;
-            self.say("^k is Claude-only".into());
+            self.say(Tone::Warning, "^k is Claude-only".into());
             return;
         }
         let (id, title) = (it.id.clone(), first_words(&sanitize(it.display_name()), 6));
@@ -448,13 +415,13 @@ impl App {
         let v = crate::kill::verdict(live.as_ref(), it.mtime, model::now_ms());
         if let Some(why) = v.refusal() {
             self.kill_confirm = None;
-            self.say(format!("can't end \"{title}\": {why}"));
+            self.say(Tone::Warning, format!("can't end \"{title}\": {why}"));
             return;
         }
         let (Some(live), crate::kill::Verdict::Stale { idle_ms }) = (live, v) else { return };
         if crate::kill::own_ancestry().contains(&live.pid) {
             self.kill_confirm = None;
-            self.say(format!("can't end \"{title}\": sessio is running inside it"));
+            self.say(Tone::Warning, format!("can't end \"{title}\": sessio is running inside it"));
             return;
         }
         if self.kill_confirm.as_ref() != Some(&(id.clone(), live.pid)) {
@@ -464,22 +431,25 @@ impl App {
                 at.push_str(&format!(" · {}", live.tty));
             }
             let days = crate::kill::idle_days(idle_ms);
-            self.say(format!("end \"{title}\" ({at}, idle {days}d)? ^k again"));
+            self.say(Tone::Warning, format!("end \"{title}\" ({at}, idle {days}d)? ^k again"));
             return;
         }
         self.kill_confirm = None;
-        self.say(format!("ending \"{title}\" (pid {})…", live.pid));
+        self.say(Tone::Info, format!("ending \"{title}\" (pid {})…", live.pid));
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             use crate::kill::Outcome;
-            let text = match crate::kill::end(&id, live.pid) {
-                Ok(Outcome::Ended) => format!("✕ ended \"{title}\" (pid {})", live.pid),
-                Ok(Outcome::StillRunning) => {
-                    format!("sent SIGTERM to pid {} — still running after 3s", live.pid)
+            let (tone, text) = match crate::kill::end(&id, live.pid) {
+                Ok(Outcome::Ended) => {
+                    (Tone::Success, format!("✓ ended \"{title}\" (pid {})", live.pid))
                 }
-                Err(why) => format!("didn't end \"{title}\": {why}"),
+                Ok(Outcome::StillRunning) => (
+                    Tone::Warning,
+                    format!("sent SIGTERM to pid {} — still running after 3s", live.pid),
+                ),
+                Err(why) => (Tone::Error, format!("didn't end \"{title}\": {why}")),
             };
-            let _ = tx.send(Msg::Ended(text));
+            let _ = tx.send(Msg::Ended(tone, text));
         });
     }
 
@@ -536,6 +506,7 @@ pub fn run() -> io::Result<()> {
         expand: false,
         help: false,
         flash: String::new(),
+        flash_tone: Tone::Info,
         flash_until: None,
         deep: None,
         search_gen: 0,
@@ -670,7 +641,7 @@ fn event_loop(
                         continue; // a newer query superseded this search
                     }
                     match files {
-                        None => app.say("content search failed".into()),
+                        None => app.say(Tone::Error, "content search failed".into()),
                         Some(files) => {
                             let keys =
                                 files.iter().filter_map(|f| discover::key_for_file(f)).collect();
@@ -690,13 +661,13 @@ fn event_loop(
                     // now, and the cached detail is one turn out of date.
                     app.details.remove(&key);
                     app.ensure_detail();
-                    app.say(if ok {
-                        format!("↩ replied · {}", first_words(&text, 8))
+                    if ok {
+                        app.say(Tone::Success, format!("↩ replied · {}", first_words(&text, 8)));
                     } else {
-                        format!("reply failed · {}", first_words(&text, 10))
-                    });
+                        app.say(Tone::Error, format!("reply failed · {}", first_words(&text, 10)));
+                    }
                 }
-                Msg::Ended(text) => app.say(text),
+                Msg::Ended(tone, text) => app.say(tone, text),
             }
         }
     }
@@ -730,7 +701,7 @@ fn announce_waiting(app: &mut App, live: &crate::live::LiveMap) {
         // Not over a pending "↵ again" warning: `say` would hide it and restart its clock, leaving
         // the consent armed behind a message that no longer asks for it.
         if app.confirm.is_none() {
-            app.say(msg);
+            app.say(Tone::Warning, msg);
         }
     }
 }
@@ -758,7 +729,7 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
     };
     if freed > 0 {
         let s = if freed == 1 { "" } else { "s" };
-        app.say(format!("↩ {freed} archived session{s} back — active again"));
+        app.say(Tone::Success, format!("↩ {freed} archived session{s} back — active again"));
     }
     app.tabs = app.tabs_now();
     app.p_idx = active_tab
@@ -856,7 +827,7 @@ fn handle_key(
                 let gen = app.search_gen;
                 let term_q = app.q.clone();
                 let tx = app.tx.clone();
-                app.say("searching…".into());
+                app.say(Tone::Info, "searching…".into());
                 std::thread::spawn(move || {
                     let files = search::content_search(&term_q, &search::roots());
                     let _ = tx.send(Msg::Search { gen, query: term_q, files });
@@ -918,7 +889,7 @@ fn handle_key(
                 // Without a recorded folder there is nowhere to start it; sessio's own folder
                 // would be a guess dressed up as the project.
                 let Some(dir) = cwd else {
-                    app.say("no folder recorded for this session — nowhere to start one".into());
+                    app.say(Tone::Warning, "no folder recorded for this session — nowhere to start one".into());
                     return Ok(Flow::Continue);
                 };
                 if !resume::in_ghostty() {
@@ -927,8 +898,8 @@ fn handle_key(
                 // Stay put and say why on failure, as ^o does: falling back to this window would
                 // replace sessio with something the user did not ask for.
                 match resume::ghostty_launch_fresh(std::path::Path::new(&dir)) {
-                    Ok(()) => app.say(format!("↗ new session in {project} in a new window")),
-                    Err(why) => app.say(format!("couldn't open a new window ({why})")),
+                    Ok(()) => app.say(Tone::Success, format!("↗ new session in {project} in a new window")),
+                    Err(why) => app.say(Tone::Error, format!("couldn't open a new window ({why})")),
                 }
                 return Ok(Flow::Continue);
             }
@@ -954,13 +925,13 @@ fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
     match k.code {
         KeyCode::Esc => {
             app.draft = None;
-            app.say("reply discarded".into());
+            app.say(Tone::Info, "reply discarded".into());
         }
         KeyCode::Enter => {
             let body = text.trim().to_string();
             app.draft = None;
             if body.is_empty() {
-                app.say("nothing to send".into());
+                app.say(Tone::Warning, "nothing to send".into());
             } else {
                 send_reply(app, &id, &body);
             }
@@ -999,7 +970,7 @@ fn send_reply(app: &mut App, id: &str, body: &str) {
     let Some(i) = app.items.iter().position(|it| it.id == id) else { return };
     let (key, cwd) = (app.items[i].key.clone(), app.items[i].cwd.clone());
     app.sending.insert(id.to_string());
-    app.say(format!("⏳ sending to \"{}\" …", first_words(&app.items[i].name, 4)));
+    app.say(Tone::Info, format!("⏳ sending to \"{}\" …", first_words(&app.items[i].name, 4)));
 
     let (tx, id, body) = (app.tx.clone(), id.to_string(), body.to_string());
     std::thread::spawn(move || {
@@ -1034,7 +1005,7 @@ fn open_issue(app: &mut App) {
     // The URL came off the network. Only ever hand the opener a GitHub page, never a scheme or a
     // path it would act on some other way.
     if !issue.url.starts_with("https://github.com/") {
-        app.say(format!("#{} has no GitHub URL to open", issue.number));
+        app.say(Tone::Warning, format!("#{} has no GitHub URL to open", issue.number));
         return;
     }
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
@@ -1044,16 +1015,16 @@ fn open_issue(app: &mut App) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
-    app.say(match spawned {
+    match spawned {
         Ok(mut child) => {
             // Reaped off the input path, so no zombie is left for the rest of the run.
             std::thread::spawn(move || {
                 let _ = child.wait();
             });
-            format!("↗ opened #{} in the browser", issue.number)
+            app.say(Tone::Success, format!("↗ opened #{} in the browser", issue.number));
         }
-        Err(e) => format!("couldn't open a browser ({e}) · {}", issue.url),
-    });
+        Err(e) => app.say(Tone::Error, format!("couldn't open a browser ({e}) · {}", issue.url)),
+    }
 }
 
 fn drop_word(q: &str) -> usize {
@@ -1150,7 +1121,7 @@ fn resume_selected(
 
     // Only Ghostty can be asked for a window. Say so rather than quietly doing something else.
     if new_window && !resume::in_ghostty() {
-        app.say("^o opens a new window under Ghostty only — ↵ resumes here".into());
+        app.say(Tone::Warning, "^o opens a new window under Ghostty only — ↵ resumes here".into());
         return Ok(Flow::Continue);
     }
 
@@ -1165,12 +1136,12 @@ fn resume_selected(
         // Ghostty can name the exact terminal by tty, tab and split included — so going to the
         // session is the default there, not an opt-in. Title matching stays behind SESSIO_FOCUS.
         if resume::in_ghostty() && resume::focus_tty(&live.tty) {
-            app.say(format!("↗ switched to \"{short}\" — already running ({})", running_where(&live)));
+            app.say(Tone::Success, format!("↗ switched to \"{short}\" — already running ({})", running_where(&live)));
         } else if focus_enabled() && resume::focus_window_titled(&name) {
-            app.say(format!("↗ focused \"{short}\" — already running"));
+            app.say(Tone::Success, format!("↗ focused \"{short}\" — already running"));
         } else {
             app.confirm = Some((id, new_window));
-            app.say(format!("already running ({}) — {key} again to open it twice", running_where(&live)));
+            app.say(Tone::Warning, format!("already running ({}) — {key} again to open it twice", running_where(&live)));
         }
         return Ok(Flow::Continue);
     }
@@ -1181,15 +1152,15 @@ fn resume_selected(
     }
     // A new window needs a folder to open in; sessio's own would be a guess.
     let Some(dir) = cwd else {
-        app.say("no folder recorded for this session — ↵ resumes it here".into());
+        app.say(Tone::Warning, "no folder recorded for this session — ↵ resumes it here".into());
         return Ok(Flow::Continue);
     };
     let short: String = name.chars().take(40).collect();
     match resume::ghostty_launch(std::path::Path::new(&dir), &resume::resume_argv(source, &id)) {
-        Ok(()) => app.say(format!("↗ opened \"{short}\" in a new window")),
+        Ok(()) => app.say(Tone::Success, format!("↗ opened \"{short}\" in a new window")),
         // Stay put and say why. Falling back to this window would replace sessio with something
         // the user did not ask for.
-        Err(why) => app.say(format!("couldn't open a new window ({why}) — ↵ resumes here")),
+        Err(why) => app.say(Tone::Error, format!("couldn't open a new window ({why}) — ↵ resumes here")),
     }
     Ok(Flow::Continue)
 }
@@ -1386,7 +1357,11 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     // A flash is why you pressed the key; the hints are always there. So the message is budgeted
     // first and the bar shrinks around it — otherwise "already running (pid …)" is clipped to
     // "already runni" and the keypress looks like it did nothing.
-    let flash = sanitize(&app.flash);
+    let flash = if app.flash.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}", app.flash_tone.mark(), sanitize(&app.flash))
+    };
     let flash_w = if flash.is_empty() { 0 } else { UnicodeWidthStr::width(flash.as_str()) + 2 };
 
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -1397,12 +1372,12 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         if i > 0 {
             spans.push(Span::styled(SEP, dim()));
         }
-        let style = if seg.accent { Style::default().fg(theme::ACCENT) } else { dim() };
+        let style = if seg.accent { theme::accent() } else { dim() };
         spans.push(Span::styled(seg.t, style));
     }
     if !flash.is_empty() {
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(flash, Style::default().fg(theme::ACTIVE)));
+        spans.push(Span::styled(flash, app.flash_tone.style()));
     }
     Line::from(spans)
 }
@@ -1530,10 +1505,10 @@ fn query_line(app: &App, matches: usize) -> Line<'static> {
     // even with nothing typed in it — and which of the two searches is running.
     let mut spans = match &app.deep {
         Some(_) => vec![
-            Span::styled(SEARCH_ICON, Style::default().fg(theme::NAMED)),
-            Span::styled(" content", Style::default().fg(theme::NAMED)),
+            Span::styled(SEARCH_ICON, theme::attention()),
+            Span::styled(" content", theme::attention()),
         ],
-        None => vec![Span::styled(SEARCH_ICON, Style::default().fg(theme::ACCENT))],
+        None => vec![Span::styled(SEARCH_ICON, theme::accent())],
     };
     spans.push(Span::raw(" "));
     spans.push(Span::raw(sanitize(&app.q)));
@@ -1542,7 +1517,7 @@ fn query_line(app: &App, matches: usize) -> Line<'static> {
         let plural = if matches == 1 { "" } else { "es" };
         spans.push(Span::styled(
             format!("  {matches} match{plural}"),
-            Style::default().fg(theme::NAMED),
+            theme::attention(),
         ));
     }
     Line::from(spans)
@@ -1567,13 +1542,14 @@ fn dot_for(app: &App, it: &Item) -> (&'static str, Style) {
     // A session waiting on you outranks every other thing a dot can say. It is the only state
     // that is *your* move, and the only one that gets worse the longer it goes unseen.
     if app.live.get(&it.id).is_some_and(crate::live::Live::needs_you) {
-        ("◆", Style::default().fg(theme::NAMED).add_modifier(Modifier::BOLD))
+        ("◆", theme::attention().add_modifier(Modifier::BOLD))
     } else if app.live.contains_key(&it.id) {
-        ("◉", Style::default().fg(theme::ACTIVE))
+        ("◉", theme::running())
     } else if age < ACTIVE_MS {
-        ("●", Style::default().fg(theme::ACTIVE))
+        ("●", theme::running())
     } else if age < RECENT_MS {
-        ("●", Style::default().fg(theme::RECENT))
+        // Hollow, not just another colour: "just now" and "today" must read apart in monochrome.
+        ("○", theme::recent())
     } else {
         (" ", Style::default())
     }
@@ -1604,7 +1580,7 @@ fn tab_label(it: &Item, active: bool) -> String {
 /// a stale one became the same white dot the moment you moved onto it.
 fn tab_marks(app: &App, it: &Item, sel: Option<Style>) -> Vec<Span<'static>> {
     let on = |st: Style| match sel {
-        Some(s) => st.bg(s.bg.unwrap_or(theme::TAB_SEL)).add_modifier(Modifier::BOLD),
+        Some(s) => theme::on_selection(st, s),
         None => st,
     };
     let mut spans = Vec::new();
@@ -1613,10 +1589,10 @@ fn tab_marks(app: &App, it: &Item, sel: Option<Style>) -> Vec<Span<'static>> {
         spans.push(Span::styled(dot.to_string(), on(dot_style)));
     }
     if it.open {
-        spans.push(Span::styled("▸", on(Style::default().fg(theme::NAMED))));
+        spans.push(Span::styled("▸", on(theme::attention())));
     }
     if let Some(tag) = source_tag(it) {
-        spans.push(Span::styled(format!("{tag} "), on(Style::default().fg(theme::COPILOT))));
+        spans.push(Span::styled(format!("{tag} "), on(theme::agent_tag())));
     }
     spans
 }
@@ -1709,10 +1685,10 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     let mut head = Vec::new();
     let mut tag_w = 0;
     if let Some(tag) = source_tag(it) {
-        head.push(Span::styled(format!("{tag} "), Style::default().fg(theme::COPILOT)));
+        head.push(Span::styled(format!("{tag} "), theme::agent_tag()));
         tag_w = tag.len() + 1;
     }
-    head.push(Span::styled(title.clone(), Style::default().fg(theme::ACCENT)));
+    head.push(Span::styled(title.clone(), theme::accent()));
     if let Some(live) = app.live.get(&it.id) {
         // A process nobody has touched in two days says so, quietly: it is the one `^k` can end.
         let stale = match crate::kill::verdict(Some(live), it.mtime, model::now_ms()) {
@@ -1728,7 +1704,7 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
             + UnicodeWidthStr::width(rest.as_str());
         if used + 2 <= w {
             head.push(Span::raw(" ".repeat(w - used)));
-            head.push(Span::styled("◉ running", Style::default().fg(theme::ACTIVE)));
+            head.push(Span::styled("◉ running", theme::running()));
             head.push(Span::styled(rest, dim()));
         }
     }
@@ -1765,7 +1741,7 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     if it.open {
         lines.push(Line::from(vec![
             Span::raw("   "),
-            Span::styled("▸ pick up", Style::default().fg(theme::NAMED)),
+            Span::styled("▸ pick up", theme::attention()),
             Span::styled(format!(" · {}", it.open_why().unwrap_or("unfinished")), dim()),
         ]));
     }
@@ -1780,7 +1756,7 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
             Span::raw("   "),
             Span::styled(
                 format!("✓ contains \"{}\"", sanitize(&d.query)),
-                Style::default().fg(theme::NAMED),
+                theme::attention(),
             ),
         ]));
     }
@@ -1802,7 +1778,7 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         let body: Vec<Line> = md_lines(recap, prose).into_iter().take(6).map(italic).collect();
         recap_block = gutter_block(
             &format!("recap {}", recap_ts.map(since).unwrap_or_default()),
-            Style::default().fg(theme::REPLY).add_modifier(Modifier::BOLD),
+            theme::voice().add_modifier(Modifier::BOLD),
             body,
         );
     } else if let Some(summary) = detail.and_then(|d| d.summary.as_ref()) {
@@ -1849,7 +1825,7 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
             let ts = detail.and_then(|d| d.reply_ts.as_deref()).map(since).unwrap_or_default();
             thread.extend(gutter_block(
                 &format!("reply {ts}"),
-                Style::default().fg(theme::REPLY),
+                theme::voice(),
                 body,
             ));
         }
@@ -1870,11 +1846,11 @@ fn follow_preview(app: &App, f: &Follow, width: usize, rows: usize) -> Vec<Line<
     let title = sanitize(name);
     let (mark, style, rest) = match app.live.get(&f.id).filter(|_| !f.ended) {
         Some(live) => {
-            ("◉ following", Style::default().fg(theme::ACTIVE), format!(" · {}", running_where(live)))
+            ("◉ following", theme::running(), format!(" · {}", running_where(live)))
         }
-        None => ("◌ ended", Style::default().fg(theme::NAMED), " · no longer running".to_string()),
+        None => ("◌ ended", theme::attention(), " · no longer running".to_string()),
     };
-    let mut head = vec![Span::styled(title.clone(), Style::default().fg(theme::ACCENT))];
+    let mut head = vec![Span::styled(title.clone(), theme::accent())];
     let used = UnicodeWidthStr::width(title.as_str())
         + UnicodeWidthStr::width(mark)
         + UnicodeWidthStr::width(rest.as_str());
@@ -1902,12 +1878,12 @@ fn follow_preview(app: &App, f: &Follow, width: usize, rows: usize) -> Vec<Line<
                 body.extend(match e.who {
                     Who::You => gutter_block(
                         "you",
-                        Style::default().fg(theme::NAMED),
+                        theme::attention(),
                         wrap_plain(&e.text, prose, 4).into_iter().map(Line::from).collect(),
                     ),
                     Who::Claude => gutter_block(
                         "claude",
-                        Style::default().fg(theme::REPLY),
+                        theme::voice(),
                         md_lines(&e.text, prose),
                     ),
                     Who::Tool => gutter_block(
@@ -1945,7 +1921,7 @@ fn issues_line(st: &crate::issues::Status) -> Option<Line<'static>> {
             Span::raw("   "),
             Span::styled(
                 format!("⚑ {} open issue{}", issue_count(issues.len()), if issues.len() == 1 { "" } else { "s" }),
-                Style::default().fg(theme::NAMED),
+                theme::attention(),
             ),
             Span::styled(format!(" · {slug} · ^g show"), dim()),
         ])),
@@ -1990,7 +1966,7 @@ fn issues_list(app: &mut App, width: usize, height: usize) -> Vec<Line<'static>>
     let title = format!("⚑ {slug} · {} open", issue_count(issues.len()));
     let right = format!("fetched {} ago", ago(fetched_ms));
     let gap = w.saturating_sub(UnicodeWidthStr::width(title.as_str()) + UnicodeWidthStr::width(right.as_str()));
-    let mut head = vec![Span::styled(title, Style::default().fg(theme::ACCENT))];
+    let mut head = vec![Span::styled(title, theme::accent())];
     if gap >= 2 {
         head.push(Span::raw(" ".repeat(gap)));
         head.push(Span::styled(right, dim()));
@@ -2065,7 +2041,7 @@ fn spans_width(spans: &[Span]) -> usize {
 
 
 fn help_lines() -> Vec<Line<'static>> {
-    let key = Style::default().fg(theme::ACCENT);
+    let key = theme::accent();
     let mut v = vec![
         Line::from(vec![
             Span::styled("sessio", Style::default().add_modifier(Modifier::BOLD)),
@@ -2099,13 +2075,13 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^c", key), Span::raw("     quit")]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("◉", Style::default().fg(theme::ACTIVE)),
+            Span::styled("◉", theme::running()),
             Span::raw("      a claude process is attached to this session right now"),
         ]),
         Line::from(vec![
-            Span::styled("●", Style::default().fg(theme::ACTIVE)),
+            Span::styled("●", theme::running()),
             Span::raw("      written in the last 5 minutes ("),
-            Span::styled("●", Style::default().fg(theme::RECENT)),
+            Span::styled("○", theme::recent()),
             Span::raw(" in the last 24h)"),
         ]),
         Line::from(""),
@@ -2443,6 +2419,7 @@ mod tests {
             expand: false,
             help: false,
             flash: String::new(),
+            flash_tone: Tone::Info,
             flash_until: None,
             deep: None,
             search_gen: 0,
@@ -2996,6 +2973,121 @@ mod tests {
         assert!(bar.contains("waiting on you"), "even a narrow bar says it: {bar:?}");
     }
 
+    /// Every state a session can be in has its own glyph, so a monochrome terminal, a colour-blind
+    /// reader or a screenshot in greyscale loses nothing (docs/DESIGN.md, "without colour").
+    #[test]
+    fn every_status_reads_apart_without_colour() {
+        let mut app = fixture(&real_tabs());
+        let live = |status: &str| crate::live::Live {
+            pid: 4674,
+            tty: "ttys000".into(),
+            status: status.into(),
+            waiting_for: String::new(),
+        };
+        let now = model::now_ms();
+        let mut it = app.items[0].clone();
+        let glyph = |app: &App, it: &Item| dot_for(app, it).0;
+
+        app.live.insert(it.id.clone(), live("waiting"));
+        let waiting = glyph(&app, &it);
+        app.live.insert(it.id.clone(), live("busy"));
+        let running = glyph(&app, &it);
+        app.live.clear();
+        it.mtime = now - 60_000;
+        let just_now = glyph(&app, &it);
+        it.mtime = now - 3 * 60 * 60 * 1000;
+        let today = glyph(&app, &it);
+        it.mtime = now - 3 * DAY_MS;
+        let older = glyph(&app, &it);
+
+        let marks = [waiting, running, just_now, today, older];
+        for (i, a) in marks.iter().enumerate() {
+            for b in &marks[i + 1..] {
+                assert_ne!(a, b, "two states share a glyph: {marks:?}");
+            }
+        }
+
+        // The other marks a tab or the panel carries: unfinished, the agent tag, and the tabs that
+        // gather sessions by state. None may reuse a dot, or each other (the waiting tab shares ◆
+        // with the waiting dot on purpose: they mean the same thing).
+        it.open = true;
+        it.source = Source::Copilot;
+        let tab: String = tab_marks(&app, &it, None).iter().map(|s| s.content.to_string()).collect();
+        assert!(tab.contains('▸') && tab.contains("copilot"), "{tab:?}");
+        let lead = |t: &str| t.chars().next().unwrap().to_string();
+        let others = [
+            "▸".to_string(),
+            lead(OPEN_TAB),
+            lead(ARCHIVED_TAB),
+            lead(ALL_TAB),
+        ];
+        for o in &others {
+            assert!(!marks.contains(&o.as_str()), "{o} collides with a dot");
+        }
+        assert_eq!(lead(WAITING_TAB), waiting, "the waiting tab and dot agree");
+        let mut all = others.to_vec();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), others.len(), "{others:?}");
+    }
+
+    /// Normal, waiting, error and empty frames share one hierarchy: key bar and feedback on row 0,
+    /// the query on row 1, the session strip on row 2, the preview under it. A state changes what
+    /// a row says, never which row says it.
+    #[test]
+    fn every_state_keeps_the_same_rows() {
+        let text = |l: &Line| l.spans.iter().map(|s| s.content.to_string()).collect::<String>();
+        let check = |app: &mut App, what: &str| {
+            let f = frame_lines(app, 140, 30);
+            assert_eq!(f.len(), 30, "{what}: fills the window");
+            assert!(text(&f[0]).contains("? help"), "{what}: row 0 is the key bar: {:?}", text(&f[0]));
+            assert!(text(&f[1]).contains(SEARCH_ICON), "{what}: row 1 is the query");
+            let strip = text(&f[2]);
+            assert!(strip.contains('│') || strip.contains("no sessions here"), "{what}: {strip:?}");
+        };
+        let mut app = fixture(&real_tabs());
+        check(&mut app, "normal");
+
+        let id = app.items[0].id.clone();
+        app.live.insert(
+            id,
+            crate::live::Live {
+                pid: 1,
+                tty: "ttys001".into(),
+                status: "waiting".into(),
+                waiting_for: "input needed".into(),
+            },
+        );
+        check(&mut app, "waiting");
+        app.live.clear();
+
+        app.say(Tone::Error, "reply failed · boom".into());
+        check(&mut app, "error");
+        let f = frame_lines(&mut app, 140, 30);
+        assert!(text(&f[0]).contains("✗ reply failed"), "the error rides in row 0");
+
+        app.q = "zzqqxxnothingmatchesthis".into();
+        app.requery();
+        check(&mut app, "empty");
+    }
+
+    /// Success and failure differ in more than colour: a failure leads with ✗, and neither is
+    /// painted in the other's colour.
+    #[test]
+    fn a_failed_action_does_not_flash_green() {
+        let mut app = fixture(&real_tabs());
+        app.say(Tone::Error, "reply failed · boom".into());
+        let bar = header(&app, 140);
+        let flash = bar.spans.last().unwrap();
+        assert!(flash.content.starts_with("✗ reply failed"), "{:?}", flash.content);
+        assert_ne!(flash.style, Tone::Success.style());
+
+        app.say(Tone::Success, "↩ replied · ok".into());
+        let flash = header(&app, 140).spans.last().unwrap().clone();
+        assert!(!flash.content.contains('✗'));
+        assert_eq!(flash.style, Tone::Success.style());
+    }
+
     #[test]
     fn a_waiting_tab_sits_below_open_and_holds_only_waiting_sessions() {
         let mut app = fixture(&real_tabs());
@@ -3080,7 +3172,7 @@ mod tests {
     fn a_recap_body_is_italic_throughout() {
         let l = italic(Line::from(vec![
             Span::raw("plain "),
-            Span::styled("code", Style::default().fg(theme::CODE)),
+            Span::styled("code", theme::code()),
         ]));
         for sp in l.spans.iter() {
             assert!(
@@ -3386,6 +3478,7 @@ pub mod demo {
             expand: false,
             help: false,
             flash: String::new(),
+            flash_tone: Tone::Info,
             flash_until: None,
             deep: None,
             search_gen: 0,
@@ -3404,49 +3497,9 @@ pub mod demo {
         }
     }
 
-    /// xterm-256 to CSS. The palette is a formula, not a table: 16 fixed colours, then a
-    /// 6×6×6 cube, then a 24-step grey ramp.
+    /// A role colour as the page draws it: the xterm-256 value `theme::rgb` gives, as hex.
     fn css(c: ratatui::style::Color) -> Option<String> {
-        use ratatui::style::Color as C;
-        let hex = |r: u8, g: u8, b: u8| format!("#{r:02x}{g:02x}{b:02x}");
-        let indexed = |i: u8| -> String {
-            const BASE: [(u8, u8, u8); 16] = [
-                (0, 0, 0), (128, 0, 0), (0, 128, 0), (128, 128, 0),
-                (0, 0, 128), (128, 0, 128), (0, 128, 128), (192, 192, 192),
-                (128, 128, 128), (255, 0, 0), (0, 255, 0), (255, 255, 0),
-                (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255),
-            ];
-            const STEP: [u8; 6] = [0, 95, 135, 175, 215, 255];
-            match i {
-                0..=15 => { let (r, g, b) = BASE[i as usize]; hex(r, g, b) }
-                16..=231 => {
-                    let n = i - 16;
-                    hex(STEP[(n / 36) as usize], STEP[((n % 36) / 6) as usize], STEP[(n % 6) as usize])
-                }
-                _ => { let v = 8 + 10 * (i - 232); hex(v, v, v) }
-            }
-        };
-        Some(match c {
-            C::Reset => return None,
-            C::Rgb(r, g, b) => hex(r, g, b),
-            C::Indexed(i) => indexed(i),
-            C::Black => indexed(0),
-            C::Red => indexed(9),
-            C::Green => indexed(10),
-            C::Yellow => indexed(11),
-            C::Blue => indexed(12),
-            C::Magenta => indexed(13),
-            C::Cyan => indexed(14),
-            C::White => indexed(15),
-            C::Gray => indexed(7),
-            C::DarkGray => indexed(8),
-            C::LightRed => indexed(9),
-            C::LightGreen => indexed(10),
-            C::LightYellow => indexed(11),
-            C::LightBlue => indexed(12),
-            C::LightMagenta => indexed(13),
-            C::LightCyan => indexed(14),
-        })
+        theme::rgb(c).map(|(r, g, b)| format!("#{r:02x}{g:02x}{b:02x}"))
     }
 
     fn escape(s: &str) -> String {
