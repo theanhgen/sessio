@@ -339,9 +339,126 @@ fn a_wrong_command_line_exits_2() {
         &["reply", "aaaa1"],
         &["archive"],
         &["ls", "--here", "-p", "alpha"],
+        &["kill"],
+        &["kill", "a", "b"],
+        &["kill", "aaaa1", "--force"],
     ] {
         assert_eq!(f.run(args).status.code(), Some(2), "{args:?}");
     }
     assert!(f.ok(&["ls", "--help"]).contains("FILTERS"));
     assert!(f.ok(&["help"]).contains("sessions reply"));
+    assert!(f.ok(&["help"]).contains("sessions kill"));
+}
+
+/// A process this test owns, dressed as a running `claude` for session `id`: `sleep` run through
+/// a symlink named `claude`, plus the registry row Claude Code would have written for it. Never a
+/// real claude — the kill tests signal only this. A symlink, not a copy: macOS kills a copied
+/// system binary on launch for its broken signature.
+struct Decoy {
+    child: std::process::Child,
+}
+
+impl Decoy {
+    fn start(f: &Fixture, id: &str, status: &str) -> Self {
+        let bin = f.root.join("decoy");
+        fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("claude");
+        if !exe.exists() {
+            std::os::unix::fs::symlink("/bin/sleep", &exe).unwrap();
+        }
+        let child = Command::new(&exe).arg("60").spawn().unwrap();
+        let reg = f.root.join("claude/sessions");
+        fs::create_dir_all(&reg).unwrap();
+        let row = json!({"pid": child.id(), "sessionId": id, "status": status});
+        fs::write(reg.join(format!("{}.json", child.id())), row.to_string()).unwrap();
+        Decoy { child }
+    }
+
+    fn running(&mut self) -> bool {
+        self.child.try_wait().unwrap().is_none()
+    }
+}
+
+impl Drop for Decoy {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Backdate one fixture transcript.
+fn age(f: &Fixture, id: &str, secs: u64) {
+    let file = fs::read_dir(f.root.join("claude/projects"))
+        .unwrap()
+        .flat_map(|d| fs::read_dir(d.unwrap().path()).unwrap())
+        .map(|e| e.unwrap().path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(id))
+        .unwrap();
+    let when = SystemTime::now() - Duration::from_secs(secs);
+    fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
+}
+
+#[test]
+fn kill_ends_a_running_session_idle_for_more_than_48h() {
+    let f = Fixture::new("kill");
+    age(&f, C, 3 * 86_400);
+    let mut decoy = Decoy::start(&f, C, "idle");
+    let pid = decoy.child.id();
+
+    let v = f.json(&["kill", "--json", "cccc3"]);
+    assert_eq!(v["id"], C);
+    assert_eq!(v["pid"], pid);
+    assert_eq!(v["idle_days"], 3);
+    assert_eq!(v["ended"], true);
+    assert!(!decoy.running(), "the decoy got SIGTERM");
+}
+
+#[test]
+fn kill_refuses_anything_but_a_stale_idle_session() {
+    let f = Fixture::new("kill-refuse");
+    // Not running at all.
+    let o = f.run(&["kill", "aaaa1"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("not running"), "{}", stderr(&o));
+
+    // Running, but written to two hours ago.
+    let mut recent = Decoy::start(&f, C, "idle");
+    let o = f.run(&["kill", "--json", C]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("active 2h ago"), "{}", stderr(&o));
+    assert!(o.stdout.is_empty());
+    assert!(recent.running(), "left alone");
+    drop(recent);
+
+    // Old, but busy or waiting on the user.
+    age(&f, B, 5 * 86_400);
+    for (status, why) in [("busy", "busy"), ("waiting", "waiting on you")] {
+        let mut d = Decoy::start(&f, B, status);
+        let o = f.run(&["kill", B]);
+        assert_eq!(o.status.code(), Some(1), "{status}");
+        assert!(stderr(&o).contains(why), "{status}: {}", stderr(&o));
+        assert!(d.running(), "{status}: left alone");
+        let _ = fs::remove_file(f.root.join(format!("claude/sessions/{}.json", d.child.id())));
+    }
+}
+
+#[test]
+fn kill_will_not_signal_a_process_that_is_not_claude() {
+    // The registry says session C is pid N, but pid N is a plain `sleep`: a recycled pid, or a
+    // registry row that lies. The rules pass; the re-check before signalling must not.
+    let f = Fixture::new("kill-notclaude");
+    age(&f, C, 3 * 86_400);
+    let mut child = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+    let reg = f.root.join("claude/sessions");
+    fs::create_dir_all(&reg).unwrap();
+    let row = json!({"pid": child.id(), "sessionId": C, "status": "idle"});
+    fs::write(reg.join(format!("{}.json", child.id())), row.to_string()).unwrap();
+
+    let o = f.run(&["kill", C]);
+    let alive = child.try_wait().unwrap().is_none();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("not a claude process"), "{}", stderr(&o));
+    assert!(alive, "the sleep was left alone");
 }

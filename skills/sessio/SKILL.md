@@ -73,6 +73,11 @@ prefix fails and lists the candidates.
 - **Archive:** `sessions archive <id>…` / `sessions unarchive <id>…` hide or restore sessions in
   sessio's own lists. Transcripts are never touched, and a session written to after it was
   archived comes back on its own.
+- **Kill:** `sessions kill <id> --json` sends SIGTERM to a session's `claude`, only if it is
+  running, its transcript is untouched for more than 48 hours, and it is neither `busy` nor
+  `waiting`. Anything else exits `1` with the reason. It ends a process the user may still want,
+  so run it only on a session the user named for ending; `ended: false` means the process was
+  signalled and was still there after 3s.
 
 ## Rules
 

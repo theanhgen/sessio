@@ -95,6 +95,8 @@ enum Msg {
     Search { gen: u64, query: String, files: Option<HashSet<PathBuf>> },
     /// A headless reply came back (or failed). `key` identifies the session it belongs to.
     Replied { key: String, ok: bool, text: String },
+    /// A `^k` finished: what happened to the process, ready to flash.
+    Ended(String),
     /// A fresh read of the followed session's tail.
     Tail { key: String, entries: Vec<Entry> },
 }
@@ -140,6 +142,9 @@ struct App {
     /// Session the user has been warned about and may now resume anyway, and whether the warning
     /// came from `^o` (new window) rather than `↵` — consent is to the key that was warned about.
     confirm: Option<(String, bool)>,
+    /// Session (and the pid it was running as) the user was asked about with `^k`. A second `^k`
+    /// ends it only while both still match.
+    kill_confirm: Option<(String, i32)>,
     /// The reply being typed, and the session it is addressed to. `None` when not replying.
     draft: Option<(String, String)>, // (session id, text)
     /// Sessions with a headless reply in flight, by id.
@@ -407,6 +412,55 @@ impl App {
         }
     }
 
+    /// `^k`: end the highlighted session's `claude` if it has sat idle for more than 48 hours.
+    ///
+    /// The first press says exactly what would be ended and asks for `^k` again; the second, on
+    /// the same session and process, does it. The signal goes out on a worker, which re-checks
+    /// the pid against a fresh `ps` first and then waits for the process to go.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn kill_key(&mut self) {
+        let Some(i) = self.selected() else { return };
+        let it = &self.items[i];
+        let (id, title) = (it.id.clone(), first_words(&sanitize(it.display_name()), 6));
+        let live = self.live.get(&id).cloned();
+        let v = crate::kill::verdict(live.as_ref(), it.mtime, model::now_ms());
+        if let Some(why) = v.refusal() {
+            self.kill_confirm = None;
+            self.say(format!("can't end \"{title}\": {why}"));
+            return;
+        }
+        let (Some(live), crate::kill::Verdict::Stale { idle_ms }) = (live, v) else { return };
+        if crate::kill::own_ancestry().contains(&live.pid) {
+            self.kill_confirm = None;
+            self.say(format!("can't end \"{title}\": sessio is running inside it"));
+            return;
+        }
+        if self.kill_confirm.as_ref() != Some(&(id.clone(), live.pid)) {
+            self.kill_confirm = Some((id, live.pid));
+            let mut at = format!("pid {}", live.pid);
+            if !live.tty.is_empty() {
+                at.push_str(&format!(" · {}", live.tty));
+            }
+            let days = crate::kill::idle_days(idle_ms);
+            self.say(format!("end \"{title}\" ({at}, idle {days}d)? ^k again"));
+            return;
+        }
+        self.kill_confirm = None;
+        self.say(format!("ending \"{title}\" (pid {})…", live.pid));
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            use crate::kill::Outcome;
+            let text = match crate::kill::end(&id, live.pid) {
+                Ok(Outcome::Ended) => format!("✕ ended \"{title}\" (pid {})", live.pid),
+                Ok(Outcome::StillRunning) => {
+                    format!("sent SIGTERM to pid {} — still running after 3s", live.pid)
+                }
+                Err(why) => format!("didn't end \"{title}\": {why}"),
+            };
+            let _ = tx.send(Msg::Ended(text));
+        });
+    }
+
     fn rebuild_tabs(&mut self) {
         let active = self.tabs.get(self.p_idx).cloned();
         self.tabs = self.tabs_now();
@@ -467,6 +521,7 @@ pub fn run() -> io::Result<()> {
         detail_inflight: HashSet::new(),
         live: crate::live::scan(),
         confirm: None,
+        kill_confirm: None,
         draft: None,
         sending: HashSet::new(),
         reply_ok: false,
@@ -525,6 +580,7 @@ fn event_loop(
             // again *now*, not an hour later with the message long gone and the session still
             // marked as one the user already agreed to open twice.
             app.confirm = None;
+            app.kill_confirm = None;
         }
         term.draw(|f| draw(f, app))?;
 
@@ -623,6 +679,7 @@ fn event_loop(
                         format!("reply failed · {}", first_words(&text, 10))
                     });
                 }
+                Msg::Ended(text) => app.say(text),
             }
         }
     }
@@ -722,6 +779,10 @@ fn handle_key(
     if !is_resume_key(&k) {
         app.confirm = None;
     }
+    // The same for `^k`: consent to end a process is the very next key, and only that key.
+    if !(ctrl && k.code == KeyCode::Char('k')) {
+        app.kill_confirm = None;
+    }
 
     if ctrl && k.code == KeyCode::Char('c') {
         return Ok(Flow::Quit);
@@ -801,6 +862,7 @@ fn handle_key(
         // first character of plenty of things worth searching for.
         KeyCode::Char('r') if ctrl => app.begin_reply(),
         KeyCode::Char('t') if ctrl => app.toggle_follow(),
+        KeyCode::Char('k') if ctrl => app.kill_key(),
         KeyCode::Tab => app.expand = !app.expand,
         KeyCode::Char('e') if ctrl => app.expand = !app.expand,
         // Each axis matches the shape of the thing it moves: the projects are a column, so they
@@ -1264,6 +1326,15 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         Seg { p: 5, t: "^t follow", accent: false }
     });
     segs.push(Seg { p: 4, t: "^g issues", accent: false });
+    // Only offered when it would do something: most sessions are not running, and of the ones
+    // that are, few have sat for two days.
+    let stale = app.selected().is_some_and(|i| {
+        let it = &app.items[i];
+        crate::kill::verdict(app.live.get(&it.id), it.mtime, model::now_ms()).is_stale()
+    });
+    if stale {
+        segs.push(Seg { p: 3, t: "^k end-stale", accent: false });
+    }
     // Never shed: a session waiting on you is the most urgent thing the bar can say, so it
     // outranks every hint including `? help`.
     if waiting > 0 {
@@ -1603,12 +1674,21 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     let title = sanitize(it.display_name());
     let mut head = vec![Span::styled(title.clone(), Style::default().fg(theme::ACCENT))];
     if let Some(live) = app.live.get(&it.id) {
-        let right = format!("◉ running · {}", running_where(live));
-        let used = UnicodeWidthStr::width(title.as_str()) + UnicodeWidthStr::width(right.as_str());
+        // A process nobody has touched in two days says so, quietly: it is the one `^k` can end.
+        let stale = match crate::kill::verdict(Some(live), it.mtime, model::now_ms()) {
+            crate::kill::Verdict::Stale { idle_ms } => {
+                format!(" · stale · idle {}d", crate::kill::idle_days(idle_ms))
+            }
+            _ => String::new(),
+        };
+        let rest = format!("{stale} · {}", running_where(live));
+        let used = UnicodeWidthStr::width(title.as_str())
+            + UnicodeWidthStr::width("◉ running")
+            + UnicodeWidthStr::width(rest.as_str());
         if used + 2 <= w {
             head.push(Span::raw(" ".repeat(w - used)));
             head.push(Span::styled("◉ running", Style::default().fg(theme::ACTIVE)));
-            head.push(Span::styled(format!(" · {}", running_where(live)), dim()));
+            head.push(Span::styled(rest, dim()));
         }
     }
     lines.push(Line::from(head));
@@ -1972,6 +2052,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ goes to its window under Ghostty, else says where; ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
         Line::from(vec![Span::styled("^n", key), Span::raw("     new session in the selected session's folder (new window under Ghostty)")]),
+        Line::from(vec![Span::styled("^k", key), Span::raw("     end a running session idle for more than 48h (not busy, not waiting) — ^k again to confirm")]),
         Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
         Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
         Line::from(vec![Span::styled("^c", key), Span::raw("     quit")]),
@@ -2327,6 +2408,7 @@ mod tests {
             detail_inflight: HashSet::new(),
             live: crate::live::LiveMap::new(),
             confirm: None,
+            kill_confirm: None,
             draft: None,
             sending: HashSet::new(),
             reply_ok: false,
@@ -3063,6 +3145,68 @@ mod tests {
         assert!(narrow.contains("↵ resume"), "resume is the point: {narrow}");
         assert!(!narrow.contains("^f search-in-text"), "p5 sheds first: {narrow}");
     }
+
+    /// The first session of `fixture`, running as a made-up pid, last written `age_h` hours ago.
+    /// Nothing here reaches `kill::end`: every test stops at the question or the refusal.
+    fn running_for(app: &mut App, status: &str, age_h: i64) -> String {
+        let id = app.items[0].id.clone();
+        app.items[0].mtime = model::now_ms() - age_h * 3_600_000;
+        app.live.insert(
+            id.clone(),
+            crate::live::Live {
+                pid: 4242,
+                tty: "ttys009".into(),
+                status: status.into(),
+                waiting_for: String::new(),
+            },
+        );
+        app.cur = app.view().iter().position(|&i| app.items[i].id == id).unwrap();
+        id
+    }
+
+    #[test]
+    fn ctrl_k_refuses_and_says_why() {
+        let mut app = fixture(&real_tabs());
+        app.cur = 0;
+        app.kill_key();
+        assert!(app.flash.contains("not running"), "{:?}", app.flash);
+
+        for (status, age, why) in
+            [("busy", 100, "busy"), ("waiting", 100, "waiting on you"), ("idle", 5, "active 5h ago")]
+        {
+            let mut app = fixture(&real_tabs());
+            running_for(&mut app, status, age);
+            app.kill_key();
+            assert!(app.flash.contains(why), "{status}: {:?}", app.flash);
+            assert!(app.kill_confirm.is_none(), "{status}: nothing to confirm");
+        }
+    }
+
+    #[test]
+    fn the_first_ctrl_k_only_asks() {
+        let mut app = fixture(&real_tabs());
+        let id = running_for(&mut app, "idle", 72);
+        app.kill_key();
+        assert_eq!(app.kill_confirm, Some((id, 4242)));
+        assert!(app.flash.contains("pid 4242 · ttys009, idle 3d)? ^k again"), "{:?}", app.flash);
+    }
+
+    #[test]
+    fn a_stale_session_is_marked_in_the_preview_and_the_bar() {
+        let mut app = fixture(&real_tabs());
+        running_for(&mut app, "idle", 72);
+        let rows = frame(&mut app, 180, 30).join("\n");
+        assert!(rows.contains("◉ running · stale · idle 3d · pid 4242"), "{rows}");
+        let bar: String = header(&app, 400).spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(bar.contains("^k end-stale"), "{bar}");
+
+        let mut app = fixture(&real_tabs());
+        running_for(&mut app, "idle", 5);
+        let rows = frame(&mut app, 180, 30).join("\n");
+        assert!(rows.contains("◉ running · pid 4242") && !rows.contains("stale"), "{rows}");
+        let bar: String = header(&app, 400).spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(!bar.contains("^k"), "{bar}");
+    }
 }
 
 
@@ -3169,6 +3313,7 @@ pub mod demo {
             detail_inflight: HashSet::new(),
             live: crate::live::LiveMap::new(),
             confirm: None,
+            kill_confirm: None,
             draft: None,
             sending: HashSet::new(),
             reply_ok: false,

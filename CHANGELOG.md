@@ -40,6 +40,14 @@
   elsewhere) naming the session and what it wants, once per wait, and several at once are one
   notification that counts them. Sessions already waiting when sessio opens stay quiet.
   `SESSIO_NOTIFY=0` turns it off.
+- **`^k` ends a running session that has sat idle for more than 48 hours.** A `claude` left open
+  in a forgotten window keeps its process alive and keeps the session `◉`, so every resume of it
+  has to be forced. The preview now marks such a session `stale · idle Nd`; the first `^k` names
+  the pid, tty and idle time, and a second `^k` sends `SIGTERM`, waits up to 3s and says whether it
+  went. It refuses, and says why, a session that is not running, was written to within 48 hours,
+  or is `busy` or `waiting` on you. Just before signalling it re-reads `ps` to check the pid is
+  still that session's `claude`, and it never ends the session sessio is itself running inside.
+  No `SIGKILL`. `sessions kill <id> [--json]` does the same from a script, under the same rules.
 - **`↵` resumes in this window; `^o` opens a new one.** Swapped, and `^o` now gets the same
   already-running guard as `↵` instead of skipping it — a second `claude` on a live transcript is
   the same mistake in either window.

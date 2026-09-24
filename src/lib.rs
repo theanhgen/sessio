@@ -8,6 +8,7 @@ pub mod cta;
 pub mod discover;
 pub mod git;
 pub mod issues;
+pub mod kill;
 pub mod live;
 pub mod md;
 pub mod model;

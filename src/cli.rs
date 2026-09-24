@@ -16,7 +16,7 @@ use sessio::store::Archive;
 use sessio::{discover, parse, rank, resume, search, ui};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-pub const COMMANDS: &[&str] = &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "help"];
+pub const COMMANDS: &[&str] = &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "kill", "help"];
 
 /// What `ls` and `find` print when not told otherwise. `--limit 0` lifts it.
 const DEFAULT_LIMIT: usize = 20;
@@ -40,6 +40,8 @@ USAGE:
                                     `-` reads the message from stdin)
   sessions archive <id>...          hide from the dashboard and from ls
   sessions unarchive <id>...
+  sessions kill <id> [--json]       end a running session idle for more than 48h
+                                    (SIGTERM; refuses busy, waiting or recent ones)
   sessions --update                 update instructions for this install
   sessions --dump-json              print the computed session list (oracle harness)
   sessions --version
@@ -56,7 +58,8 @@ Marks: ◆ waiting on you · ◉ running · ▸ unfinished
 
 KEYS:
   ↑/↓ project · ←/→ session · type to filter · ^f search-in-text
-  ^a archive · ⇥ expand-reply · ^r reply · ↵ resume · ^o new-window · ? help · esc quit
+  ^a archive · ⇥ expand-reply · ^r reply · ^k end-stale
+  ↵ resume · ^o new-window · ? help · esc quit
 ",
         env!("CARGO_PKG_VERSION")
     )
@@ -126,6 +129,7 @@ fn dispatch(cmd: &str, o: &Opts) -> Result<(), Fail> {
         "reply" => reply(o),
         "archive" => archive(o, true),
         "unarchive" => archive(o, false),
+        "kill" => kill_cmd(o),
         _ => unreachable!("run() only dispatches known commands"),
     }
 }
@@ -159,6 +163,7 @@ fn flags_for(cmd: &str) -> Vec<&'static str> {
         "ls" => LIST_FLAGS.to_vec(),
         "find" => [LIST_FLAGS, &["--text"]].concat(),
         "show" => vec!["--json"],
+        "kill" => vec!["--json"],
         "resume" => vec!["--force", "--print"],
         _ => vec![],
     }
@@ -589,7 +594,57 @@ fn archive(o: &Opts, archived: bool) -> Result<(), Fail> {
     Ok(())
 }
 
+/// `^k` as a command: SIGTERM to a running session idle for more than 48 hours, under the same
+/// rules. There is no second press to ask for here — running the command is the consent — so the
+/// rules themselves are the whole guard, and `kill::end` re-checks the pid before signalling.
+fn kill_cmd(o: &Opts) -> Result<(), Fail> {
+    let (w, i) = session(one_id(o, "kill")?)?;
+    let it = &w.items[i];
+    let live = w.live.get(&it.id);
+    let v = sessio::kill::verdict(live, it.mtime, model::now_ms());
+    if let Some(why) = v.refusal() {
+        return Err(err(format!("won't end {}: {why}", short(&it.id))));
+    }
+    let (Some(l), sessio::kill::Verdict::Stale { idle_ms }) = (live, v) else {
+        unreachable!("no refusal means stale, and stale means running");
+    };
+    let outcome = sessio::kill::end(&it.id, l.pid)
+        .map_err(|why| err(format!("won't end {}: {why}", short(&it.id))))?;
+    let ended = outcome == sessio::kill::Outcome::Ended;
+    let days = sessio::kill::idle_days(idle_ms);
+    let title = one_line(&it.name);
+    if o.json {
+        let j = KillJson {
+            id: &it.id,
+            title: &title,
+            pid: l.pid,
+            tty: (!l.tty.is_empty()).then_some(l.tty.as_str()),
+            idle_days: days,
+            ended,
+        };
+        out(&format!("{}\n", serde_json::to_string(&j).expect("plain data")));
+    } else if ended {
+        out(&format!("ended  {}  pid {} · idle {days}d  {title}\n", short(&it.id), l.pid));
+    }
+    if ended {
+        Ok(())
+    } else {
+        Err(err(format!("sent SIGTERM to pid {} — still running after 3s", l.pid)))
+    }
+}
+
 // ---------- JSON ----------
+
+#[derive(serde::Serialize)]
+struct KillJson<'a> {
+    id: &'a str,
+    title: &'a str,
+    pid: i32,
+    tty: Option<&'a str>,
+    idle_days: i64,
+    /// `false` when the process was signalled and was still there when the wait ran out.
+    ended: bool,
+}
 
 #[derive(serde::Serialize)]
 struct RunningJson<'a> {
