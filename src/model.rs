@@ -12,7 +12,9 @@ use crate::store::Archive;
 pub const OPEN_TAB: &str = "⏸ open";
 /// Running sessions parked on a question or permission prompt. Present only while one is.
 pub const WAITING_TAB: &str = "◆ waiting";
-pub const ARCHIVED_TAB: &str = "🗄 archived";
+/// With U+FE0F: terminals draw 🗄 two cells wide, and only the emoji-presentation form measures
+/// as two, so without it every column after the label lands one cell off.
+pub const ARCHIVED_TAB: &str = "🗄\u{fe0f} archived";
 pub const ALL_TAB: &str = "⌂ everything";
 
 /// "Claude asked / proposed next" is a weak signal — most replies offer a next step — so it

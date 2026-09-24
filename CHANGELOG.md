@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The project panel counts.** Each tab shows how many of its sessions were touched in the last
+  24 hours and how many it holds, right-aligned in two columns under `24h all`. The `🗄 archived`
+  label now measures two cells wide, as terminals draw it, so its row no longer sits one off.
 - **The website demo is built on deploy.** `docs/demo/` was built by hand and committed, so a
   layout change reached the binary and left the site showing the previous UI until someone
   reran the script. The Pages deploy now builds it from the commit it publishes, CI builds it on
