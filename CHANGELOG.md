@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`↵` on a running session takes you to it under Ghostty.** Ghostty 1.3's AppleScript
+  dictionary reports each terminal's tty, and sessio already knows the tty of every running
+  session, so it focuses that exact terminal — background tab or unfocused split included — instead
+  of only saying `pid · tty` and leaving you to hunt for it.
+- **A `◆ waiting` tab.** Right below `⏸ open`, present only while a running session is stopped
+  on a question or permission prompt, and holding exactly those — the key bar's "waiting on you"
+  now has somewhere to go.
 - **`↵` resumes in this window; `^o` opens a new one.** Swapped, and `^o` now gets the same
   already-running guard as `↵` instead of skipping it — a second `claude` on a live transcript is
   the same mistake in either window.
