@@ -1335,6 +1335,10 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         size_fmt(it.size),
     );
     lines.push(Line::from(vec![Span::raw("   "), Span::styled(facts, dim())]));
+    if let Some(t) = it.detail.as_ref().and_then(|d| d.tokens.as_ref()) {
+        let tokens = format!("tokens  {}", tokens_fmt(t));
+        lines.push(Line::from(vec![Span::raw("   "), Span::styled(tokens, dim())]));
+    }
 
     if it.open {
         lines.push(Line::from(vec![
@@ -1535,6 +1539,32 @@ pub fn ago(ms: i64) -> String {
     }
 }
 
+/// `in 10.8k · out 5.6M · cache w 31.6M · r 727M`: the session's token totals, humanized.
+pub fn tokens_fmt(t: &crate::parse::Usage) -> String {
+    format!(
+        "in {} · out {} · cache w {} · r {}",
+        count_fmt(t.input),
+        count_fmt(t.output),
+        count_fmt(t.cache_write),
+        count_fmt(t.cache_read),
+    )
+}
+
+/// A count in k/M/B: one decimal below 100 of a unit, whole numbers above.
+fn count_fmt(n: u64) -> String {
+    let (v, unit) = match n {
+        0..=999 => return n.to_string(),
+        1_000..=999_999 => (n as f64 / 1e3, "k"),
+        1_000_000..=999_999_999 => (n as f64 / 1e6, "M"),
+        _ => (n as f64 / 1e9, "B"),
+    };
+    if v < 99.95 {
+        format!("{v:.1}{unit}")
+    } else {
+        format!("{}{unit}", v.round() as u64)
+    }
+}
+
 fn size_fmt(b: u64) -> String {
     if b < 1024 {
         format!("{b}B")
@@ -1645,6 +1675,23 @@ fn wrap_plain(text: &str, width: usize, max_lines: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_counts_are_humanized() {
+        assert_eq!(count_fmt(0), "0");
+        assert_eq!(count_fmt(999), "999");
+        assert_eq!(count_fmt(10_800), "10.8k");
+        assert_eq!(count_fmt(5_600_000), "5.6M");
+        assert_eq!(count_fmt(727_000_000), "727M");
+        assert_eq!(count_fmt(1_200_000_000), "1.2B");
+        let t = crate::parse::Usage {
+            input: 10_800,
+            output: 5_600_000,
+            cache_write: 31_600_000,
+            cache_read: 727_000_000,
+        };
+        assert_eq!(tokens_fmt(&t), "in 10.8k · out 5.6M · cache w 31.6M · r 727M");
+    }
 
     #[test]
     fn size_formatting_matches_the_js() {

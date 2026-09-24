@@ -228,6 +228,38 @@ fn show_takes_a_prefix_only_one_session_has() {
 }
 
 #[test]
+fn show_totals_tokens_once_per_api_response() {
+    let f = Fixture::new("tokens");
+    let alpha = f.work("alpha");
+    // Two lines of one response (same message id, same usage), then a second response.
+    let turn = |id: &str, block: &str, input: u64, output: u64, write: u64, read: u64| {
+        json!({"type": "assistant", "timestamp": "2026-09-01T11:01:00.000Z", "message": {
+            "id": id, "content": [{"type": block, "text": "ok"}],
+            "usage": {"input_tokens": input, "output_tokens": output,
+                      "cache_creation_input_tokens": write, "cache_read_input_tokens": read}}})
+    };
+    let d = "dddd4444-0000-4000-8000-000000000004";
+    f.transcript(d, &alpha, 30, &[
+        user("count my tokens", &alpha, "2026-09-01T11:00:00.000Z"),
+        turn("msg_1", "tool_use", 10, 800, 31_000, 700_000),
+        turn("msg_1", "text", 10, 800, 31_000, 700_000),
+        turn("msg_2", "text", 800, 5_000, 600_000, 27_000_000),
+    ]);
+
+    let v = f.json(&["show", "--json", d]);
+    assert_eq!(
+        v["tokens"],
+        json!({"input": 810, "output": 5_800, "cache_write": 631_000, "cache_read": 27_700_000})
+    );
+    let out = f.ok(&["show", d]);
+    assert!(out.contains("tokens    in 810 · out 5.8k · cache w 631k · r 27.7M"), "{out}");
+
+    // A transcript without usage data has no totals, and no line for them.
+    assert_eq!(f.json(&["show", "--json", A])["tokens"], Value::Null);
+    assert!(!f.ok(&["show", A]).contains("\n  tokens "));
+}
+
+#[test]
 fn archive_hides_a_session_and_unarchive_brings_it_back() {
     let f = Fixture::new("archive");
     assert!(f.ok(&["archive", "aaaa1"]).starts_with("archived  aaaa1111"));

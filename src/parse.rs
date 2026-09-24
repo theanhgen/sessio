@@ -5,6 +5,7 @@
 //! multi-megabyte tool-result lines from being parsed at all.
 
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
@@ -423,6 +424,29 @@ pub struct Detail {
     pub reply_ts: Option<String>,
     pub recap: Option<String>,
     pub recap_ts: Option<String>,
+    /// Token totals across the session's API calls; `None` when no line carried usage data.
+    pub tokens: Option<Usage>,
+}
+
+/// Summed `message.usage` of a session's assistant turns. Tokens only — no prices.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct Usage {
+    pub input: u64,
+    pub output: u64,
+    /// `cache_creation_input_tokens`
+    pub cache_write: u64,
+    /// `cache_read_input_tokens`
+    pub cache_read: u64,
+}
+
+impl Usage {
+    fn add(&mut self, u: &Value) {
+        let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+        self.input += n("input_tokens");
+        self.output += n("output_tokens");
+        self.cache_write += n("cache_creation_input_tokens");
+        self.cache_read += n("cache_read_input_tokens");
+    }
 }
 
 pub fn detail(path: &Path) -> Detail {
@@ -432,6 +456,9 @@ pub fn detail(path: &Path) -> Detail {
     };
     let mut reader = BufReader::with_capacity(256 * 1024, file);
     let mut buf = Vec::with_capacity(8192);
+    // Claude Code writes one line per content block of a single API response, each repeating
+    // the same `message.id` and the same `usage` object, so usage is counted once per id.
+    let mut counted: HashSet<String> = HashSet::new();
 
     loop {
         buf.clear();
@@ -440,6 +467,28 @@ pub fn detail(path: &Path) -> Detail {
             Ok(_) => {}
         }
         let line = line_str(&buf);
+
+        // Parsed here when the line carries usage, and reused by the reply branch below.
+        let mut assistant: Option<Value> = None;
+        if line.contains("\"type\":\"assistant\"") && line.contains("\"usage\"") {
+            if let Ok(o) = serde_json::from_str::<Value>(&line) {
+                if str_field(&o, "type") == Some("assistant") {
+                    let msg = o.get("message");
+                    if let Some(u) = msg.and_then(|m| m.get("usage")).filter(|u| u.is_object()) {
+                        // A line without an id cannot be a repeat we know of, so it counts.
+                        let fresh = match msg.and_then(|m| str_field(m, "id")) {
+                            Some(id) => counted.insert(id.to_string()),
+                            None => true,
+                        };
+                        let total = d.tokens.get_or_insert_with(Usage::default);
+                        if fresh {
+                            total.add(u);
+                        }
+                    }
+                }
+                assistant = Some(o);
+            }
+        }
 
         if line.contains("\"away_summary\"") {
             // Claude's away-recap; the last one in the file wins.
@@ -500,7 +549,7 @@ pub fn detail(path: &Path) -> Detail {
         }
 
         if line.contains("\"type\":\"assistant\"") && line.contains("\"type\":\"text\"") {
-            if let Ok(o) = serde_json::from_str::<Value>(&line) {
+            if let Some(o) = assistant.or_else(|| serde_json::from_str::<Value>(&line).ok()) {
                 if str_field(&o, "type") == Some("assistant") {
                     if let Some(blocks) = o
                         .get("message")
@@ -574,4 +623,69 @@ pub fn detail(path: &Path) -> Detail {
         }
     }
     d
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+
+    fn transcript(name: &str, lines: &[Value]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sessio-usage-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("s.jsonl");
+        let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&file, body).unwrap();
+        file
+    }
+
+    fn turn(id: &str, block: &str, input: u64, output: u64, write: u64, read: u64) -> Value {
+        serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-08-05T16:09:02.072Z",
+            "message": {
+                "id": id,
+                "role": "assistant",
+                "content": [{"type": block, "text": "hi"}],
+                "usage": {
+                    "input_tokens": input,
+                    "output_tokens": output,
+                    "cache_creation_input_tokens": write,
+                    "cache_read_input_tokens": read,
+                },
+            },
+        })
+    }
+
+    fn prompt() -> Value {
+        serde_json::json!({"type": "user", "promptSource": "typed", "message": {"content": "go"}})
+    }
+
+    /// One API response is written as one line per content block, each repeating the same
+    /// `message.id` and `usage`. Summing every line would count this response three times.
+    #[test]
+    fn usage_is_counted_once_per_message_id() {
+        let f = transcript(
+            "dedupe",
+            &[
+                prompt(),
+                turn("msg_a", "thinking", 2, 400, 30_000, 25_000),
+                turn("msg_a", "text", 2, 400, 30_000, 25_000),
+                turn("msg_a", "tool_use", 2, 400, 30_000, 25_000),
+                turn("msg_b", "text", 3, 50, 100, 60_000),
+            ],
+        );
+        let d = detail(&f);
+        assert_eq!(
+            d.tokens,
+            Some(Usage { input: 5, output: 450, cache_write: 30_100, cache_read: 85_000 })
+        );
+        // The parse shared with the reply branch still feeds the reply.
+        assert_eq!(d.reply.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn no_usage_lines_means_no_totals() {
+        let f = transcript("none", &[prompt()]);
+        assert_eq!(detail(&f).tokens, None);
+    }
 }
