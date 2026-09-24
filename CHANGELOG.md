@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **`↵` opens a new window under Ghostty on macOS again.** Ghostty's `+new-window` exits 1 on
+  macOS, and sessio took that refusal as final instead of moving on to `open -na Ghostty.app`, so
+  `↵` resumed in the same window while the key bar said "new-window". 1.0.0 described this as
+  fixed; it never was.
+- **The new window resumes in the session's folder.** A Ghostty started through `open -na`
+  ignores `--working-directory` and comes up in some other window's folder, where
+  `claude --resume` cannot find the session. The launch script now `cd`s there itself.
+
 ## 1.1.0 - 2026-09-18
 
 sessio is scriptable now: everything the dashboard does is also a command, with JSON for agents and
