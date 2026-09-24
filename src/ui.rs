@@ -627,6 +627,29 @@ fn handle_key(
         }
         KeyCode::Enter => return resume_selected(term, app, false),
         KeyCode::Char('o') if ctrl => return resume_selected(term, app, true),
+        // A fresh `claude` in the highlighted session's folder: ↵'s launch with nothing to
+        // resume. `^n` rather than a bare `n` for the reason `^r` is: plain letters filter.
+        KeyCode::Char('n') if ctrl => {
+            if let Some(i) = app.selected() {
+                let (cwd, project) = (app.items[i].cwd.clone(), app.items[i].project.clone());
+                // Without a recorded folder there is nowhere to start it; sessio's own folder
+                // would be a guess dressed up as the project.
+                let Some(dir) = cwd else {
+                    app.say("no folder recorded for this session — nowhere to start one".into());
+                    return Ok(Flow::Continue);
+                };
+                if !resume::in_ghostty() {
+                    start_over(term, &dir);
+                }
+                // Stay put and say why on failure, as ^o does: falling back to this window would
+                // replace sessio with something the user did not ask for.
+                match resume::ghostty_launch_fresh(std::path::Path::new(&dir)) {
+                    Ok(()) => app.say(format!("↗ new session in {project} in a new window")),
+                    Err(why) => app.say(format!("couldn't open a new window ({why})")),
+                }
+                return Ok(Flow::Continue);
+            }
+        }
         KeyCode::Char(c) if !ctrl && !k.modifiers.contains(KeyModifiers::ALT) && c >= ' ' => {
             app.q.push(c);
             app.requery();
@@ -864,6 +887,19 @@ fn hand_over(term: &mut Terminal<CrosstermBackend<Stdout>>, cwd: Option<&str>, i
     println!(
         "\nCouldn't launch claude ({err}). Run it yourself:\n  {}\n",
         resume::manual_command(path, id)
+    );
+    std::process::exit(1);
+}
+
+/// `hand_over` for `^n`: replace sessio with a fresh `claude` in `cwd`.
+#[cfg(not(target_arch = "wasm32"))]
+fn start_over(term: &mut Terminal<CrosstermBackend<Stdout>>, cwd: &str) -> ! {
+    restore(term);
+    let path = std::path::Path::new(cwd);
+    let err = resume::start_in_place(path);
+    println!(
+        "\nCouldn't launch claude ({err}). Run it yourself:\n  {}\n",
+        resume::manual_start_command(path)
     );
     std::process::exit(1);
 }
@@ -1465,6 +1501,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
         Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ goes to its window under Ghostty, else says where; ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
+        Line::from(vec![Span::styled("^n", key), Span::raw("     new session in the selected session's folder (new window under Ghostty)")]),
         Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
         Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
         Line::from(vec![Span::styled("^c", key), Span::raw("     quit")]),

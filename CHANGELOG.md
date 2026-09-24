@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`^n` starts a new session in the selected session's folder.** No more quitting, `cd`-ing and
+  running `claude` after finding the project: under Ghostty it opens a new window the same way
+  `^o` does (and says why if it can't, rather than falling back), everywhere else it starts in
+  this window. `^n` rather than a bare `n` because plain letters filter the list.
 - **`↵` on a running session takes you to it under Ghostty.** Ghostty 1.3's AppleScript
   dictionary reports each terminal's tty, and sessio already knows the tty of every running
   session, so it focuses that exact terminal — background tab or unfocused split included — instead
