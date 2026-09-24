@@ -74,7 +74,7 @@ pub fn scan(root: &Path) -> Vec<Row> {
             });
         }
     }
-    rows.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.mtime));
     rows
 }
 
@@ -106,7 +106,7 @@ pub fn select(rows: &[Row], cap: usize, extra: &[PathBuf]) -> Vec<Row> {
             .collect();
         selected.extend(add);
     }
-    selected.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    selected.sort_by_key(|r| std::cmp::Reverse(r.mtime));
     selected
 }
 
