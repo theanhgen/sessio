@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Token totals per session.** The preview and `sessions show` get one line —
+  `tokens  in 10.8k · out 5.6M · cache w 31.6M · r 727M` — and `show --json` a `tokens` object.
+  Claude Code writes one transcript line per content block of a response, each repeating that
+  response's usage, so the totals count each message id once; summing every line roughly doubles
+  them. Tokens only: there is no price table to keep current.
 - **`^n` starts a new session in the selected session's folder.** No more quitting, `cd`-ing and
   running `claude` after finding the project: under Ghostty it opens a new window the same way
   `^o` does (and says why if it can't, rather than falling back), everywhere else it starts in

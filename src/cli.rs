@@ -430,6 +430,7 @@ fn show(o: &Opts) -> Result<(), Fail> {
             recap: d.recap.as_deref(),
             summary: d.summary.as_deref(),
             last_reply: d.reply.as_deref(),
+            tokens: d.tokens,
         };
         out(&format!("{}\n", serde_json::to_string(&full).expect("plain data")));
         return Ok(());
@@ -456,6 +457,9 @@ fn show(o: &Opts) -> Result<(), Fail> {
     }
     if w.archived(it) {
         field("archived", "yes");
+    }
+    if let Some(t) = &d.tokens {
+        field("tokens", &ui::tokens_fmt(t));
     }
 
     let mut section = |label: &str, body: Option<&str>| {
@@ -621,6 +625,8 @@ struct ShowJson<'a> {
     recap: Option<&'a str>,
     summary: Option<&'a str>,
     last_reply: Option<&'a str>,
+    /// Summed once per API response; `null` when the transcript carries no usage data.
+    tokens: Option<parse::Usage>,
 }
 
 fn session_json<'a>(w: &'a World, it: &'a Item, title: &'a str) -> SessionJson<'a> {
