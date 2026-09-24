@@ -150,7 +150,9 @@ does. It is not a screenshot and not a JavaScript recreation, which is deliberat
 site hand-wrote its terminal mock in HTML and it drifted until it documented keys that no longer
 existed.
 
-Rebuild it after any layout change, or the site shows the previous one:
+The Pages deploy builds it from the commit it deploys, so the site cannot fall behind a layout
+change, and CI builds it on every pull request. `docs/demo/` is not committed. To preview the site
+locally, build it yourself:
 
 ```sh
 cargo install wasm-bindgen-cli --version "$(grep -A1 'name = "wasm-bindgen"' Cargo.lock | grep version | head -1 | cut -d'"' -f2)"

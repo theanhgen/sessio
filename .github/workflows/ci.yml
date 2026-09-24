@@ -39,6 +39,24 @@ jobs:
       - name: Test
         run: cargo test
 
+  # The site's demo is built on deploy (pages.yml), after the merge. Building it here too means
+  # a change that breaks the wasm build fails its PR instead of the next deploy of main.
+  demo:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rust
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the demo toolchain
+        run: scripts/install-demo-tools.sh
+
+      - name: Build the demo
+        run: scripts/build-demo.sh
+
   launcher:
     runs-on: ubuntu-22.04
     steps:

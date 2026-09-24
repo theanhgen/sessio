@@ -1,0 +1,54 @@
+name: pages
+
+# Deploy the site with the demo built from the commit being deployed. docs/demo/ is no longer
+# committed: when it was built by hand, a layout change reached the binary and left the site
+# showing the previous UI until someone remembered to rerun the script (#15).
+#
+# Needs Settings -> Pages -> Source set to "GitHub Actions"; the old branch deploy of main:/docs
+# would serve a site with no demo in it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and a newer push does not cancel one already publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rust
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the demo toolchain
+        run: scripts/install-demo-tools.sh
+
+      - name: Build the demo
+        run: scripts/build-demo.sh
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
