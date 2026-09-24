@@ -171,7 +171,7 @@ alias sessions='sessio'   # or point it at the global install
 ## The website demo is the real thing
 
 [theanhgen.github.io/sessio](https://theanhgen.github.io/sessio/) runs sessio itself, compiled to
-WebAssembly, against six fixture sessions — the page calls the same `frame_lines()` the terminal
+WebAssembly, against eight fixture sessions — the page calls the same `frame_lines()` the terminal
 does. It is not a screenshot and not a JavaScript recreation, which is deliberate: the previous
 site hand-wrote its terminal mock in HTML and it drifted until it documented keys that no longer
 existed.

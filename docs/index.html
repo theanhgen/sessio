@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sessio — resume your Claude Code sessions from the terminal</title>
-<meta name="description" content="A fast, dependency-free terminal browser to find and resume your past Claude Code sessions. Project panel, session tabs, full-text search, live refresh, reply without opening.">
+<title>sessio — find and continue your Claude Code sessions</title>
+<meta name="description" content="Find the Claude Code session you left, see where it stopped, and pick it back up in the right folder. A terminal dashboard plus a CLI with --json for scripts and agents.">
 <meta property="og:title" content="sessio">
-<meta property="og:description" content="Find and resume your past Claude Code sessions from the terminal.">
+<meta property="og:description" content="Find the Claude Code session you left, see where it stopped, and pick it back up.">
 <meta property="og:type" content="website">
 <style>
   /* Colour roles: the same names src/theme.rs uses, defined in docs/DESIGN.md with their contrast
@@ -39,270 +39,479 @@
     }
   }
   *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*{transition:none!important}}
   body{
     margin:0;background:var(--surface);color:var(--text);font-family:var(--sans);
     line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
     background-image:radial-gradient(1200px 600px at 50% -10%,var(--glow),transparent 70%);
   }
-  a{color:var(--accent);text-decoration:none}
-  a:hover{text-decoration:underline}
-  .wrap{max-width:980px;margin:0 auto;padding:0 24px}
+  a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+  a:hover{text-decoration-thickness:2px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px}
   code,kbd,.mono{font-family:var(--mono)}
+  code{font-size:.92em}
+  .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
-  .brand{font-family:var(--mono);font-weight:600;font-size:18px;letter-spacing:.02em}
+  nav{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;padding:20px 0;flex-wrap:wrap}
+  .brand{font-family:var(--mono);font-weight:600;font-size:18px;letter-spacing:.02em;color:var(--text);text-decoration:none}
   .brand .dot{color:var(--running)}
-  .nav-links{display:flex;gap:22px;font-size:14px}
-  .nav-links a{color:var(--dim)}
-  .nav-links a:hover{color:var(--text);text-decoration:none}
+  .nav-links{display:flex;gap:6px 18px;font-size:14px;flex-wrap:wrap}
+  .nav-links a{color:var(--dim);text-decoration:none}
+  .nav-links a:hover{color:var(--text);text-decoration:underline}
 
-  header{padding:48px 0 28px;text-align:center}
-  .kicker{font-family:var(--mono);font-size:13px;color:var(--faint);letter-spacing:.14em;text-transform:uppercase}
-  h1{font-size:clamp(40px,8vw,72px);line-height:1;margin:14px 0 0;font-weight:700;letter-spacing:-.02em}
+  header{padding:40px 0 16px}
+  .kicker{font-family:var(--mono);font-size:13px;color:var(--faint);letter-spacing:.12em;text-transform:uppercase;margin:0}
+  h1{font-size:clamp(32px,6vw,56px);line-height:1.08;margin:12px 0 0;font-weight:700;letter-spacing:-.02em;max-width:820px}
   h1 .u{color:var(--accent)}
-  .tagline{font-size:clamp(18px,3.5vw,24px);color:var(--dim);margin:18px auto 0;max-width:640px}
-  .latin{font-family:var(--mono);font-size:13px;color:var(--faint);margin-top:14px}
-  .latin em{color:var(--dim);font-style:normal}
+  .tagline{font-size:clamp(17px,2.6vw,20px);color:var(--dim);margin:18px 0 0;max-width:680px}
 
-  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:30px}
-  .install{display:inline-flex;align-items:center;gap:12px;background:var(--surface-raised);border:1px solid var(--rule);
-    border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:15px}
-  .install .p{color:var(--faint)}
-  .install button{all:unset;cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:12px;
-    border:1px solid var(--rule);border-radius:6px;padding:3px 8px;transition:.15s}
-  .install button:hover{color:var(--text);border-color:var(--faint)}
-  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:10px;font-size:15px;
-    border:1px solid var(--rule);color:var(--text);background:var(--surface-raised);transition:.15s}
-  .btn:hover{border-color:var(--faint);text-decoration:none;transform:translateY(-1px)}
+  /* install: the primary action */
+  .install{margin-top:28px;background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;
+    padding:14px 16px;max-width:560px}
+  .install-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .install pre{margin:0;font-family:var(--mono);font-size:15px;line-height:1.7;flex:1 1 220px;min-width:0;overflow-x:auto}
+  .install .p{color:var(--faint);user-select:none}
+  .install .c{color:var(--faint)}
+  .install-status{min-height:1.4em;margin:8px 0 0;font-size:13.5px;color:var(--dim)}
+  .install-status.ok{color:var(--success)}
+  .install-status.bad{color:var(--attention)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:10px;font-size:15px;
+    border:1px solid var(--rule);color:var(--text);background:var(--surface-raised);transition:.15s;cursor:pointer;
+    font-family:var(--sans);text-decoration:none;line-height:1.3}
+  .btn:hover{border-color:var(--faint);text-decoration:none}
   .btn.primary{background:var(--selection);color:var(--on-selection);border-color:var(--selection);font-weight:600}
-  .btn.primary:hover{background:var(--accent);color:var(--surface)}
+  .btn.primary:hover{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+  .btn[disabled]{opacity:.55;cursor:not-allowed}
+  .cta{display:flex;gap:12px 18px;align-items:center;flex-wrap:wrap;margin-top:18px;font-size:14.5px;color:var(--dim)}
+
+  section{padding:48px 0}
+  h2{font-size:clamp(22px,3.4vw,28px);margin:0 0 10px;letter-spacing:-.01em;line-height:1.25}
+  .eyebrow{font-size:12.5px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 6px;font-weight:600}
+  .lead{color:var(--dim);margin:0 0 22px;max-width:700px}
 
   /* the live demo */
-  .term{margin:36px auto 0;background:var(--surface-raised);border:1px solid var(--rule);border-radius:var(--radius);
-    overflow:hidden;box-shadow:0 30px 80px -30px var(--shadow),0 0 0 1px rgba(255,255,255,.02) inset;text-align:left}
-  .term-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--surface-sunken);border-bottom:1px solid var(--rule)}
-  .term-bar .b{width:11px;height:11px;border-radius:50%;background:#3a4048}
-  .term-bar .t{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--faint)}
-  .term-bar .hint{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--faint)}
-  #screen{margin:0;padding:16px 18px;font-family:var(--mono);font-size:12px;line-height:1.45;
-    overflow-x:auto;color:var(--text);background:var(--surface-raised);tab-size:2;white-space:pre;outline:none;min-height:420px}
-  #screen:focus-visible{box-shadow:inset 0 0 0 2px var(--selection)}
-  .demo-keys{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
-  .demo-keys button{all:unset;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--dim);
-    border:1px solid var(--rule);border-radius:7px;padding:5px 10px;transition:.15s;background:var(--surface-raised)}
-  .demo-keys button:hover{color:var(--text);border-color:var(--selection)}
-  .demo-note{text-align:center;color:var(--faint);font-size:13px;margin-top:12px}
-  .demo-note b{color:var(--dim);font-weight:600}
+  .term{background:var(--surface-raised);border:1px solid var(--rule);border-radius:var(--radius);
+    overflow:hidden;box-shadow:0 30px 80px -30px var(--shadow);text-align:left;color:var(--text)}
+  .term-bar{display:flex;align-items:center;gap:8px 10px;padding:9px 12px;background:var(--surface-sunken);border-bottom:1px solid var(--rule);flex-wrap:wrap}
+  .term-bar .b{width:11px;height:11px;border-radius:50%;background:#3a4048;flex:none}
+  .term-bar .t{margin-left:6px;font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+  .term-bar .state{font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+  .term.active .term-bar .state{color:var(--running)}
+  .term-bar .btn{margin-left:auto;padding:6px 12px;font-size:13.5px}
+  #screen{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.45;
+    overflow-x:auto;color:var(--text);background:var(--surface-raised);white-space:pre;min-height:22em;
+    border-radius:0 0 var(--radius) var(--radius)}
+  #screen:focus{outline:2px solid var(--accent);outline-offset:-3px}
+  .demo-help{color:var(--dim);font-size:14.5px;margin:14px 0 0;max-width:760px}
+  .demo-help kbd{font-size:12px}
+  .demo-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  .demo-row .label{font-size:13px;color:var(--faint);margin-right:4px;min-width:5.5em}
+  .demo-row button{cursor:pointer;font-family:var(--mono);font-size:13px;color:var(--text);
+    border:1px solid var(--rule);border-radius:8px;padding:6px 10px;transition:.15s;background:var(--surface-raised);min-height:34px}
+  .demo-row button:hover{border-color:var(--accent)}
+  .demo-row button[disabled]{opacity:.5;cursor:not-allowed}
+  .limits{margin-top:16px;border-left:3px solid var(--attention);padding:10px 14px;background:var(--surface-raised);
+    border-radius:0 10px 10px 0;color:var(--dim);font-size:14px;max-width:760px}
+  .limits b{color:var(--text)}
+  .demo-note{color:var(--faint);font-size:13.5px;margin-top:12px;max-width:760px}
 
-  section{padding:52px 0}
-  h2{font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
-    margin:0 0 8px;font-weight:600}
-  .lead{color:var(--dim);margin:0 0 26px;max-width:680px}
   .three{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
-  .card{background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;padding:22px}
-  .card h3{margin:0 0 8px;font-size:17px}
+  .card{background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;padding:20px;min-width:0}
+  .card h3{margin:0 0 8px;font-size:18px}
   .card h3 .i{color:var(--accent);font-family:var(--mono);margin-right:8px}
   .card p{margin:0 0 10px;color:var(--dim);font-size:14.5px}
   .card ul{margin:0;padding-left:18px;color:var(--dim);font-size:14px}
-  .card li{margin:4px 0}
+  .card li{margin:6px 0}
   .card li b{color:var(--text);font-weight:600}
 
+  .code{margin:0;padding:16px 18px;font-family:var(--mono);font-size:13px;line-height:1.55;overflow-x:auto;
+    background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;color:var(--text)}
+  .code .c{color:var(--faint)}
+  .code .p{color:var(--running);user-select:none}
+  .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px;align-items:start}
+  .two > *{min-width:0}
+  .plain{color:var(--dim);font-size:14.5px;margin:0;padding-left:18px}
+  .plain li{margin:6px 0}
+  .plain b{color:var(--text)}
+
+  .table-wrap{overflow-x:auto}
   table{width:100%;border-collapse:collapse;font-size:14.5px}
-  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--rule)}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
   th{color:var(--faint);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
   kbd{background:var(--surface-sunken);border:1px solid var(--rule);border-bottom-width:2px;border-radius:6px;
-    padding:1px 7px;font-size:12.5px;color:var(--text)}
+    padding:0 6px;font-size:12.5px;color:var(--text);white-space:nowrap}
   td.k{white-space:nowrap}
 
   .note{background:var(--surface-raised);border:1px solid var(--rule);
     border-radius:10px;padding:16px 18px;color:var(--dim);font-size:14.5px}
   .note b{color:var(--text)}
 
-  footer{border-top:1px solid var(--rule);margin-top:40px;padding:30px 0 60px;color:var(--faint);font-size:13.5px;
+  footer{border-top:1px solid var(--rule);margin-top:24px;padding:28px 0 56px;color:var(--faint);font-size:13.5px;
     display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
   footer a{color:var(--dim)}
-  .disc{max-width:560px}
-  @media(max-width:560px){.nav-links{gap:16px}.install{font-size:13px}#screen{font-size:9px}}
+  @media(max-width:560px){
+    .wrap{padding:0 16px}
+    section{padding:36px 0}
+    header{padding-top:20px}
+    .install pre{font-size:14px}
+    #screen{font-size:12px;padding:10px}
+    th,td{padding:8px 6px}
+    td.k{white-space:normal}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <nav>
-    <div class="brand">sessio<span class="dot">●</span></div>
+  <nav aria-label="Site">
+    <a class="brand" href="#top">sessio<span class="dot" aria-hidden="true">●</span></a>
     <div class="nav-links">
-      <a href="#try">Try it</a>
-      <a href="#features">Features</a>
+      <a href="#demo">Demo</a>
+      <a href="#workflow">How it works</a>
+      <a href="#cli">CLI &amp; agents</a>
       <a href="#keys">Keys</a>
-      <a href="#install">Install</a>
+      <a href="#requirements">Requirements</a>
       <a href="https://github.com/theanhgen/sessio">GitHub</a>
     </div>
   </nav>
 
+  <main id="top">
   <header>
-    <div class="kicker">Claude Code · terminal</div>
-    <h1><span class="u">sessio</span></h1>
-    <p class="tagline">Find and resume your past Claude Code sessions — the right one, in the right directory — without hunting through <code>claude&nbsp;--resume</code>.</p>
-    <p class="latin">Latin · <em>sessiō</em> — a sitting, a session. The root the English word grew from.</p>
+    <p class="kicker">sessio · for Claude Code</p>
+    <h1>Find the Claude Code session you left, and <span class="u">pick it back up</span>.</h1>
+    <p class="tagline">A terminal dashboard of every session on your machine: what each one was, where it stopped, whether it is waiting on you — and one key to resume it in the folder it ran in.</p>
+
+    <div class="install" id="install">
+      <div class="install-row">
+<pre id="install-cmd"><span class="p">$ </span>npm install -g sessio
+<span class="p">$ </span>sessions   <span class="c"># run it</span></pre>
+        <button class="btn primary" id="copy" type="button" aria-describedby="copy-status">Copy install command</button>
+      </div>
+      <p class="install-status" id="copy-status" role="status" aria-live="polite"></p>
+    </div>
 
     <div class="cta">
-      <span class="install"><span class="p">$</span><span id="cmd">npm i -g sessio</span>
-        <button onclick="copyCmd()" id="copy">copy</button></span>
-      <a class="btn primary" href="https://www.npmjs.com/package/sessio">View on npm</a>
-      <a class="btn" href="https://github.com/theanhgen/sessio">Star on GitHub</a>
+      <a class="btn" href="#demo" id="try-hero">Try the demo</a>
+      <span>or build from source: <code>cargo install --git https://github.com/theanhgen/sessio</code></span>
     </div>
   </header>
 
-  <section id="try" style="padding-top:8px">
-    <div class="term">
+  <section id="demo" aria-labelledby="demo-h">
+    <p class="eyebrow">The real dashboard</p>
+    <h2 id="demo-h">Try it in the browser</h2>
+    <p class="lead">This is sessio itself, compiled to WebAssembly and drawing the same frame it draws in your terminal, against eight fixture sessions — not a screenshot or a recreation.</p>
+
+    <div class="term" id="term">
       <div class="term-bar">
-        <span class="b"></span><span class="b"></span><span class="b"></span>
-        <span class="t">sessions</span>
-        <span class="hint">live — click and use your arrow keys</span>
+        <span class="b" aria-hidden="true"></span><span class="b" aria-hidden="true"></span><span class="b" aria-hidden="true"></span>
+        <span class="t" id="term-size">sessions</span>
+        <span class="state" id="demo-state">demo not active</span>
+        <button class="btn primary" type="button" id="demo-toggle" disabled>Try the demo</button>
       </div>
-      <pre id="screen" tabindex="0" aria-label="Interactive sessio demo">loading the real thing…</pre>
+      <pre id="screen" tabindex="-1" role="application" aria-roledescription="terminal demo"
+        aria-label="sessio demo" aria-describedby="demo-instructions">loading the demo…<noscript>
+
+The demo needs JavaScript. Everything else on this page does not.</noscript></pre>
     </div>
-    <div class="demo-keys">
-      <button data-key="ArrowUp">↑ project</button>
-      <button data-key="ArrowDown">↓ project</button>
-      <button data-key="ArrowLeft">← session</button>
-      <button data-key="ArrowRight">→ session</button>
-      <button data-key="^r">^r reply</button>
-      <button data-key="Tab">⇥ expand</button>
-      <button data-key="?">? help</button>
-      <button data-key="Escape">esc</button>
+    <p class="sr-only" id="demo-live" role="status" aria-live="polite"></p>
+
+    <p class="demo-help" id="demo-instructions">
+      <b>Try the demo</b> gives it the keyboard: <kbd>↑</kbd><kbd>↓</kbd> project, <kbd>←</kbd><kbd>→</kbd> session, type to filter,
+      <kbd>^f</kbd> search the text, <kbd>^a</kbd> archive, <kbd>^r</kbd> reply, <kbd>^e</kbd> expand, <kbd>PgUp</kbd><kbd>PgDn</kbd> scroll the reply, <kbd>?</kbd> help.
+      <kbd>Esc</kbd> leaves the demo, as it quits sessio (it first closes help, a draft or a text search);
+      so do <b>Exit demo</b> and <kbd>Tab</kbd>, which the demo never takes — use <kbd>^e</kbd> for what <kbd>⇥</kbd> does in the terminal.
+      Some browsers keep <kbd>^n</kbd>, <kbd>^t</kbd> and <kbd>^w</kbd> for themselves; <kbd>⌥⌫</kbd> deletes a word too.
+    </p>
+
+    <div class="demo-row" role="group" aria-label="Demo keys">
+      <span class="label">Keys</span>
+      <button type="button" data-key="ArrowUp" aria-label="Up arrow: previous project">↑ project</button>
+      <button type="button" data-key="ArrowDown" aria-label="Down arrow: next project">↓ project</button>
+      <button type="button" data-key="ArrowLeft" aria-label="Left arrow: previous session">← session</button>
+      <button type="button" data-key="ArrowRight" aria-label="Right arrow: next session">→ session</button>
+      <button type="button" data-key="^e">^e expand</button>
+      <button type="button" data-key="PageDown">PgDn</button>
+      <button type="button" data-key="PageUp">PgUp</button>
+      <button type="button" data-key="^f">^f search text</button>
+      <button type="button" data-key="^a">^a archive</button>
+      <button type="button" data-key="^r">^r reply</button>
+      <button type="button" data-key="Enter">↵ resume</button>
+      <button type="button" data-key="^o">^o window</button>
+      <button type="button" data-key="?">? help</button>
+      <button type="button" data-key="Escape">esc</button>
     </div>
-    <p class="demo-note">This is not a screenshot or a recreation — it is <b>sessio itself</b>, compiled to WebAssembly and drawing the same frame it draws in your terminal, against six fixture sessions.</p>
+    <div class="demo-row" role="group" aria-label="Demo states">
+      <span class="label">Show me</span>
+      <button type="button" data-scenario="waiting">◆ a session waiting on you</button>
+      <button type="button" data-scenario="long">a long reply (PgDn)</button>
+      <button type="button" data-scenario="archived">the archive</button>
+      <button type="button" data-scenario="nomatch">a search with no matches</button>
+      <button type="button" data-scenario="all">start over</button>
+    </div>
+
+    <div class="limits"><b>What the browser can't do.</b> Nothing here resumes, sends, opens or ends anything:
+      <kbd>↵</kbd> resume, <kbd>^o</kbd> new window, <kbd>^n</kbd> new session, sending a <kbd>^r</kbd> reply, <kbd>^k</kbd>, <kbd>^t</kbd> and <kbd>^g</kbd>
+      answer in the feedback row with <i>browser demo:</i> and what the key does in a terminal. <kbd>^f</kbd> searches the fixtures' text, and <kbd>^a</kbd> archives only on this page.</div>
+    <p class="demo-note">The demo fits its width to the window (60 to 104 columns) instead of shrinking the text; on a narrow screen, scroll it sideways.</p>
   </section>
 
-  <section id="features">
-    <h2>What it does</h2>
+  <section id="workflow" aria-labelledby="workflow-h">
+    <p class="eyebrow">How it works</p>
+    <h2 id="workflow-h">Find it, understand it, continue it</h2>
     <p class="lead">Three things, in the order you need them.</p>
     <div class="three">
       <div class="card">
-        <h3><span class="i">1</span>Find the session</h3>
-        <p>Projects run down the left; the sessions in one are browser-style tabs across the top.</p>
+        <h3><span class="i" aria-hidden="true">1</span>Find the session</h3>
+        <p>Projects run down the left with how many sessions each has (last 24h, all); the sessions in one are tabs across the top.</p>
         <ul>
-          <li><b>Type to filter</b> — literal matches first, fuzzy as a fallback.</li>
-          <li><b>^f full-text search</b> — greps every transcript body on disk, not just the newest 300, via ripgrep.</li>
-          <li><b>^a archive</b> — hide what you are done with. A session you work in again un-hides itself.</li>
+          <li><b>Type to filter</b> the newest 300 by title, project or first prompt — literal matches first, fuzzy if none, and it says which.</li>
+          <li><b><kbd>^f</kbd> searches the text</b> of every transcript on disk, older ones included (needs ripgrep).</li>
+          <li><b>⏸ open</b> collects unfinished work; <b>◆ waiting</b> appears while a running session is stopped on a question or permission prompt.</li>
+          <li><b><kbd>^a</kbd> archives</b> what you are done with; a session you work in again comes back on its own.</li>
+          <li><b>GitHub Copilot CLI</b> sessions are listed beside Claude's, tagged <code>copilot</code>.</li>
         </ul>
       </div>
       <div class="card">
-        <h3><span class="i">2</span>See where you left off</h3>
+        <h3><span class="i" aria-hidden="true">2</span>See where it stopped</h3>
         <p>The preview answers the question you actually have: what was this, and what happened last?</p>
         <ul>
-          <li><b>Claude's recap</b> — the goal / state / whose-move paragraph it writes when you leave.</li>
-          <li><b>First and last prompt</b>, then the last reply as rendered markdown.</li>
-          <li><b>⏸ open</b> — the tab that surfaces unanswered prompts, open questions, and folders with uncommitted changes.</li>
-          <li><b>◆ waiting</b> — appears below it while a running session is stopped on a question or permission prompt, and lists just those.</li>
+          <li><b>Its state in words</b>: <span class="mono">◆ waiting on you · input needed · pid · tty</span>, <span class="mono">◉ running</span>, or <span class="mono">updated 3d ago · not running</span>.</li>
+          <li><b>Claude's recap</b>, the first and last prompt, then the latest reply as markdown — all of it, with <kbd>PgUp</kbd> <kbd>PgDn</kbd>.</li>
+          <li><b>Token totals</b> per session: input, output, cache write and read. No prices.</li>
+          <li><b>A notification</b> when a running session starts waiting on you (macOS; a bell elsewhere).</li>
         </ul>
       </div>
       <div class="card">
-        <h3><span class="i">3</span>Pick it back up</h3>
-        <p>Resume properly, or answer without leaving the list at all.</p>
+        <h3><span class="i" aria-hidden="true">3</span>Pick it back up</h3>
+        <p>Resume in the folder it ran in, or answer it without leaving the list.</p>
         <ul>
-          <li><b>↵ resume</b> — runs <span class="mono">claude --resume</span> in the original directory.</li>
-          <li><b>Never twice</b> — a <span style="color:var(--running)">◉</span> means a claude is attached right now; ↵ names its pid and tty instead of starting a second one.</li>
-          <li><b>^r reply</b> — send one turn to a session without opening it, and stay where you are.</li>
-          <li><kbd>↵</kbd> resumes in this window. <b>Under Ghostty</b>, <kbd>^o</kbd> opens the session in a <b>new window</b> and keeps sessio running as a launcher.</li>
+          <li><b><kbd>↵</kbd> resumes here</b>: <span class="mono">claude --resume</span> in the session's own folder, replacing sessio.</li>
+          <li><b>Never twice by accident.</b> On a running <span style="color:var(--running)">◉</span> session, <kbd>↵</kbd> under Ghostty switches to its terminal; elsewhere it names the pid and tty, and only a second <kbd>↵</kbd> opens another copy.</li>
+          <li><b><kbd>^o</kbd></b> opens it in a new Ghostty window and keeps sessio open; <b><kbd>^n</kbd></b> starts a new session in its folder.</li>
+          <li><b><kbd>^r</kbd> replies</b> with one turn without opening it; <b><kbd>^t</kbd></b> follows a running session's tail; <b><kbd>^k</kbd></b> ends one left idle over 48h.</li>
         </ul>
       </div>
     </div>
-    <p class="lead" style="margin-top:24px">Rust, no runtime dependencies. A cold scan of 300 sessions takes about 40ms, so nothing is cached and nothing goes stale.</p>
+    <p class="lead" style="margin-top:22px">Rust, no runtime dependencies. A cold scan of 300 sessions takes about 40ms, so nothing is cached and nothing goes stale.</p>
   </section>
 
-  <section id="keys">
-    <h2>Keys</h2>
+  <section id="cli" aria-labelledby="cli-h">
+    <p class="eyebrow">New in 1.1</p>
+    <h2 id="cli-h">The same things as commands, for scripts and agents</h2>
+    <p class="lead">Every dashboard action is also a command. <code>--json</code> prints the state the dashboard shows, and the keys' guards carry over: <code>resume</code> refuses a running session without <code>--force</code>, <code>reply</code> refuses one too.</p>
+    <div class="two">
+<pre class="code"><span class="p">$ </span>sessions ls --waiting          <span class="c"># blocked on you</span>
+<span class="p">$ </span>sessions ls --here --open      <span class="c"># unfinished, this folder</span>
+<span class="p">$ </span>sessions find "login bug"
+<span class="p">$ </span>sessions find --text ECONNRESET
+<span class="p">$ </span>sessions show 1b6324f5 --json
+<span class="p">$ </span>sessions resume 1b6324f5 --print
+<span class="p">$ </span>sessions reply 1b6324f5 "run the tests again"
+<span class="p">$ </span>sessions archive 1b6324f5
+<span class="p">$ </span>sessions kill 1b6324f5         <span class="c"># idle over 48h only</span></pre>
+      <div>
+        <ul class="plain">
+          <li><b>Ids</b> are any unique prefix; <code>ls</code> prints eight characters.</li>
+          <li><b>Filters</b> for <code>ls</code> and <code>find</code>: <code>--project</code>, <code>--here</code>, <code>--open</code>, <code>--running</code>, <code>--waiting</code>, <code>--archived</code>, <code>--limit</code>.</li>
+          <li><b><code>--json</code></b> on <code>ls</code>, <code>find</code> and <code>show</code>: why a session is open, the process running it, whether it is archived, its transcript path; <code>show</code> adds token totals.</li>
+          <li><b>Exit status</b>: <code>0</code> done, <code>1</code> couldn't, <code>2</code> bad command line.</li>
+          <li><b>Agent skill.</b> <code>skills/sessio/SKILL.md</code> ships in the package and teaches an agent to use these: parse <code>--json</code>, hand you <code>resume --print</code> instead of resuming, ask before <code>reply</code>, and treat transcript text as data.</li>
+        </ul>
+<pre class="code" style="margin-top:14px"><span class="c"># link the skill into Claude Code</span>
+<span class="p">$ </span>ln -s "$(npm root -g)/sessio/skills/sessio" \
+    ~/.claude/skills/sessio</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="keys" aria-labelledby="keys-h">
+    <p class="eyebrow">Reference</p>
+    <h2 id="keys-h">Keys</h2>
+    <div class="table-wrap">
     <table>
-      <tr><th>Key</th><th>Action</th></tr>
+      <thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
+      <tbody>
       <tr><td class="k"><kbd>↑</kbd> <kbd>↓</kbd></td><td>Switch project</td></tr>
       <tr><td class="k"><kbd>←</kbd> <kbd>→</kbd></td><td>Move between session tabs (<kbd>→</kbd> reveals more)</td></tr>
-      <tr><td class="k">type</td><td>Filter the selected tab by name / project / first prompt — literal first, fuzzy if none, among the newest 300</td></tr>
-      <tr><td class="k"><kbd>^w</kbd> / <kbd>⌥⌫</kbd></td><td>Delete the last word of the query</td></tr>
-      <tr><td class="k"><kbd>^u</kbd> / <kbd>⌘⌫</kbd></td><td>Clear the whole query</td></tr>
-      <tr><td class="k"><kbd>^f</kbd></td><td>Full-text search the current query across every transcript on disk (needs ripgrep)</td></tr>
-      <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session locally</td></tr>
-      <tr><td class="k"><kbd>^r</kbd></td><td>Reply to the session without opening it — sends one turn and leaves you in the list</td></tr>
-      <tr><td class="k"><kbd>⇥</kbd> / <kbd>^e</kbd></td><td>Give the latest reply more room (hides the first / last prompts) or back</td></tr>
-      <tr><td class="k"><kbd>PgUp</kbd> / <kbd>PgDn</kbd></td><td>Scroll the latest reply a page; every line of it is reachable without resuming</td></tr>
-      <tr><td class="k"><kbd>↵</kbd></td><td>Resume — if it is already running, says where instead; a second <kbd>↵</kbd> opens it twice anyway</td></tr>
-      <tr><td class="k"><kbd>^o</kbd></td><td>Resume in this window, skipping the already-running guard — and the escape hatch under Ghostty</td></tr>
-      <tr><td class="k"><kbd>?</kbd></td><td>Toggle the full keybinding help</td></tr>
+      <tr><td class="k">type</td><td>Filter the selected tab by name, project or first prompt — literal first, fuzzy if none, among the newest 300</td></tr>
+      <tr><td class="k"><kbd>^w</kbd> <kbd>⌥⌫</kbd></td><td>Delete the last word of the query</td></tr>
+      <tr><td class="k"><kbd>^u</kbd> <kbd>⌘⌫</kbd></td><td>Clear the whole query</td></tr>
+      <tr><td class="k"><kbd>^f</kbd></td><td>Search the text of every transcript on disk for the query (needs ripgrep); <kbd>esc</kbd> goes back to filtering</td></tr>
+      <tr><td class="k"><kbd>^a</kbd></td><td>Archive / unarchive the selected session (a sessio-local hide; the transcript is untouched)</td></tr>
+      <tr><td class="k"><kbd>^r</kbd></td><td>Reply with one turn without opening it (Claude only; the first press warns that it spends tokens; refused while running)</td></tr>
+      <tr><td class="k"><kbd>⇥</kbd> <kbd>^e</kbd></td><td>Give the latest reply more room (hides the first and last prompts), or back</td></tr>
+      <tr><td class="k"><kbd>PgUp</kbd> <kbd>PgDn</kbd></td><td>Scroll the latest reply a page; only the reply moves</td></tr>
+      <tr><td class="k"><kbd>↵</kbd></td><td>Resume in its folder, in this window, replacing sessio. If it is already running: under Ghostty, switch to its terminal; elsewhere, say its pid and tty — a second <kbd>↵</kbd> opens it twice anyway</td></tr>
+      <tr><td class="k"><kbd>^o</kbd></td><td>Ghostty only: resume in a <b>new</b> Ghostty window and keep sessio open, behind the same already-running guard (confirmed with a second <kbd>^o</kbd>)</td></tr>
+      <tr><td class="k"><kbd>^n</kbd></td><td>Start a new <code>claude</code> in the selected session's folder — a new window under Ghostty, this window elsewhere</td></tr>
+      <tr><td class="k"><kbd>^t</kbd></td><td>Follow a running <span style="color:var(--running)">◉</span> session's tail, read-only; any move stops it</td></tr>
+      <tr><td class="k"><kbd>^g</kbd></td><td>GitHub issues for the session's repo (needs <code>gh</code>); <kbd>↵</kbd> opens one in the browser</td></tr>
+      <tr><td class="k"><kbd>^k</kbd></td><td>End a running session idle for more than 48h (not busy, not waiting); confirmed with a second <kbd>^k</kbd></td></tr>
+      <tr><td class="k"><kbd>?</kbd></td><td>Keys and marks; any key closes it</td></tr>
       <tr><td class="k"><kbd>esc</kbd></td><td>Leave the <kbd>^f</kbd> text search, otherwise quit</td></tr>
+      <tr><td class="k"><kbd>^c</kbd></td><td>Quit</td></tr>
+      </tbody>
     </table>
-  </section>
-
-  <section id="install">
-    <h2>Install</h2>
-    <div class="term" style="margin-top:0">
-      <div class="term-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">zsh</span></div>
-<pre style="margin:0;padding:18px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto"><span style="color:var(--faint)"># install (adds the `sessions` command)</span>
-<span style="color:var(--running)">$</span> npm install -g sessio
-
-<span style="color:var(--faint)"># run it</span>
-<span style="color:var(--running)">$</span> sessions
-
-<span style="color:var(--faint)"># optional: full-text search needs ripgrep</span>
-<span style="color:var(--running)">$</span> brew install ripgrep   <span style="color:var(--faint)"># or: apt install ripgrep</span></pre>
-    </div>
-    <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Requires <b style="color:var(--text)">Node.js ≥ 16</b> to install and <b style="color:var(--text)">Claude Code</b> (the <span class="mono">claude</span> binary on your PATH). macOS and Linux.</p>
-
-    <div class="note" style="margin-top:22px"><b>From source:</b> sessio is Rust, shipped as a native binary, with Node needed only to install it. Build it yourself if you prefer:
-      <div style="margin-top:12px;font-family:var(--mono);font-size:13.5px;color:var(--text)">$ cargo install --git https://github.com/theanhgen/sessio</div>
     </div>
   </section>
 
-  <section style="padding-top:0">
-    <div class="note"><b>Note:</b> sessio reads Claude Code's transcript files at <span class="mono">~/.claude/projects/**/*.jsonl</span>. That format is undocumented and internal to Claude Code — it may change without notice. sessio parses defensively and degrades gracefully, but this project is not affiliated with or endorsed by Anthropic.</div>
+  <section id="requirements" aria-labelledby="req-h">
+    <p class="eyebrow">Before you install</p>
+    <h2 id="req-h">Requirements</h2>
+    <div class="two">
+      <div>
+        <ul class="plain">
+          <li><b>Claude Code</b>, with the <code>claude</code> binary on your PATH — it is what sessio resumes.</li>
+          <li><b>macOS or Linux.</b></li>
+          <li><b>Node.js ≥ 16</b>, only to install from npm. sessio is a native binary; <code>cargo install</code> needs no Node at all.</li>
+        </ul>
+      </div>
+      <div>
+        <p style="margin:0 0 6px;color:var(--text);font-weight:600">Optional</p>
+        <ul class="plain">
+          <li><b>ripgrep</b> for <kbd>^f</kbd> and <code>find --text</code>: <code>brew install ripgrep</code> or <code>apt install ripgrep</code>. Without it, typing still filters.</li>
+          <li><b>Ghostty</b> (1.3+ on macOS) for windows: <kbd>↵</kbd> switching to a running session's terminal, <kbd>^o</kbd> and <kbd>^n</kbd> in a new window.</li>
+          <li><b>gh</b>, signed in, for <kbd>^g</kbd> GitHub issues.</li>
+          <li><b>GitHub Copilot CLI</b>: if <code>~/.copilot</code> exists, its sessions are listed too.</li>
+        </ul>
+      </div>
+    </div>
+    <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Update with <code>sessions --update</code>; a normal launch never contacts npm.</p>
+    <div class="note" style="margin-top:18px"><b>Note:</b> sessio reads Claude Code's transcript files at <span class="mono">~/.claude/projects/**/*.jsonl</span>. That format is undocumented and internal to Claude Code — it may change without notice. sessio parses defensively and degrades gracefully, but this project is not affiliated with or endorsed by Anthropic.</div>
   </section>
+  </main>
 
   <footer>
-    <div class="disc">MIT © 2026 theanhgen · not affiliated with Anthropic</div>
+    <div>MIT © 2026 theanhgen · not affiliated with Anthropic</div>
     <div><a href="https://www.npmjs.com/package/sessio">npm</a> · <a href="https://github.com/theanhgen/sessio">GitHub</a> · <a href="https://github.com/theanhgen/sessio/issues">Issues</a></div>
   </footer>
 </div>
 
 <script>
-  function copyCmd(){
-    navigator.clipboard.writeText('npm i -g sessio').then(function(){
-      var b=document.getElementById('copy');b.textContent='copied';
-      setTimeout(function(){b.textContent='copy'},1400);
+  // Copy works without the demo, and says so when the browser refuses: the command is then
+  // selected, so the user can copy it themselves.
+  (function(){
+    var btn = document.getElementById('copy');
+    var status = document.getElementById('copy-status');
+    var cmd = 'npm install -g sessio';
+    function say(text, cls){ status.textContent = text; status.className = 'install-status ' + cls; }
+    function fallback(){
+      var pre = document.getElementById('install-cmd');
+      var range = document.createRange();
+      range.selectNodeContents(pre);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      say("Couldn't copy automatically — the commands are selected; press ⌘C or Ctrl+C.", 'bad');
+    }
+    btn.addEventListener('click', function(){
+      if (!navigator.clipboard || !window.isSecureContext) { fallback(); return; }
+      navigator.clipboard.writeText(cmd).then(function(){
+        say('Copied: ' + cmd, 'ok');
+      }, fallback);
     });
-  }
+  })();
 </script>
 
 <script type="module">
-  // The demo is the real binary. If it cannot load, the page says so rather than pretending.
+  // The demo is the real dashboard. If it cannot load, the page says so and everything else on it
+  // keeps working: nothing above or below depends on this script.
   const screenEl = document.getElementById('screen');
-  const COLS = 104, ROWS = 26;
+  const term = document.getElementById('term');
+  const toggle = document.getElementById('demo-toggle');
+  const hero = document.getElementById('try-hero');
+  const stateEl = document.getElementById('demo-state');
+  const sizeEl = document.getElementById('term-size');
+  const live = document.getElementById('demo-live');
+  const buttons = document.querySelectorAll('.demo-row button');
+
+  // The frame is laid out for the width it has, never scaled: 104x26 on a desktop, down to 60x18,
+  // and below that the screen scrolls sideways rather than shrinking its text.
+  const MIN_COLS = 60, MAX_COLS = 104;
+  let cols = MAX_COLS, rows = 26;
+  function measure(){
+    const probe = document.createElement('span');
+    probe.textContent = 'M'.repeat(50);
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit';
+    screenEl.appendChild(probe);
+    const ch = probe.getBoundingClientRect().width / 50;
+    probe.remove();
+    const cs = getComputedStyle(screenEl);
+    const inner = screenEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    cols = Math.max(MIN_COLS, Math.min(MAX_COLS, Math.floor(inner / (ch || 7.5))));
+    rows = cols >= 96 ? 26 : cols >= 76 ? 22 : 18;
+    screenEl.style.minHeight = (rows * parseFloat(cs.lineHeight) + parseFloat(cs.paddingTop) * 2) + 'px';
+    sizeEl.textContent = 'sessions — ' + cols + '×' + rows;
+  }
+
+  function setState(active){
+    term.classList.toggle('active', active);
+    toggle.textContent = active ? 'Exit demo' : 'Try the demo';
+    stateEl.textContent = active ? 'keys go to the demo · esc leaves' : 'demo not active';
+  }
 
   try {
     const wasm = await import('./demo/sessio.js');
     await wasm.default();
 
-    const paint = () => { screenEl.innerHTML = wasm.render(COLS, ROWS); };
-    const press = (k) => { wasm.key(k); paint(); };
-    paint();
+    let said = '';
+    const paint = () => {
+      screenEl.innerHTML = wasm.render(cols, rows);
+      const f = wasm.feedback();
+      if (f !== said) { said = f; live.textContent = f; }
+    };
+    const enter = () => { screenEl.focus({ preventScroll: false }); };
+    const leave = () => { toggle.focus(); live.textContent = 'Left the demo.'; };
 
-    // Only swallow keys the demo actually uses, and only while it has focus — otherwise the
-    // page cannot be scrolled or navigated with a keyboard.
-    const OWNED = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','PageUp','PageDown','Escape','Backspace']);
+    measure(); paint();
+    new ResizeObserver(() => { const c = cols, r = rows; measure(); if (c !== cols || r !== rows) paint(); }).observe(term);
+
+    screenEl.tabIndex = 0;
+    toggle.disabled = false;
+    screenEl.addEventListener('focus', () => setState(true));
+    screenEl.addEventListener('blur', () => setState(false));
+
+    // Keep focus where it is when the pointer presses a control, so the toggle can tell whether
+    // the demo is active and the key buttons don't pull the keyboard away from the screen.
+    for (const b of [toggle, ...buttons]) b.addEventListener('mousedown', (e) => e.preventDefault());
+    toggle.addEventListener('click', () => (document.activeElement === screenEl ? leave() : enter()));
+    hero.addEventListener('click', () => enter());
+
+    // The keys the dashboard reads, named as `demo::key` expects. Tab is never taken — it always
+    // moves focus on — and neither is anything with ⌘ except ⌘⌫, which a terminal sends as ^u.
+    const NAMED = new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Enter','Escape','Backspace']);
+    const CTRL = new Set(['a','c','e','f','g','k','n','o','r','t','u','w']);
+    const press = (name) => {
+      const quit = wasm.key(name);
+      paint();
+      if (quit && document.activeElement === screenEl) leave();
+    };
     screenEl.addEventListener('keydown', (e) => {
-      if (e.metaKey || e.altKey) return;
-      if (e.ctrlKey) {
-        if (e.key === 'r') { e.preventDefault(); press('^r'); }
-        return;
-      }
-      if (OWNED.has(e.key)) { e.preventDefault(); press(e.key); return; }
-      if (e.key.length === 1) { e.preventDefault(); press(e.key); }
+      if (e.isComposing || e.key === 'Tab') return;
+      let name = null;
+      if (e.metaKey) { if (e.key === 'Backspace') name = '^u'; }
+      else if (e.ctrlKey) { const k = e.key.toLowerCase(); if (!e.altKey && CTRL.has(k)) name = '^' + k; }
+      else if (e.altKey) { if (e.key === 'Backspace') name = 'M-Backspace'; }
+      else if (NAMED.has(e.key) || e.key.length === 1) name = e.key;
+      if (name === null) return;
+      e.preventDefault();
+      press(name);
     });
-    for (const b of document.querySelectorAll('.demo-keys button')) {
-      b.addEventListener('click', () => { press(b.dataset.key); screenEl.focus(); });
+    for (const b of buttons) {
+      b.addEventListener('click', () => {
+        if (b.dataset.key) press(b.dataset.key);
+        else { wasm.scenario(b.dataset.scenario); paint(); }
+      });
     }
   } catch (err) {
     screenEl.textContent =
-      'The live demo failed to load (' + err + ').\n\nEverything below still describes the real thing.';
+      "The live demo couldn't load (" + err + ").\n\n" +
+      'Nothing else on this page needs it: the install command above and the keys, CLI and\n' +
+      'requirements below describe the real thing.';
+    screenEl.style.whiteSpace = 'pre-wrap';
+    screenEl.style.minHeight = '0';
+    stateEl.textContent = 'demo unavailable';
+    toggle.hidden = true;
+    for (const b of buttons) b.disabled = true;
   }
 </script>
 </body>

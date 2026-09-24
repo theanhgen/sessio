@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The website is rebuilt around what sessio does, and its demo is honest.** The page leads with
+  the task, then installing (a copy button that says when the browser refused and selects the
+  command instead), the live demo, find / understand / continue, the 1.1 CLI and agent skill, the
+  keys and the requirements (Claude Code; ripgrep, Ghostty, `gh` and Copilot CLI optional). The key
+  table was wrong: `^o` opens a new Ghostty window behind the running guard, and `^n`, `^t`, `^g`,
+  `^k` and `^c` were missing. The demo is entered with **Try the demo** and left with `esc`,
+  **Exit demo** or `Tab`, which it no longer takes; it shows a focus ring while it has the
+  keyboard and announces its feedback to screen readers. It reads keys the way the terminal does —
+  any key closes help, the reply composer owns the keyboard — and what a browser cannot do (`↵`,
+  `^o`, `^n`, sending a reply, `^k`, `^t`, `^g`) says `browser demo: …` in the warning tone instead
+  of looking like it worked. `^f` searches the fixtures' text. New fixtures cover a session waiting
+  on you, a running one, an archived one, a Copilot session and a reply long enough to `PgDn`,
+  with shortcuts to each and to a search with no matches. The frame is laid out for the width it
+  has (104x26 down to 60x18) instead of shrinking to 9px, the page never scrolls sideways at phone
+  width, and if the demo fails to load the rest of the page still works.
+
 - **Reply, archive and resume say what happened, and to which session.** Every message about a
   session names it (`"fix login redirect…" is running (pid 4242 · ttys009 · busy) — answer it in
   that terminal`), so it still makes sense after you have moved on, and a reply or `^k` result

@@ -203,8 +203,13 @@ Invariants:
   project and session stay put, a different session (by `←→`, `↑↓`, typing or a search) starts at
   the top of its reply, and a live refresh keeps the reader's line. While `^t` or `^g` owns the
   preview they do nothing. Nothing else here used the page keys; the arrows keep their meaning.
-- The website demo supports `↑↓←→`, typing, `⌫`, `⇥`, `PgUp` `PgDn`, `^r`, `?` and `esc`; it cannot resume,
-  send or open windows (#26 labels this).
+- The website demo reads keys the way `handle_key` and `compose_key` do (`ui::demo::key`): any
+  key closes help, the composer owns the keyboard, `esc` leaves `^f` and otherwise quits — which
+  on the page means leaving the demo. `^f` searches the fixtures' text and `^a` archives on the
+  page only. What a browser cannot do (`↵`, `^o`, `^n`, sending a `^r` reply, `^k`, `^t` on a
+  running session, `^g`) answers `browser demo: …` in the warning tone with what the key does in a
+  terminal; it never prints the terminal's success message. `⇥` is never taken, so Tab always
+  moves focus on; `^e` expands instead.
 
 ## Layout, spacing and truncation
 
@@ -345,6 +350,14 @@ The page follows `prefers-color-scheme`. Terminal windows (`.term`) stay dark in
 demo draws the palette a dark terminal shows, and `.term` re-declares the dark roles for
 everything inside it.
 
+The page runs in this order: the task, install (copying is the primary action, and a refused copy
+selects the command and says so), the demo, find / understand / continue, the CLI and agent skill,
+keys, requirements. The demo is entered with **Try the demo** (or by tabbing to it) and left with
+`esc`, **Exit demo** or `Tab`; while it has focus it wears an accent ring and says `keys go to the
+demo`. It lays the frame out for its container — 104x26 on a desktop, down to 60x18 — and never
+shrinks the text below 12px; narrower than 60 columns it scrolls sideways inside its window, never
+the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected.
+
 | Variable | Dark | on surface | on raised | on sunken | Light | on surface | on raised | on sunken |
 |---|---|---|---|---|---|---|---|---|
 | `--text` | `#e6e9ee` | 15.99 | 15.04 | 14.20 | `#16181c` | 17.19 | 15.87 | 14.76 |
@@ -460,6 +473,5 @@ Manual, for a release or a change to this file:
 
 For the issue that owns each:
 
-- The website's key table describes `^o` as "resume in this window, skipping the already-running
-  guard". The code opens a new Ghostty window behind the same guard (#23 / #26).
-- The website lacks `^n`, `^t`, `^g`, `^k` in its key table (#26 / #27).
+- None open. (#26 fixed the website's key table: `^o` is a new Ghostty window behind the same
+  guard, and `^n`, `^t`, `^g`, `^k`, `^c` are listed.)

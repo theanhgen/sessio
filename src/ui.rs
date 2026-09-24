@@ -246,7 +246,6 @@ impl App {
 
     /// `^a`: archive the highlighted session, or unarchive it, and say which — naming it, since
     /// the selection moves off it — and how to undo it from where it went.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the demo does not archive
     fn toggle_archive(&mut self) {
         let Some(i) = self.selected() else { return };
         let (key, id) = (self.items[i].key.clone(), self.items[i].id.clone());
@@ -3081,9 +3080,10 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
         ]),
     ];
     // Shown either way: without ripgrep it says what would bring it back rather than vanishing.
+    // The browser demo searches its fixtures without ripgrep, so it is never missing there.
     v.push(Line::from(vec![
         Span::styled(format!("{:<7}", "^f"), key),
-        if search::rg_path().is_some() {
+        if cfg!(target_arch = "wasm32") || search::rg_path().is_some() {
             Span::raw(format!(
                 "full-text search of every transcript on disk, past the newest {} too",
                 crate::discover::CAP
@@ -5677,7 +5677,6 @@ mod tests {
 
 }
 
-
 // ---------- the browser demo ----------
 
 /// The dashboard, running in a browser instead of a terminal.
@@ -5687,6 +5686,11 @@ mod tests {
 /// keys that no longer existed. Here the page calls the same `frame_lines` the terminal does,
 /// against fixture sessions, so a layout change shows up on the site the next time it is built or
 /// it does not show up at all.
+///
+/// Keys follow `handle_key` and `compose_key` branch for branch. What a browser cannot do —
+/// start or switch to a `claude`, open a window, send a reply, end a process, follow a live
+/// transcript, ask `gh` — says so in the feedback row in the warning tone, naming what the key
+/// does in a terminal. It never answers with the success message the terminal would print.
 #[cfg(target_arch = "wasm32")]
 pub mod demo {
     use super::*;
@@ -5700,75 +5704,266 @@ pub mod demo {
     /// A fixed clock, so the demo's ages read the same on every visit.
     const NOW: i64 = 1_788_000_000_000;
 
-    fn item(n: usize, project: &str, name: &str, ago_min: i64, open: bool) -> Item {
+    /// One fixture session, newest first in `build`. Every one carries its detail, so no preview
+    /// sits on `reading transcript…` for a read the browser will never do.
+    struct Fixture {
+        project: &'static str,
+        name: &'static str,
+        ago_min: i64,
+        open: bool,
+        source: Source,
+        first: &'static str,
+        last: &'static str,
+        recap: Option<&'static str>,
+        reply: String,
+        count: usize,
+    }
+
+    fn item(n: usize, f: &Fixture) -> Item {
+        let recap = f.recap.map(str::to_string);
+        let tokens = (f.source == Source::Claude).then(|| crate::parse::Usage {
+            input: 1_200 + n as u64 * 310,
+            output: 18_400 + n as u64 * 2_900,
+            cache_write: 96_000 + n as u64 * 11_000,
+            cache_read: 1_400_000 + n as u64 * 230_000,
+        });
         Item {
             id: format!("demo-{n}"),
             key: format!("demo-{n}"),
             file: std::path::PathBuf::new(),
-            mtime: NOW - ago_min * 60_000,
+            mtime: NOW - f.ago_min * 60_000,
             size: 8_000 + (n as u64) * 5_300,
-            dir: project.into(),
-            source: Source::Claude,
-            first: Some("where did we get to with the limiter?".into()),
+            dir: f.project.into(),
+            source: f.source,
+            first: Some(f.first.into()),
             first_ts: None,
-            cwd: Some(format!("~/code/{project}")),
+            cwd: Some(format!("~/code/{}", f.project)),
             branch: Some(if n % 3 == 0 { "main" } else { "feat/limiter" }.into()),
             custom: None,
-            ai: Some(name.into()),
-            open,
-            open_reason: open.then_some(crate::parse::OpenReason::CallToAction),
-            recap: None,
+            ai: Some(f.name.into()),
+            open: f.open,
+            open_reason: f.open.then_some(crate::parse::OpenReason::CallToAction),
+            recap: recap.clone(),
             recap_ts: None,
-            title: Some(name.into()),
-            name: name.into(),
-            project: project.into(),
-            hay: format!("{name} {project}").to_lowercase(),
-            detail: None,
+            title: Some(f.name.into()),
+            name: f.name.into(),
+            project: f.project.into(),
+            hay: format!("{} {} {}", f.name, f.project, f.first).to_lowercase(),
+            detail: Some(Detail {
+                count: f.count,
+                first: Some(f.first.into()),
+                last: Some(f.last.into()),
+                reply: Some(f.reply.clone()),
+                recap,
+                tokens,
+                ..Default::default()
+            }),
         }
+    }
+
+    /// A reply taller than any preview the page draws, so `PgDn` has somewhere to go.
+    fn long_reply() -> String {
+        let mut s = String::from(
+            "The release workflow is in `.github/workflows/release.yml`. Here is what it does, \
+             step by step, and what is still open.\n\n## What runs on a tag\n\n",
+        );
+        for (n, step) in [
+            "check the tag matches the version in `Cargo.toml`",
+            "run clippy and the tests on Linux and macOS",
+            "build the four release binaries (x86_64 and aarch64, Linux and macOS)",
+            "strip them and write a sha256 beside each archive",
+            "stage the per-platform npm packages",
+            "publish the npm packages, the platform ones first",
+            "create the GitHub release with the archives attached",
+            "smoke-test `npm i -g` from the registry on a clean runner",
+        ]
+        .iter()
+        .enumerate()
+        {
+            s.push_str(&format!("{}. {step}\n", n + 1));
+        }
+        s.push_str(
+            "\n## Why the platform packages go first\n\nThe main package lists them as optional \
+             dependencies. If it lands first, anyone installing in that window gets a launcher \
+             with no binary behind it, and the error they see does not say why.\n\n\
+             ## Still open\n\n",
+        );
+        for q in [
+            "whether to sign the macOS binaries now or after the first external report",
+            "a rollback: npm cannot unpublish after 72 hours, so a bad release is deprecated, not removed",
+            "the Windows build, which nothing in sessio supports yet",
+        ] {
+            s.push_str(&format!("- {q}\n"));
+        }
+        s.push_str("\n## The dry run\n\n```sh\ngit tag v1.2.0-rc.1\ngit push origin v1.2.0-rc.1\n# watch it\ngh run watch\n```\n\n");
+        for p in [
+            "The dry run publishes under the `next` dist-tag, so `npm i -g sessio` keeps getting the \
+             last stable release while you check the candidate with `npm i -g sessio@next`.",
+            "If the smoke test fails, nothing after it runs, and the release stays a draft you can \
+             delete. The npm packages are already out by then, which is the part to decide on.",
+            "Everything above has run once end to end on a fork. I have not run it against the real \
+             registry — that is the next step, and it is yours to trigger.",
+        ] {
+            s.push_str(p);
+            s.push_str("\n\n");
+        }
+        s.push_str("Want me to add the signing step behind a flag so it can land before the decision?");
+        s
     }
 
     fn build() -> App {
         crate::model::DEMO_NOW.store(NOW, std::sync::atomic::Ordering::Relaxed);
-        let rows: &[(&str, &str, i64, bool)] = &[
-            ("api", "add rate limiting to auth routes", 2, true),
-            ("api", "refactor the cache layer", 41, false),
-            ("web-app", "fix login redirect loop", 180, true),
-            ("web-app", "dark mode tokens", 900, false),
-            ("cli-tool", "ship the release workflow", 1500, false),
-            ("docs", "write onboarding docs", 2600, false),
-        ];
-        let mut items: Vec<Item> =
-            rows.iter().enumerate().map(|(n, r)| item(n, r.0, r.1, r.2, r.3)).collect();
-
-        items[0].recap = Some(
-            "Limiter is in and tested; the Retry-After header still needs a decision on units. \
-             Next action is yours."
-                .into(),
-        );
-        items[0].detail = Some(crate::parse::Detail {
-            count: 14,
-            first: Some("where did we get to with the limiter?".into()),
-            last: Some("use seconds, and document it".into()),
-            reply: Some(
-                "Added a token-bucket limiter on the login and signup routes; over-limit \
-                 requests now return **429** with a `Retry-After`.\n\nThe remaining decision is \
-                 units — seconds is what every client library already expects, so unless you \
-                 want HTTP-date for a specific consumer I'd use that.\n\nWant me to wire the \
-                 same limiter into the password-reset route while I'm here?"
+        let claude = Source::Claude;
+        let fixtures = [
+            Fixture {
+                project: "web-app",
+                name: "fix login redirect loop",
+                ago_min: 1,
+                open: false,
+                source: claude,
+                first: "the login page redirects to itself after the session expires",
+                last: "yes, add a regression test for it",
+                recap: Some("Found the loop: the expiry middleware redirects to /login, which requires a session. Waiting on permission to run the test suite."),
+                reply: "The loop is in `middleware/session.ts`: an expired session redirects to \
+                        `/login`, and `/login` sits behind the same middleware.\n\nI've exempted \
+                        the auth routes and written a test for it. I need to run `npm test` to \
+                        check nothing else relied on the old behaviour."
                     .into(),
-            ),
-            recap: items[0].recap.clone(),
-            ..Default::default()
-        });
+                count: 9,
+            },
+            Fixture {
+                project: "api",
+                name: "add rate limiting to auth routes",
+                ago_min: 2,
+                open: true,
+                source: claude,
+                first: "where did we get to with the limiter?",
+                last: "use seconds, and document it",
+                recap: Some("Limiter is in and tested; the Retry-After header still needs a decision on units. Next action is yours."),
+                reply: "Added a token-bucket limiter on the login and signup routes; over-limit \
+                        requests now return **429** with a `Retry-After`.\n\nThe remaining decision \
+                        is units — seconds is what every client library already expects, so unless \
+                        you want HTTP-date for a specific consumer I'd use that.\n\nWant me to wire \
+                        the same limiter into the password-reset route while I'm here?"
+                    .into(),
+                count: 14,
+            },
+            Fixture {
+                project: "api",
+                name: "refactor the cache layer",
+                ago_min: 41,
+                open: false,
+                source: claude,
+                first: "split the cache into a read-through and a write-behind layer",
+                last: "go ahead with the write-behind part",
+                recap: Some("Read-through layer merged; now writing the write-behind queue and its flush on shutdown."),
+                reply: "Working on the write-behind queue now. The flush on shutdown is the part \
+                        that needs care: it has to finish before the pool closes."
+                    .into(),
+                count: 22,
+            },
+            Fixture {
+                project: "cli-tool",
+                name: "ship the release workflow",
+                ago_min: 180,
+                open: true,
+                source: claude,
+                first: "write a release workflow that publishes to npm on a tag",
+                last: "walk me through what it does before I tag anything",
+                recap: Some("Release workflow written and dry-run on a fork. Signing and a rollback plan are undecided; the first real tag is yours."),
+                reply: long_reply(),
+                count: 31,
+            },
+            Fixture {
+                project: "web-app",
+                name: "dark mode tokens",
+                ago_min: 900,
+                open: false,
+                source: claude,
+                first: "move the colours to tokens so dark mode is one file",
+                last: "looks right, thanks",
+                recap: Some("Colours moved to role tokens with a dark set; contrast checked. Done."),
+                reply: "Done — every colour is a role token now, and `theme.dark.css` redefines \
+                        them. Contrast is at least 4.5:1 for text in both themes."
+                    .into(),
+                count: 11,
+            },
+            Fixture {
+                project: "cli-tool",
+                name: "triage flaky CI job",
+                ago_min: 1400,
+                open: false,
+                source: Source::Copilot,
+                first: "why does the macOS test job fail one run in five?",
+                last: "pin the runner image",
+                recap: Some("The flake is a timing test racing the runner's clock; pinning the image hid it, the real fix is still open."),
+                reply: "Pinned `macos-14` in the workflow. The timing test is still fragile; it \
+                        should compare against an injected clock."
+                    .into(),
+                count: 6,
+            },
+            Fixture {
+                project: "docs",
+                name: "write onboarding docs",
+                ago_min: 2600,
+                open: false,
+                source: claude,
+                first: "draft a getting-started page for new contributors",
+                last: "ship it",
+                recap: Some("Getting-started page merged. Nothing left."),
+                reply: "Merged. The page covers setup, the test commands and where to ask.".into(),
+                count: 8,
+            },
+            Fixture {
+                project: "docs",
+                name: "graphql gateway spike",
+                ago_min: 9000,
+                open: false,
+                source: claude,
+                first: "is a graphql gateway worth it for the three services?",
+                last: "let's not, archive this",
+                recap: Some("Spike concluded: not worth it for three services. Archived."),
+                reply: "Not for three services: the schema stitching costs more than the \
+                        round-trips it saves."
+                    .into(),
+                count: 5,
+            },
+        ];
+        let items: Vec<Item> = fixtures.iter().enumerate().map(|(n, f)| item(n, f)).collect();
 
-        let archive = Archive::default();
-        let tabs = crate::model::tabs_for(&items, &archive);
+        // One session stopped on you, one busy: the `◆ waiting` tab and `◉` come from these.
+        let mut live = crate::live::LiveMap::new();
+        live.insert(
+            items[0].id.clone(),
+            crate::live::Live {
+                pid: 4242,
+                tty: "ttys009".into(),
+                status: "waiting".into(),
+                waiting_for: "input needed".into(),
+            },
+        );
+        live.insert(
+            items[2].id.clone(),
+            crate::live::Live {
+                pid: 5120,
+                tty: "ttys004".into(),
+                status: "busy".into(),
+                waiting_for: String::new(),
+            },
+        );
+
+        // A default Archive is not backed by a file: `^a` changes this page's state and nothing
+        // else.
+        let mut archive = Archive::default();
+        let old = &items[items.len() - 1];
+        archive.toggle(&old.key, &old.id);
+
         let (tx, _rx) = mpsc::channel();
         // The receiver is dropped on purpose: nothing in the browser sends on this channel.
-        App {
+        let mut app = App {
             items,
             archive,
-            tabs,
+            tabs: Vec::new(),
             q: String::new(),
             cur: 0,
             p_idx: 0,
@@ -5782,7 +5977,7 @@ pub mod demo {
             search_gen: 0,
             details: HashMap::new(),
             detail_inflight: HashSet::new(),
-            live: crate::live::LiveMap::new(),
+            live,
             confirm: None,
             kill_confirm: None,
             draft: None,
@@ -5795,7 +5990,9 @@ pub mod demo {
             reply_top: None,
             reply_view: None,
             tx,
-        }
+        };
+        app.tabs = app.tabs_now();
+        app
     }
 
     /// A role colour as the page draws it: the xterm-256 value `theme::rgb` gives, as hex.
@@ -5841,56 +6038,252 @@ pub mod demo {
         })
     }
 
-    /// A keypress from the page. Names match the terminal's keys; unknown ones are ignored, so
-    /// the page can forward anything without having to know what the dashboard supports.
+    /// The feedback row's message, for the page to announce to a screen reader. Empty when there
+    /// is none.
     #[wasm_bindgen]
-    pub fn key(name: &str) {
+    pub fn feedback() -> String {
+        APP.with(|a| a.borrow().flash.clone())
+    }
+
+    /// Something a terminal would do and a browser cannot. Said in the warning tone — it did not
+    /// happen — with what the key does where it can.
+    fn browser_cannot(app: &mut App, what: String) {
+        app.say(Tone::Warning, format!("browser demo: {what}"));
+    }
+
+    fn agent(source: Source) -> &'static str {
+        match source {
+            Source::Claude => "claude",
+            Source::Copilot => "copilot",
+        }
+    }
+
+    /// `↵` / `^o` / `^n`, which all start or switch to an agent process.
+    fn launch_key(app: &mut App, key: &str) {
+        let Some(i) = app.selected() else { return };
+        let it = &app.items[i];
+        let who = target(it.display_name());
+        let cwd = it.cwd.clone().unwrap_or_default();
+        let what = match (key, app.live.get(&it.id)) {
+            ("^n", _) => format!("nothing started · ^n starts a new claude in {cwd}"),
+            ("↵", Some(live)) => format!(
+                "{who} is running ({}) · in Ghostty ↵ switches to its terminal",
+                running_where(live)
+            ),
+            ("↵", None) => format!(
+                "nothing resumed · ↵ runs {} --resume for {who} in {cwd}",
+                agent(it.source)
+            ),
+            _ => format!("no window opened · under Ghostty ^o resumes {who} in a new window"),
+        };
+        browser_cannot(app, what);
+    }
+
+    /// `^f` over the fixtures' text: the prompts, recap and reply a transcript search would find.
+    /// The same guards and the same result state as `begin_text_search` / `finish_text_search`;
+    /// only the ripgrep run is replaced, since there is no disk to run it over.
+    fn text_search(app: &mut App) {
+        if app.q.is_empty() {
+            app.say(Tone::Warning, "type a word first · ^f searches every transcript for it".into());
+            return;
+        }
+        let q = app.q.to_lowercase();
+        let keys = app
+            .items
+            .iter()
+            .filter(|it| {
+                let d = it.detail.as_ref();
+                [
+                    Some(it.name.as_str()),
+                    d.and_then(|d| d.first.as_deref()),
+                    d.and_then(|d| d.last.as_deref()),
+                    d.and_then(|d| d.recap.as_deref()),
+                    d.and_then(|d| d.reply.as_deref()),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|t| t.to_lowercase().contains(&q))
+            })
+            .map(|it| it.key.clone())
+            .collect();
+        app.search_gen += 1;
+        app.text = TextSearch::Idle;
+        app.deep = Some(Deep { query: app.q.clone(), keys, files: Vec::new() });
+        app.rebuild_tabs();
+        app.p_idx = 0;
+        app.reset_position();
+        app.ensure_detail();
+    }
+
+    /// `compose_key`, without the send.
+    fn compose(app: &mut App, name: &str) {
+        let Some((id, text)) = app.draft.clone() else { return };
+        match name {
+            "Escape" => {
+                app.draft = None;
+                app.failed.remove(&id);
+                app.say(Tone::Info, format!("reply to {} discarded", app.target_of(&id)));
+            }
+            "Enter" => {
+                app.draft = None;
+                let who = app.target_of(&id);
+                if text.trim().is_empty() {
+                    app.say(Tone::Warning, format!("nothing to send to {who} — composer closed"));
+                } else {
+                    browser_cannot(
+                        app,
+                        format!("reply not sent · in a terminal ↵ sends it to {who} with claude -p --resume"),
+                    );
+                }
+            }
+            "M-Backspace" | "^w" => {
+                let kept = drop_word(&text);
+                app.draft = Some((id, text[..kept].to_string()));
+            }
+            "^u" => app.draft = Some((id, String::new())),
+            "Backspace" => {
+                let mut t = text;
+                t.pop();
+                app.draft = Some((id, t));
+            }
+            _ => {
+                let mut ch = name.chars();
+                if let (Some(c), None) = (ch.next(), ch.next()) {
+                    if c >= ' ' {
+                        let mut t = text;
+                        t.push(c);
+                        app.draft = Some((id, t));
+                    }
+                }
+            }
+        }
+    }
+
+    /// A keypress from the page, named the way the page's key legend writes it: `ArrowUp`,
+    /// `Enter`, `Escape`, `PageDown`, `Tab`, `Backspace`, `M-Backspace` (⌥⌫), `^r` for a control
+    /// key, or a single character. Unknown names are ignored.
+    ///
+    /// Returns true when the dashboard would quit (`esc` with nothing to leave, `^c`): on the page
+    /// that is leaving the demo.
+    #[wasm_bindgen]
+    pub fn key(name: &str) -> bool {
         APP.with(|a| {
             let mut app = a.borrow_mut();
+            let app = &mut *app;
+
+            // While the composer is open it takes every key, as in the terminal.
+            if app.draft.is_some() {
+                compose(app, name);
+                return false;
+            }
+            // `disarm`: the demo never arms a consent, but keep the rule where it is written.
+            app.confirm = None;
+            app.kill_confirm = None;
+
+            if name == "^c" {
+                return true;
+            }
+            if app.help {
+                app.help = false; // any key closes the overlay
+                return false;
+            }
+
             match name {
+                "^g" => browser_cannot(app, "no gh here · ^g lists the GitHub issues for the session's repo".into()),
+                "?" => app.help = true,
+                "Escape" => {
+                    if app.in_text_search() {
+                        app.leave_text_search();
+                    } else {
+                        return true;
+                    }
+                }
+                "^f" => text_search(app),
+                "^a" => app.toggle_archive(),
+                "^r" => app.begin_reply(),
+                // A session with nothing to follow gets the terminal's own refusal; only the
+                // follow itself needs a transcript the browser does not have.
+                "^t" => {
+                    let running = app.selected().is_some_and(|i| {
+                        app.items[i].source == Source::Claude && app.live.contains_key(&app.items[i].id)
+                    });
+                    if running {
+                        browser_cannot(app, "no live transcript to follow · ^t tails this ◉ session, read-only".into());
+                    } else {
+                        app.toggle_follow();
+                    }
+                }
+                "^k" => browser_cannot(app, "nothing ended · ^k ends a claude idle over 48h, after a second ^k".into()),
+                "Tab" | "^e" => app.expand = !app.expand,
+                "PageDown" => app.scroll_reply(true),
+                "PageUp" => app.scroll_reply(false),
                 "ArrowUp" => app.step_project(-1),
                 "ArrowDown" => app.step_project(1),
                 "ArrowLeft" => app.step_session(-1),
                 "ArrowRight" => app.step_session(1),
-                "Tab" => app.expand = !app.expand,
-                "PageDown" => app.scroll_reply(true),
-                "PageUp" => app.scroll_reply(false),
-                "?" => app.help = !app.help,
-                "Escape" => {
-                    if app.draft.is_some() {
-                        app.draft = None;
-                    } else if !app.q.is_empty() {
-                        app.q.clear();
-                        app.requery();
-                    } else {
-                        app.help = false;
-                    }
+                "M-Backspace" | "^w" => {
+                    let kept = drop_word(&app.q);
+                    app.q.truncate(kept);
+                    app.requery();
+                }
+                "^u" => {
+                    app.q.clear();
+                    app.requery();
                 }
                 "Backspace" => {
-                    if let Some((id, mut t)) = app.draft.take() {
-                        t.pop();
-                        app.draft = Some((id, t));
-                    } else {
-                        app.q.pop();
-                        app.requery();
-                    }
+                    app.q.pop();
+                    app.requery();
                 }
-                "^r" => app.begin_reply(),
-                "^t" => app.toggle_follow(),
+                "Enter" => launch_key(app, "↵"),
+                "^o" => launch_key(app, "^o"),
+                "^n" => launch_key(app, "^n"),
                 _ => {
                     let mut ch = name.chars();
                     if let (Some(c), None) = (ch.next(), ch.next()) {
                         if c >= ' ' {
-                            if let Some((id, mut t)) = app.draft.take() {
-                                t.push(c);
-                                app.draft = Some((id, t));
-                            } else {
-                                app.q.push(c);
-                                app.requery();
-                            }
+                            app.q.push(c);
+                            app.requery();
                         }
                     }
                 }
+            }
+            false
+        })
+    }
+
+    /// Put the demo in one of the states the page offers as a shortcut. Each is reached the way
+    /// a user would reach it — the same tabs, query and search — so it draws exactly what those
+    /// keys would; the shortcut only saves the walk. Unknown names change nothing.
+    #[wasm_bindgen]
+    pub fn scenario(name: &str) {
+        APP.with(|a| {
+            let mut app = a.borrow_mut();
+            let app = &mut *app;
+            app.help = false;
+            app.draft = None;
+            app.issues = false;
+            app.flash.clear();
+            app.q.clear();
+            app.requery();
+            let tab = |app: &App, t: &str| app.tabs.iter().position(|x| x == t);
+            match name {
+                "waiting" => app.p_idx = tab(app, WAITING_TAB).unwrap_or(0),
+                "archived" => app.p_idx = tab(app, ARCHIVED_TAB).unwrap_or(0),
+                "long" => {
+                    app.p_idx = tab(app, ALL_TAB).unwrap_or(0);
+                    let v = app.view();
+                    app.cur = v
+                        .iter()
+                        .position(|&i| app.items[i].name == "ship the release workflow")
+                        .unwrap_or(0);
+                }
+                "nomatch" => {
+                    app.p_idx = tab(app, ALL_TAB).unwrap_or(0);
+                    app.q = "kubernetes".into();
+                    app.requery();
+                    text_search(app);
+                }
+                _ => app.p_idx = tab(app, ALL_TAB).unwrap_or(0),
             }
         })
     }
