@@ -10,6 +10,8 @@ use crate::safety::sanitize;
 use crate::store::Archive;
 
 pub const OPEN_TAB: &str = "⏸ open";
+/// Running sessions parked on a question or permission prompt. Present only while one is.
+pub const WAITING_TAB: &str = "◆ waiting";
 pub const ARCHIVED_TAB: &str = "🗄 archived";
 pub const ALL_TAB: &str = "⌂ everything";
 

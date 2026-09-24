@@ -28,7 +28,7 @@ use ratatui::Terminal;
 use unicode_width::UnicodeWidthStr;
 
 use crate::md::md_lines;
-use crate::model::{self, Item, ACTIVE_MS, ALL_TAB, ARCHIVED_TAB, OPEN_TAB, RECENT_MS};
+use crate::model::{self, Item, ACTIVE_MS, ALL_TAB, ARCHIVED_TAB, OPEN_TAB, RECENT_MS, WAITING_TAB};
 use crate::parse::Detail;
 use crate::safety::sanitize;
 use crate::store::Archive;
@@ -163,6 +163,7 @@ impl App {
                     let in_tab = match tab {
                         ALL_TAB => true,
                         OPEN_TAB => it.open,
+                        WAITING_TAB => self.is_waiting(it),
                         p => it.project == p,
                     };
                     in_tab && !self.archived(it)
@@ -271,9 +272,26 @@ impl App {
         }
     }
 
+    /// Whether a `claude` on this session has stopped and wants something from you.
+    fn is_waiting(&self, it: &Item) -> bool {
+        self.live.get(&it.id).is_some_and(|l| l.needs_you())
+    }
+
+    /// The project panel: `model::tabs_for`, plus a waiting tab right below the open one while any
+    /// visible session is waiting on you — so they are one ↑↓ away instead of scattered across
+    /// projects. It comes and goes with the live refresh.
+    fn tabs_now(&self) -> Vec<String> {
+        let mut tabs = model::tabs_for(&self.items, &self.archive);
+        if self.items.iter().any(|it| self.is_waiting(it) && !self.archived(it)) {
+            let at = tabs.iter().position(|t| t == OPEN_TAB).map_or(1, |i| i + 1);
+            tabs.insert(at, WAITING_TAB.to_string());
+        }
+        tabs
+    }
+
     fn rebuild_tabs(&mut self) {
         let active = self.tabs.get(self.p_idx).cloned();
-        self.tabs = model::tabs_for(&self.items, &self.archive);
+        self.tabs = self.tabs_now();
         self.p_idx = active
             .and_then(|name| self.tabs.iter().position(|t| *t == name))
             .unwrap_or(0);
@@ -494,7 +512,7 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
         let s = if freed == 1 { "" } else { "s" };
         app.say(format!("↩ {freed} archived session{s} back — active again"));
     }
-    app.tabs = model::tabs_for(&app.items, &app.archive);
+    app.tabs = app.tabs_now();
     app.p_idx = active_tab
         .and_then(|name| app.tabs.iter().position(|t| *t == name))
         .unwrap_or(0);
@@ -803,8 +821,12 @@ fn resume_selected(
     let confirmed = app.confirm.as_ref() == Some(&(id.clone(), new_window));
     if let EnterAction::GoToRunning = enter_action(running.is_some(), confirmed) {
         let live = running.expect("GoToRunning implies a live process");
-        if focus_enabled() && resume::focus_window_titled(&name) {
-            let short: String = name.chars().take(40).collect();
+        let short: String = name.chars().take(40).collect();
+        // Ghostty can name the exact terminal by tty, tab and split included — so going to the
+        // session is the default there, not an opt-in. Title matching stays behind SESSIO_FOCUS.
+        if resume::in_ghostty() && resume::focus_tty(&live.tty) {
+            app.say(format!("↗ switched to \"{short}\" — already running ({})", running_where(&live)));
+        } else if focus_enabled() && resume::focus_window_titled(&name) {
             app.say(format!("↗ focused \"{short}\" — already running"));
         } else {
             app.confirm = Some((id, new_window));
@@ -1441,7 +1463,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
         Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
-        Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ says where, ↵ again opens it twice)")]),
+        Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ goes to its window under Ghostty, else says where; ↵ again opens it twice)")]),
         Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
         Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
         Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
@@ -1730,7 +1752,8 @@ mod tests {
             hay: format!("session {n} in {project} {project}"),
             detail: None,
         };
-        let projects: Vec<&str> = tabs.iter().copied().filter(|t| *t != ALL_TAB && *t != OPEN_TAB).collect();
+        let projects: Vec<&str> =
+            tabs.iter().copied().filter(|t| ![ALL_TAB, OPEN_TAB, WAITING_TAB].contains(t)).collect();
         // Always the same number of sessions, dealt round-robin across whatever projects there
         // are: otherwise a test comparing list height across tab sets compares item counts.
         let items = (0..12)
@@ -2132,6 +2155,39 @@ mod tests {
         // And the bar says so, at a priority nothing can shed it from.
         let bar: String = header(&app, 60).spans.iter().map(|s| s.content.to_string()).collect();
         assert!(bar.contains("waiting on you"), "even a narrow bar says it: {bar:?}");
+    }
+
+    #[test]
+    fn a_waiting_tab_sits_below_open_and_holds_only_waiting_sessions() {
+        let mut app = fixture(&real_tabs());
+        let live = |status: &str| crate::live::Live {
+            pid: 1,
+            tty: "ttys000".into(),
+            status: status.into(),
+            waiting_for: String::new(),
+        };
+        let (a, b) = (app.items[0].id.clone(), app.items[3].id.clone());
+        app.items[1].open = true; // so there is an open tab to sit below
+
+        app.live.insert(a.clone(), live("busy"));
+        assert!(!app.tabs_now().iter().any(|t| t == WAITING_TAB), "busy is not waiting");
+
+        app.live.insert(a.clone(), live("waiting"));
+        app.live.insert(b.clone(), live("waiting"));
+        app.rebuild_tabs();
+        let open = app.tabs.iter().position(|t| t == OPEN_TAB).unwrap();
+        assert_eq!(app.tabs[open + 1], WAITING_TAB, "right below open: {:?}", app.tabs);
+
+        app.p_idx = open + 1;
+        let ids: Vec<&str> = app.view().iter().map(|&i| app.items[i].id.as_str()).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&a.as_str()) && ids.contains(&b.as_str()), "{ids:?}");
+
+        // Once nothing waits the tab goes, and the panel falls back rather than pointing at air.
+        app.live.clear();
+        app.rebuild_tabs();
+        assert!(!app.tabs.iter().any(|t| t == WAITING_TAB));
+        assert!(app.p_idx < app.tabs.len());
     }
 
     /// Eyeball it: `cargo test dump_the_dashboard -- --nocapture --ignored`.

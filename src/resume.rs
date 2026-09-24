@@ -120,6 +120,42 @@ pub fn ghostty_launch(cwd: &Path, id: &str) -> Result<(), String> {
     }
 }
 
+/// Bring forward the Ghostty terminal on `tty` — the one a running session lives in — through
+/// Ghostty's AppleScript dictionary (1.3+), where every terminal reports its tty and `focus`
+/// selects its tab and split and raises its window. Unlike matching window titles, this reaches
+/// background tabs and unfocused splits, and cannot pick the wrong window.
+///
+/// `false` means Ghostty had no terminal on that tty (the session runs in another terminal app,
+/// or the process is gone) or refused; the caller falls back to saying where it is.
+#[cfg(target_os = "macos")]
+pub fn focus_tty(tty: &str) -> bool {
+    const SCRIPT: &str = r#"on run argv
+  tell application "Ghostty"
+    set ts to (every terminal whose tty is (item 1 of argv))
+    if (count of ts) is 0 then return "nomatch"
+    focus (item 1 of ts)
+    activate
+  end tell
+  return "ok"
+end run"#;
+    if tty.is_empty() {
+        return false;
+    }
+    let dev = if tty.starts_with("/dev/") { tty.to_string() } else { format!("/dev/{tty}") };
+    Command::new("osascript")
+        .args(["-e", SCRIPT, &dev])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map(|o| o.stdout.starts_with(b"ok"))
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn focus_tty(_tty: &str) -> bool {
+    false
+}
+
 /// Raise the terminal window already showing this session, so ↵ moves you to the running
 /// session instead of starting a second `claude` on the same transcript.
 ///
