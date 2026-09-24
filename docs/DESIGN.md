@@ -75,22 +75,49 @@ glyphs are pairwise distinct.
 
 | Glyph | Word | Where | Meaning | Role |
 |---|---|---|---|---|
-| `◆` | waiting | dot, `◆ waiting` tab, key bar `◆ N waiting on you` | a running session is stopped on a question or permission prompt | attention, bold |
-| `◉` | running | dot, preview `◉ running · pid · tty` | a `claude` process is attached right now | running |
-| `●` | active | dot | transcript written in the last 5 minutes, nothing attached | running |
-| `○` | recent | dot | written in the last 24 hours | recent |
-| (none) | — | dot | older than 24 hours | — |
-| `▸` | unfinished / pick up | tab mark, preview `▸ pick up · <reason>` | ended on a question, unanswered prompt, or uncommitted git changes | attention |
+| `◆` | waiting | dot, `◆ waiting` tab, key bar `◆ N waiting on you`, preview `◆ waiting on you · <what for> · pid · tty` | a running session is stopped on a question or permission prompt | attention, bold |
+| `◉` | running | dot, preview `◉ running · busy · pid · tty` (or `idle`, or whatever status the registry reports) | a `claude` process is attached right now | running |
+| `●` | active | dot, preview `● recently updated · 2m ago · not running` | transcript written in the last 5 minutes, nothing attached | running |
+| `○` | recent | dot, preview `○ recently updated · 3h ago · not running` | written in the last 24 hours, nothing attached | recent |
+| (none) | — | dot, preview `updated 3d ago · not running` | older than 24 hours | — |
+| `▸` | unfinished | tab mark, preview `▸ unfinished · <reason>` | the reason (`open_reason`): `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next` (only for 3 days), `uncommitted changes` (git WIP, on the folder's newest session) | attention |
 | `⏸` | open | tab `⏸ open` | the collection of unfinished sessions | dim / selection |
 | `🗄` | archived | tab `🗄 archived`, preview line | hidden locally by `^a`; comes back when written to again | dim |
 | `⌂` | everything | tab `⌂ everything` | all sessions not archived | dim / selection |
 | `copilot` | — | tab and preview tag | written by GitHub Copilot CLI | agent tag |
-| `stale` | stale | preview `· stale · idle Nd`, key bar `^k end-stale` | running but idle for more than 48 hours; `^k` can end it | dim |
+| `stale` | stale | preview `◉ running · stale · idle Nd · pid · tty`, key bar `^k end-stale` | running but idle for more than 48 hours; `^k` can end it | dim |
 | `◌` | ended | follow header | the followed session stopped running | attention |
 | `✓` | contains | preview `✓ contains "…"` | matched a `^f` content search | attention |
 | `⚑` | issues | preview line, `^g` list | open GitHub issues for the folder's repo | attention / dim |
 
 The waiting dot outranks running, which outranks recency: a session shows one dot, the most urgent.
+
+### State summary
+
+The preview says the highlighted session's state in words, on fixed rows: the row under the title
+(`CHROME + 2`) is always the state, and an unfinished session's `▸ unfinished · <reason>` is always
+the row after it. Exactly one of waiting on you, running, recently updated or not running, then
+the pid and tty of a process. Process presence and transcript recency stay apart: a transcript
+written a minute ago with nothing attached says `not running`, and a stale process says `running`.
+
+- The parts are joined by ` · ` and **wrap between parts**, continuation rows indented two
+  columns, so a narrow window keeps the pid and tty (the route to the running window) instead of
+  cutting them. Only a single part wider than the row ends in `…`.
+- Below the minimum size the same summary, two rows at most, follows the highlighted session.
+- It is presentation only: it reads `live` and `open_reason` and decides nothing. The dot, the
+  `⏸ open` and `◆ waiting` tabs and `sessions --json` classify on their own
+  (`presentation_does_not_change_classification`).
+- The key bar's `◆ N waiting on you` is the exact number the `◆ waiting` tab holds (waiting,
+  listed, not archived), never "several".
+
+### Help overlay
+
+`?` shows the keys, then the status legend grouped by what each mark is evidence of: **process**
+(`◆ waiting`, `◉ running`, `stale`), **transcript** (`●` `○`, not running), **unfinished** (`▸`
+and its four reasons) and **agent** (`copilot`). It fits 80x24; a shorter window ends on
+`… a taller window shows the rest`. The `↵` line says what happens on a running session under
+Ghostty (switch to its terminal by tty) and elsewhere (say its pid · tty); it must not promise to
+focus or raise a window.
 
 ## Keybinding invariants
 
@@ -158,7 +185,8 @@ Invariants:
 - **Minimum size**: `MIN_COLS = 50` x `MIN_ROWS = 12`, the panel at its narrowest plus a body that
   holds a readable strip, and the chrome plus a few lines of preview and the feedback row. Below it
   the frame is `window too small (need 50x12)`, then any feedback, the composer if open, the
-  selected tab and position, the highlighted session, and the keys, each cut to the width. Every
+  selected tab and position, the highlighted session and its state summary (two rows at most,
+  so a running one keeps its pid and tty), and the keys, each cut to the width. Every
   key keeps its meaning; only the drawing gives up
   (`below_the_minimum_the_frame_says_so_and_keeps_the_essentials`).
 - **Supported sizes** held by fixtures: 60x18, 80x24, 104x26 (the website demo), 160x40, the
@@ -182,7 +210,7 @@ Invariants:
 
   | Priority | Hints |
   |---|---|
-  | 0 (never shed) | `◆ N waiting on you`, `? help` |
+  | 0 (never shed) | `◆ N waiting on you` (exact count), `? help` |
   | 1 | `↵ resume` |
   | 2 | `^o new-window` (Ghostty only), `^r reply`, `esc quit` |
   | 3 | `←→ session`, `^k end-stale` (only when it would act) |
@@ -279,6 +307,11 @@ Automated (in `cargo test`):
   `unicode_titles_and_long_paths_stay_in_their_regions`: the region layout at 60x18, 80x24,
   104x26, 160x40 and below the minimum, with width assertions on every row.
 - `ui::tests::the_panel_and_the_tab_strip_highlight_differently`: no reverse video.
+- `ui::tests::the_preview_says_each_state_in_the_same_place`: the state fixtures (waiting, busy,
+  idle, recent-but-not-running, unanswered prompt, git WIP) and the row each lands on;
+  `narrow_layouts_keep_the_state_and_the_route_to_it` (pid and tty at every size and below the
+  minimum); `presentation_does_not_change_classification`;
+  `the_key_bar_counts_the_sessions_waiting_on_you`; `help_groups_the_status_legend`.
 
 Manual, for a release or a change to this file:
 
@@ -300,4 +333,3 @@ For the issue that owns each:
 - The website's key table describes `^o` as "resume in this window, skipping the already-running
   guard". The code opens a new Ghostty window behind the same guard (#23 / #26).
 - The website lacks `^n`, `^t`, `^g`, `^k` in its key table (#26 / #27).
-- The help overlay's legend covers `◉ ● ○` but not `◆ ▸` (#22 groups the legend).

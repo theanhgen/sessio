@@ -1,5 +1,6 @@
 //! The dashboard. Port of the picker, preview and event loop (bin/sessio.mjs:360-782).
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Stdout};
 use std::path::PathBuf;
@@ -310,6 +311,12 @@ impl App {
     /// Whether a `claude` on this session has stopped and wants something from you.
     fn is_waiting(&self, it: &Item) -> bool {
         self.live.get(&it.id).is_some_and(|l| l.needs_you())
+    }
+
+    /// How many sessions are waiting on you: exactly what the `◆ waiting` tab holds, so the key
+    /// bar's count and the panel's never disagree.
+    fn waiting_count(&self) -> usize {
+        self.items.iter().filter(|it| self.in_tab(WAITING_TAB, it)).count()
     }
 
     /// The project panel: `model::tabs_for`, plus a waiting tab right below the open one while any
@@ -1229,7 +1236,7 @@ fn draw(f: &mut ratatui::Frame, app: &mut App) {
 /// a browser instead of a terminal but the same dashboard to draw.
 fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     if app.help {
-        return help_lines();
+        return help_lines(cols, rows);
     }
 
     let view = app.view();
@@ -1318,10 +1325,14 @@ fn too_small(app: &App, view: &[usize], cols: usize, rows: usize) -> Vec<Line<'s
         let mut spans = tab_marks(app, it, None);
         spans.push(Span::styled(sanitize(it.display_name()), theme::accent()));
         lines.push(Line::from(spans));
+        // Its state, and for a running one the pid and tty that lead to its window: the first
+        // thing a narrow window would otherwise lose. Two rows at most, so the keys stay.
+        lines.extend(state_lines(&state_segments(app, it, model::now_ms()), cols, 0).into_iter().take(2));
     }
     let mut keys = String::new();
-    if app.live.values().any(crate::live::Live::needs_you) {
-        keys.push_str("◆ waiting on you · ");
+    let waiting = app.waiting_count();
+    if waiting > 0 {
+        keys.push_str(&format!("◆ {waiting} waiting on you · "));
     }
     keys.push_str("↑↓ ←→ · ↵ resume · ? help · esc quit");
     lines.push(Line::from(Span::styled(keys, dim())));
@@ -1372,7 +1383,7 @@ fn clip(line: Line<'static>, w: usize) -> Line<'static> {
 /// One hint in the key bar. `p` is how expendable it is: the bar sheds the highest `p` first.
 struct Seg {
     p: u8,
-    t: &'static str,
+    t: Cow<'static, str>,
     accent: bool,
 }
 
@@ -1391,7 +1402,7 @@ fn fit_segments(segs: &[Seg], cols: usize) -> Vec<&Seg> {
         let keep: Vec<&Seg> = segs.iter().filter(|s| s.p <= cut).collect();
         let w: usize = keep
             .iter()
-            .map(|s| UnicodeWidthStr::width(s.t))
+            .map(|s| UnicodeWidthStr::width(s.t.as_ref()))
             .sum::<usize>()
             + SEP_W * keep.len().saturating_sub(1);
         if w <= cols || cut == 0 {
@@ -1403,7 +1414,7 @@ fn fit_segments(segs: &[Seg], cols: usize) -> Vec<&Seg> {
 
 
 fn header(app: &App, cols: usize) -> Line<'static> {
-    let waiting = app.live.values().filter(|l| l.needs_you()).count();
+    let waiting = app.waiting_count();
     // The full bar is ~136 columns under Ghostty. Anything narrower would be clipped mid-word by
     // the paragraph, so drop the least essential hints instead. `? help` is p0 — it reveals
     // everything that was dropped — and the resume key is p1 because it is the whole point.
@@ -1412,33 +1423,33 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     // So it also takes the `↑↓` hint off it: the panel labels that key itself, right above the
     // column it moves through, which is a better place for it than a bar of ten hints.
     let mut segs: Vec<Seg> =
-        vec![Seg { p: 3, t: "←→ session", accent: false }, Seg { p: 4, t: "type", accent: false }];
+        vec![Seg { p: 3, t: Cow::Borrowed("←→ session"), accent: false }, Seg { p: 4, t: Cow::Borrowed("type"), accent: false }];
     if search::rg_path().is_some() {
-        segs.push(Seg { p: 5, t: "^f search-in-text", accent: false });
+        segs.push(Seg { p: 5, t: Cow::Borrowed("^f search-in-text"), accent: false });
     }
     segs.push(if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
-        Seg { p: 5, t: "^a unarchive", accent: false }
+        Seg { p: 5, t: Cow::Borrowed("^a unarchive"), accent: false }
     } else {
-        Seg { p: 5, t: "^a archive", accent: false }
+        Seg { p: 5, t: Cow::Borrowed("^a archive"), accent: false }
     });
     segs.push(if app.expand {
-        Seg { p: 4, t: "⇥ collapse", accent: true }
+        Seg { p: 4, t: Cow::Borrowed("⇥ collapse"), accent: true }
     } else {
-        Seg { p: 4, t: "⇥ expand-reply", accent: false }
+        Seg { p: 4, t: Cow::Borrowed("⇥ expand-reply"), accent: false }
     });
     if resume::in_ghostty() {
-        segs.push(Seg { p: 1, t: "↵ resume", accent: false });
-        segs.push(Seg { p: 2, t: "^o new-window", accent: false });
+        segs.push(Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false });
+        segs.push(Seg { p: 2, t: Cow::Borrowed("^o new-window"), accent: false });
     } else {
-        segs.push(Seg { p: 1, t: "↵ resume", accent: false });
+        segs.push(Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false });
     }
-    segs.push(Seg { p: 2, t: "^r reply", accent: false });
+    segs.push(Seg { p: 2, t: Cow::Borrowed("^r reply"), accent: false });
     segs.push(if app.follow.is_some() {
-        Seg { p: 4, t: "^t unfollow", accent: true }
+        Seg { p: 4, t: Cow::Borrowed("^t unfollow"), accent: true }
     } else {
-        Seg { p: 5, t: "^t follow", accent: false }
+        Seg { p: 5, t: Cow::Borrowed("^t follow"), accent: false }
     });
-    segs.push(Seg { p: 4, t: "^g issues", accent: false });
+    segs.push(Seg { p: 4, t: Cow::Borrowed("^g issues"), accent: false });
     // Only offered when it would do something: most sessions are not running, and of the ones
     // that are, few have sat for two days.
     let stale = app.selected().is_some_and(|i| {
@@ -1446,27 +1457,24 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         crate::kill::verdict(app.live.get(&it.id), it.mtime, model::now_ms()).is_stale()
     });
     if stale {
-        segs.push(Seg { p: 3, t: "^k end-stale", accent: false });
+        segs.push(Seg { p: 3, t: Cow::Borrowed("^k end-stale"), accent: false });
     }
     // Never shed: a session waiting on you is the most urgent thing the bar can say, so it
-    // outranks every hint including `? help`.
+    // outranks every hint including `? help`. The exact number, the same one the `◆ waiting`
+    // tab holds, so the bar and the panel never disagree about how many there are.
     if waiting > 0 {
-        segs.push(Seg {
-            p: 0,
-            t: if waiting == 1 { "◆ 1 waiting on you" } else { "◆ several waiting on you" },
-            accent: true,
-        });
+        segs.push(Seg { p: 0, t: Cow::Owned(format!("◆ {waiting} waiting on you")), accent: true });
     }
-    segs.push(Seg { p: 0, t: "? help", accent: false });
-    segs.push(Seg { p: 2, t: "esc quit", accent: false });
-    segs.push(Seg { p: 5, t: "live", accent: true });
+    segs.push(Seg { p: 0, t: Cow::Borrowed("? help"), accent: false });
+    segs.push(Seg { p: 2, t: Cow::Borrowed("esc quit"), accent: false });
+    segs.push(Seg { p: 5, t: Cow::Borrowed("live"), accent: true });
     // The issues list has keys of its own, and the dashboard's would be wrong while it is up.
     if app.issues {
         segs = vec![
-            Seg { p: 0, t: "↑↓ issue", accent: false },
-            Seg { p: 0, t: "↵ open in browser", accent: false },
-            Seg { p: 2, t: "←→ session", accent: false },
-            Seg { p: 0, t: "^g esc back", accent: true },
+            Seg { p: 0, t: Cow::Borrowed("↑↓ issue"), accent: false },
+            Seg { p: 0, t: Cow::Borrowed("↵ open in browser"), accent: false },
+            Seg { p: 2, t: Cow::Borrowed("←→ session"), accent: false },
+            Seg { p: 0, t: Cow::Borrowed("^g esc back"), accent: true },
         ];
     }
 
@@ -1478,7 +1486,7 @@ fn header(app: &App, cols: usize) -> Line<'static> {
             spans.push(Span::styled(SEP, dim()));
         }
         let style = if seg.accent { theme::accent() } else { dim() };
-        spans.push(Span::styled(seg.t, style));
+        spans.push(Span::styled(seg.t.clone(), style));
     }
     Line::from(spans)
 }
@@ -1899,36 +1907,22 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     let w = width.max(1);
     let mut lines: Vec<Line> = vec![Line::from(Span::styled("─".repeat(w), dim()))];
 
-    // The title owns its line, with the one fact that is not about the past — whether it is
-    // running right now — pushed to the far edge where it cannot be mistaken for metadata.
+    // The title owns its line; what state the session is in has fixed rows of its own under it.
     let title = sanitize(it.display_name());
     let mut head = Vec::new();
-    let mut tag_w = 0;
     if let Some(tag) = source_tag(it) {
         head.push(Span::styled(format!("{tag} "), theme::agent_tag()));
-        tag_w = tag.len() + 1;
     }
-    head.push(Span::styled(title.clone(), theme::accent()));
-    if let Some(live) = app.live.get(&it.id) {
-        // A process nobody has touched in two days says so, quietly: it is the one `^k` can end.
-        let stale = match crate::kill::verdict(Some(live), it.mtime, model::now_ms()) {
-            crate::kill::Verdict::Stale { idle_ms } => {
-                format!(" · stale · idle {}d", crate::kill::idle_days(idle_ms))
-            }
-            _ => String::new(),
-        };
-        let rest = format!("{stale} · {}", running_where(live));
-        let used = tag_w
-            + UnicodeWidthStr::width(title.as_str())
-            + UnicodeWidthStr::width("◉ running")
-            + UnicodeWidthStr::width(rest.as_str());
-        if used + 2 <= w {
-            head.push(Span::raw(" ".repeat(w - used)));
-            head.push(Span::styled("◉ running", theme::running()));
-            head.push(Span::styled(rest, dim()));
-        }
-    }
+    head.push(Span::styled(title, theme::accent()));
     lines.push(Line::from(head));
+
+    // The state summary, always the rows right under the title: whose move it is, whether a
+    // process is attached and where, and why it is unfinished. It wraps between its parts rather
+    // than being cut, so a narrow window keeps the pid and tty that lead to the running window.
+    lines.extend(state_lines(&state_segments(app, it, model::now_ms()), w, STATE_INDENT));
+    if it.open {
+        lines.extend(state_lines(&unfinished_segments(it), w, STATE_INDENT));
+    }
 
     // Where it is, in one quiet line: the locators lead, and how the title was come by trails,
     // because it is the least actionable thing here. The age lives on the list row already.
@@ -1958,13 +1952,6 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
         lines.push(l);
     }
 
-    if it.open {
-        lines.push(Line::from(vec![
-            Span::raw("   "),
-            Span::styled("▸ pick up", theme::attention()),
-            Span::styled(format!(" · {}", it.open_why().unwrap_or("unfinished")), dim()),
-        ]));
-    }
     if app.archived(it) {
         lines.push(Line::from(vec![
             Span::raw("   "),
@@ -2056,6 +2043,103 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
 
     lines.extend(recap_block);
     lines.extend(thread);
+    lines
+}
+
+/// One part of a state summary: its words and how they are drawn.
+type StateSeg = (String, Style);
+
+/// Where the state rows start: level with the preview's other facts.
+const STATE_INDENT: usize = 3;
+
+/// The highlighted session's state, lead first. Exactly one of: `◆ waiting on you` (and what for),
+/// `◉ running` (busy / idle, or stale and for how long), `● recently updated` / `○ recently
+/// updated` (how long ago, and that nothing is attached), or `not running` — then the pid and
+/// tty of a running one. Process presence and transcript recency stay apart: a session written a
+/// minute ago with no `claude` attached says `not running`, however fresh it is.
+///
+/// Presentation only. It reads `app.live` and the transcript's age and decides nothing: the dot,
+/// the tabs and `sessions --json` classify sessions on their own.
+fn state_segments(app: &App, it: &Item, now: i64) -> Vec<StateSeg> {
+    let mut v: Vec<StateSeg> = Vec::new();
+    let Some(live) = app.live.get(&it.id) else {
+        let age = now - it.mtime;
+        let ago = format!("{} ago", ago(it.mtime));
+        if age < ACTIVE_MS {
+            v.push(("● recently updated".into(), theme::running()));
+            v.push((ago, dim()));
+        } else if age < RECENT_MS {
+            v.push(("○ recently updated".into(), theme::recent()));
+            v.push((ago, dim()));
+        } else {
+            v.push((format!("updated {ago}"), dim()));
+        }
+        v.push(("not running".into(), dim()));
+        return v;
+    };
+    if live.needs_you() {
+        v.push(("◆ waiting on you".into(), theme::attention().add_modifier(Modifier::BOLD)));
+        if !live.waiting_for.is_empty() {
+            v.push((sanitize(&live.waiting_for), theme::attention()));
+        }
+    } else {
+        v.push(("◉ running".into(), theme::running()));
+        // A process nobody has touched in two days says so, quietly: it is the one `^k` can end.
+        match crate::kill::verdict(Some(live), it.mtime, now) {
+            crate::kill::Verdict::Stale { idle_ms } => {
+                v.push(("stale".into(), dim()));
+                v.push((format!("idle {}d", crate::kill::idle_days(idle_ms)), dim()));
+            }
+            _ if !live.status.is_empty() => v.push((sanitize(&live.status), dim())),
+            _ => {}
+        }
+    }
+    v.push((format!("pid {}", live.pid), dim()));
+    if !live.tty.is_empty() {
+        v.push((sanitize(&live.tty), dim()));
+    }
+    v
+}
+
+/// `▸ unfinished` and why: your prompt got no reply, the recap says your move, Claude asked or
+/// proposed something, or its folder has uncommitted changes. The reason is `open_reason`, the
+/// same one `⏸ open` was built from; this only words it.
+fn unfinished_segments(it: &Item) -> Vec<StateSeg> {
+    let mut v: Vec<StateSeg> = vec![("▸ unfinished".into(), theme::attention())];
+    if let Some(why) = it.open_why() {
+        v.push((why.to_string(), dim()));
+    }
+    v
+}
+
+/// Lay a state summary out in `width` columns: its parts joined by ` · `, wrapping between parts
+/// (continuation rows indented under the first word) instead of cutting one. Only a single part
+/// wider than the whole row is left for `clip` to end in `…`.
+fn state_lines(segs: &[StateSeg], width: usize, indent: usize) -> Vec<Line<'static>> {
+    let cont = indent + 2;
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut spans: Vec<Span<'static>> = vec![Span::raw(" ".repeat(indent))];
+    let mut used = indent;
+    let mut parts = 0;
+    for (text, style) in segs {
+        let w = UnicodeWidthStr::width(text.as_str());
+        if parts > 0 && used + SEP_W + w > width {
+            lines.push(Line::from(std::mem::take(&mut spans)));
+            spans.push(Span::raw(" ".repeat(cont)));
+            used = cont;
+            parts = 0;
+        }
+        if parts > 0 {
+            spans.push(Span::styled(SEP, dim()));
+            used += SEP_W;
+        }
+        spans.push(Span::styled(text.clone(), *style));
+        used += w;
+        parts += 1;
+    }
+    if parts > 0 {
+        lines.push(Line::from(spans));
+    }
     lines
 }
 
@@ -2263,54 +2347,76 @@ fn spans_width(spans: &[Span]) -> usize {
 
 
 
-fn help_lines() -> Vec<Line<'static>> {
+/// The `?` overlay: the keys, then the status legend grouped by what each mark is evidence of —
+/// a process attached, the transcript's age, unfinished work, another agent. Every row is cut to
+/// the window; a window too short for all of it ends on a row saying so rather than losing the
+/// bottom silently.
+fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
     let key = theme::accent();
+    let k = |k: &'static str, text: &'static str| {
+        Line::from(vec![Span::styled(format!("{k:<7}"), key), Span::raw(text)])
+    };
     let mut v = vec![
         Line::from(vec![
             Span::styled("sessio", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(" — keys", dim()),
+            Span::styled(" — keys and marks · any key closes", dim()),
         ]),
-        Line::from(""),
-        Line::from(vec![Span::styled("↑ ↓", key), Span::raw("    switch project")]),
-        Line::from(vec![Span::styled("← →", key), Span::raw("    move session selection (→ reveals more)")]),
-        Line::from(vec![Span::styled("type", key), Span::raw("   fuzzy-filter by name / project / first prompt")]),
+        k("↑ ↓", "switch project · ← → move session selection (→ reveals more)"),
+        k("type", "filter by name / project / first prompt · ^w ⌥⌫ word · ^u ⌘⌫ all"),
     ];
     if search::rg_path().is_some() {
-        v.push(Line::from(vec![
-            Span::styled("^f", key),
-            Span::raw("     full-text search across all transcripts on disk"),
-        ]));
+        v.push(k("^f", "full-text search across all transcripts on disk"));
     }
     v.extend([
-        Line::from(vec![Span::styled("^w ⌥⌫", key), Span::raw("  delete the last word of the query")]),
-        Line::from(vec![Span::styled("^u ⌘⌫", key), Span::raw("  clear the whole query")]),
-        Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
-        Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list (Claude only)")]),
-        Line::from(vec![Span::styled("^t", key), Span::raw("     follow a running (◉) session's tail, read-only — any move stops following")]),
-        Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
-        Line::from(vec![Span::styled("^g", key), Span::raw("     open GitHub issues for the session's repo (needs gh; ↵ opens one in the browser)")]),
-        Line::from(vec![Span::styled("↵", key), Span::raw("      resume in this window (◉ = already running: ↵ goes to its window under Ghostty, else says where; ↵ again opens it twice)")]),
-        Line::from(vec![Span::styled("^o", key), Span::raw("     resume in a new Ghostty window, keeping sessio open (same guard as ↵)")]),
-        Line::from(vec![Span::styled("^n", key), Span::raw("     new session in the selected session's folder (new window under Ghostty)")]),
-        Line::from(vec![Span::styled("^k", key), Span::raw("     end a running session idle for more than 48h (not busy, not waiting) — ^k again to confirm")]),
-        Line::from(vec![Span::styled("?", key), Span::raw("      toggle this help")]),
-        Line::from(vec![Span::styled("esc", key), Span::raw("    clear search, then quit")]),
-        Line::from(vec![Span::styled("^c", key), Span::raw("     quit")]),
+        k("^a", "archive / unarchive (a session you work in again comes back)"),
+        k("^r", "reply without opening: sends one turn, stays in the list (Claude only)"),
+        k("^t", "follow a running session's tail, read-only; any move stops"),
+        k("⇥ ^e", "expand / collapse the reply preview"),
+        k("^g", "GitHub issues for the session's repo (needs gh; ↵ opens one)"),
+        k("↵", "resume here. Running (◉ ◆): under Ghostty, switches to its terminal"),
+        k("", "by tty; otherwise says its pid · tty. ↵ again opens a second copy"),
+        k("^o", "resume in a new Ghostty window, keeping sessio open (same guard)"),
+        k("^n", "new session in the session's folder (new window under Ghostty)"),
+        k("^k", "end a running session idle over 48h; ^k again to confirm"),
+        k("? esc", "this help · esc clears a search, then quits · ^c quits"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("◉", theme::running()),
-            Span::raw("      a claude process is attached to this session right now"),
-        ]),
-        Line::from(vec![
-            Span::styled("●", theme::running()),
-            Span::raw("      written in the last 5 minutes ("),
-            Span::styled("○", theme::recent()),
-            Span::raw(" in the last 24h)"),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("press any key to close", dim())),
     ]);
-    v
+    // Grouped by evidence: a mark in one group never stands in for another. `◉` is a process,
+    // `●` only a recent write — a session can be fresh and not running, or running and stale.
+    let group = |label: &'static str, mark: Span<'static>, text: &'static str| {
+        let pad = 11usize.saturating_sub(UnicodeWidthStr::width(mark.content.as_ref()));
+        Line::from(vec![
+            Span::styled(format!("{label:<11}"), dim()),
+            mark,
+            Span::raw(format!("{}{text}", " ".repeat(pad))),
+        ])
+    };
+    v.extend([
+        group(
+            "process",
+            Span::styled("◆ waiting", theme::attention().add_modifier(Modifier::BOLD)),
+            "stopped on a question or permission prompt: your move",
+        ),
+        group("", Span::styled("◉ running", theme::running()), "a claude is attached, busy or idle (preview: pid · tty)"),
+        group("", Span::styled("stale", dim()), "running but idle for over 48h; ^k can end it"),
+        Line::from(vec![
+            Span::styled(format!("{:<11}", "transcript"), dim()),
+            Span::styled("●", theme::running()),
+            Span::raw(" "),
+            Span::styled("○", theme::recent()),
+            Span::raw("        written in the last 5 min / 24 h; not running"),
+        ]),
+        group("unfinished", Span::styled("▸", theme::attention()), "your prompt got no reply · its recap says your move ·"),
+        group("", Span::raw(""), "Claude asked or proposed next (for 3 days) · uncommitted"),
+        group("", Span::raw(""), "changes in its folder (git WIP, newest session there)"),
+        group("agent", Span::styled("copilot", theme::agent_tag()), "a GitHub Copilot CLI session: no ^r, no ^k"),
+    ]);
+    if v.len() > rows && rows > 0 {
+        v.truncate(rows - 1);
+        v.push(Line::from(Span::styled("… a taller window shows the rest · any key closes", dim())));
+    }
+    v.truncate(rows);
+    v.into_iter().map(|l| clip(l, cols)).collect()
 }
 
 // ---------- formatting helpers ----------
@@ -2573,24 +2679,24 @@ mod tests {
 
     fn bar() -> Vec<Seg> {
         vec![
-            Seg { p: 3, t: "↑↓ project", accent: false },
-            Seg { p: 3, t: "←→ session", accent: false },
-            Seg { p: 4, t: "type", accent: false },
-            Seg { p: 5, t: "^f search-in-text", accent: false },
-            Seg { p: 5, t: "^a archive", accent: false },
-            Seg { p: 4, t: "⇥ expand-reply", accent: false },
-            Seg { p: 1, t: "↵ resume", accent: false },
-            Seg { p: 2, t: "^o new-window", accent: false },
-            Seg { p: 0, t: "? help", accent: false },
-            Seg { p: 2, t: "esc quit", accent: false },
-            Seg { p: 5, t: "live", accent: true },
+            Seg { p: 3, t: Cow::Borrowed("↑↓ project"), accent: false },
+            Seg { p: 3, t: Cow::Borrowed("←→ session"), accent: false },
+            Seg { p: 4, t: Cow::Borrowed("type"), accent: false },
+            Seg { p: 5, t: Cow::Borrowed("^f search-in-text"), accent: false },
+            Seg { p: 5, t: Cow::Borrowed("^a archive"), accent: false },
+            Seg { p: 4, t: Cow::Borrowed("⇥ expand-reply"), accent: false },
+            Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false },
+            Seg { p: 2, t: Cow::Borrowed("^o new-window"), accent: false },
+            Seg { p: 0, t: Cow::Borrowed("? help"), accent: false },
+            Seg { p: 2, t: Cow::Borrowed("esc quit"), accent: false },
+            Seg { p: 5, t: Cow::Borrowed("live"), accent: true },
         ]
     }
 
     fn rendered(cols: usize) -> String {
         fit_segments(&bar(), cols)
             .into_iter()
-            .map(|s| s.t)
+            .map(|s| s.t.as_ref())
             .collect::<Vec<_>>()
             .join(SEP)
     }
@@ -3659,6 +3765,13 @@ mod tests {
                 .collect(),
             Err(_) => vec![(136, 34)],
         };
+        // SESSIO_DUMP_WAITING=1: the highlighted session is parked on a prompt, and unfinished.
+        if std::env::var("SESSIO_DUMP_WAITING").is_ok() {
+            running_for(&mut app, "waiting", 1);
+            app.live.get_mut("id1").unwrap().waiting_for = "input needed".into();
+            app.items[0].open_reason = Some(crate::parse::OpenReason::Unanswered);
+            app.rebuild_tabs();
+        }
         if std::env::var("SESSIO_DUMP_REPLY").is_ok() {
             app.draft = Some((app.items[0].id.clone(), "yes, start with the mock generator".into()));
         }
@@ -3880,16 +3993,208 @@ mod tests {
         let mut app = fixture(&real_tabs());
         running_for(&mut app, "idle", 72);
         let rows = frame(&mut app, 180, 30).join("\n");
-        assert!(rows.contains("◉ running · stale · idle 3d · pid 4242"), "{rows}");
+        assert!(rows.contains("◉ running · stale · idle 3d · pid 4242 · ttys009"), "{rows}");
         let bar: String = header(&app, 400).spans.iter().map(|s| s.content.to_string()).collect();
         assert!(bar.contains("^k end-stale"), "{bar}");
 
         let mut app = fixture(&real_tabs());
         running_for(&mut app, "idle", 5);
         let rows = frame(&mut app, 180, 30).join("\n");
-        assert!(rows.contains("◉ running · pid 4242") && !rows.contains("stale"), "{rows}");
+        assert!(rows.contains("◉ running · idle · pid 4242 · ttys009") && !rows.contains("stale"), "{rows}");
         let bar: String = header(&app, 400).spans.iter().map(|s| s.content.to_string()).collect();
         assert!(!bar.contains("^k"), "{bar}");
+    }
+
+    // ---------- #22: session state made explicit ----------
+
+    /// The preview body rows of a frame, right of the panel's rule, trailing blanks dropped.
+    fn body_rows(app: &mut App, cols: u16, rows: u16) -> Vec<String> {
+        frame_exact(app, cols, rows)
+            .iter()
+            .map(|r| r.split(" │ ").nth(1).unwrap_or("").trim_end().to_string())
+            .collect()
+    }
+
+    /// The acceptance fixtures, one per state, and what the state rows say for each. The state
+    /// row is always the row under the title, whatever the state: `CHROME + 2`.
+    fn state_fixtures() -> Vec<(&'static str, App, &'static str, Option<&'static str>)> {
+        use crate::parse::OpenReason;
+        let base = || {
+            let mut app = fixture(&real_tabs());
+            for it in &mut app.items {
+                it.open = false;
+                it.open_reason = None;
+            }
+            app
+        };
+        let mut v = Vec::new();
+
+        let mut app = base();
+        running_for(&mut app, "waiting", 1);
+        app.live.get_mut("id1").unwrap().waiting_for = "input needed".into();
+        v.push(("waiting", app, "◆ waiting on you · input needed · pid 4242 · ttys009", None));
+
+        let mut app = base();
+        running_for(&mut app, "busy", 1);
+        v.push(("busy", app, "◉ running · busy · pid 4242 · ttys009", None));
+
+        let mut app = base();
+        running_for(&mut app, "idle", 5);
+        v.push(("idle", app, "◉ running · idle · pid 4242 · ttys009", None));
+
+        // Written two minutes ago, nothing attached: fresh, and still not running.
+        let mut app = base();
+        app.items[0].mtime = model::now_ms() - 2 * 60_000;
+        v.push(("recent, not running", app, "● recently updated · 2m ago · not running", None));
+
+        let mut app = base();
+        app.items[0].mtime = model::now_ms() - 3 * 3_600_000;
+        v.push(("today, not running", app, "○ recently updated · 3h ago · not running", None));
+
+        let mut app = base();
+        app.items[0].mtime = model::now_ms() - 3 * DAY_MS;
+        app.items[0].open = true;
+        app.items[0].open_reason = Some(OpenReason::Unanswered);
+        v.push((
+            "unanswered prompt",
+            app,
+            "updated 3d ago · not running",
+            Some("▸ unfinished · your prompt got no reply"),
+        ));
+
+        let mut app = base();
+        app.items[0].mtime = model::now_ms() - 3 * DAY_MS;
+        app.items[0].open = true;
+        app.items[0].open_reason = Some(OpenReason::GitWip);
+        v.push(("git WIP", app, "updated 3d ago · not running", Some("▸ unfinished · uncommitted changes")));
+        v
+    }
+
+    #[test]
+    fn the_preview_says_each_state_in_the_same_place() {
+        for (what, mut app, state, unfinished) in state_fixtures() {
+            app.p_idx = 0;
+            app.cur = app.view().iter().position(|&i| app.items[i].id == "id1").unwrap();
+            let rows = body_rows(&mut app, 160, 40);
+            assert!(rows[CHROME].contains("────"), "{what}: the preview's rule: {rows:?}");
+            assert!(rows[CHROME + 1].contains(app.items[0].display_name()), "{what}: title row");
+            assert_eq!(rows[CHROME + 2].trim(), state, "{what}: the state row");
+            match unfinished {
+                Some(u) => assert_eq!(rows[CHROME + 3].trim(), u, "{what}: the unfinished row"),
+                None => assert!(!rows.join("\n").contains("▸ unfinished"), "{what}: {rows:?}"),
+            }
+        }
+    }
+
+    /// At every supported size and below the minimum, a running or waiting session keeps its
+    /// state and the pid and tty that lead to its window: the rows wrap, they are not cut.
+    #[test]
+    fn narrow_layouts_keep_the_state_and_the_route_to_it() {
+        for (what, mut app, state, _) in state_fixtures().into_iter().take(3) {
+            app.p_idx = 0;
+            app.cur = app.view().iter().position(|&i| app.items[i].id == "id1").unwrap();
+            let head = state.split(" · ").next().unwrap();
+            for (cols, rows) in FIXTURE_SIZES.into_iter().chain([(MIN_COLS as u16, MIN_ROWS as u16), (44, 10)]) {
+                if cols as usize >= MIN_COLS {
+                    assert_regions_hold(&mut app, cols, rows, what);
+                }
+                let f = frame_exact(&mut app, cols, rows).join("\n");
+                for part in [head, "pid 4242", "ttys009"] {
+                    assert!(f.contains(part), "{what} {cols}x{rows}: {part:?} missing:\n{f}");
+                }
+            }
+        }
+    }
+
+    /// Rendering reads the state; it never writes it. Every fixture draws at every size and the
+    /// sessions' open flags, reasons and the tabs built from them are what they were.
+    #[test]
+    fn presentation_does_not_change_classification() {
+        for (what, mut app, _, _) in state_fixtures() {
+            let before: Vec<_> =
+                app.items.iter().map(|it| (it.id.clone(), it.open, it.open_reason)).collect();
+            let tabs = app.tabs_now();
+            for (cols, rows) in FIXTURE_SIZES.into_iter().chain([(40, 10)]) {
+                frame_exact(&mut app, cols, rows);
+                app.help = true;
+                frame_exact(&mut app, cols, rows);
+                app.help = false;
+            }
+            let after: Vec<_> =
+                app.items.iter().map(|it| (it.id.clone(), it.open, it.open_reason)).collect();
+            assert_eq!(before, after, "{what}");
+            assert_eq!(tabs, app.tabs_now(), "{what}");
+        }
+    }
+
+    /// The bar counts exactly, the count is what the `◆ waiting` tab holds, and it survives the
+    /// narrowest bar and the below-minimum frame.
+    #[test]
+    fn the_key_bar_counts_the_sessions_waiting_on_you() {
+        let mut app = fixture(&real_tabs());
+        let waiting = |pid| crate::live::Live {
+            pid,
+            tty: "ttys000".into(),
+            status: "waiting".into(),
+            waiting_for: String::new(),
+        };
+        for (n, pid) in [(0, 1), (3, 2), (6, 3)] {
+            app.live.insert(app.items[n].id.clone(), waiting(pid));
+        }
+        // Busy is not waiting, and a waiting process on a session sessio has not listed is not
+        // one the tab can show, so neither is counted.
+        app.live.insert(app.items[1].id.clone(), crate::live::Live { status: "busy".into(), ..waiting(9) });
+        app.live.insert("not-listed".into(), waiting(10));
+        app.rebuild_tabs();
+        let text = |l: Line| l.spans.iter().map(|s| s.content.to_string()).collect::<String>();
+        for cols in [20, 60, 400] {
+            let bar = text(header(&app, cols));
+            assert!(bar.contains("◆ 3 waiting on you"), "{cols}: {bar:?}");
+            assert!(!bar.contains("several"), "{bar:?}");
+        }
+        app.p_idx = app.tabs.iter().position(|t| t == WAITING_TAB).unwrap();
+        assert_eq!(app.view().len(), 3, "the tab holds what the bar counts");
+        let small: String = frame_lines(&mut app, 40, 10).into_iter().map(text).collect();
+        assert!(small.contains("◆ 3 waiting on you"), "{small}");
+
+        app.live.remove(&app.items[0].id.clone());
+        assert!(text(header(&app, 60)).contains("◆ 2 waiting on you"));
+    }
+
+    /// The help's legend covers every mark, grouped by what it is evidence of, explains why a
+    /// session is unfinished, and does not promise to bring a window forward outside Ghostty.
+    #[test]
+    fn help_groups_the_status_legend() {
+        let text = |ls: &[Line]| {
+            ls.iter()
+                .map(|l| l.spans.iter().map(|s| s.content.to_string()).collect::<String>())
+                .collect::<Vec<_>>()
+        };
+        let full = text(&help_lines(200, 60)).join("\n");
+        for mark in ["◆ waiting", "◉ running", "stale", "●", "○", "▸", "copilot"] {
+            assert!(full.contains(mark), "{mark} missing:\n{full}");
+        }
+        for group in ["process", "transcript", "unfinished", "agent"] {
+            assert!(full.contains(group), "{group} missing:\n{full}");
+        }
+        for why in ["no reply", "recap says your move", "proposed next", "uncommitted"] {
+            assert!(full.contains(why), "{why} missing:\n{full}");
+        }
+        assert!(full.contains("under Ghostty") && full.contains("otherwise says its pid · tty"), "{full}");
+        assert!(!full.to_lowercase().contains("focus"), "no promise to focus a window:\n{full}");
+
+        // 80x24 holds all of it; smaller windows say there is more, and nothing overflows.
+        let at = |c: usize, r: usize| text(&help_lines(c, r));
+        let std = at(80, 24).join("\n");
+        assert!(std.contains("copilot") && !std.contains('…'), "all of it, uncut:\n{std}");
+        for (c, r) in [(80, 24), (60, 18), (50, 12), (20, 5)] {
+            let rows = at(c, r);
+            assert!(rows.len() <= r, "{c}x{r}");
+            for row in &rows {
+                assert!(UnicodeWidthStr::width(row.as_str()) <= c, "{c}x{r}: {row:?}");
+            }
+        }
+        assert!(at(60, 18).last().unwrap().contains("taller window"), "{:?}", at(60, 18));
     }
 }
 

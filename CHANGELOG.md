@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **A session's state is said in words, in the same place every time.** The row under the preview's
+  title is always the state: `◆ waiting on you · input needed · pid 4242 · ttys009`,
+  `◉ running · busy · pid · tty` (or `idle`, or `stale · idle 3d`), `● recently updated · 2m ago ·
+  not running`, or `updated 3d ago · not running`. An unfinished session gets the row under it,
+  with the reason: `▸ unfinished · your prompt got no reply` (or the recap says your move, Claude
+  asked / proposed next, uncommitted changes); it used to read `▸ pick up` further down. The
+  running details no longer vanish when the title is long, and on a narrow window, or below the
+  minimum size, the state wraps instead of losing the pid and tty. The key bar counts waiting
+  sessions exactly (`◆ 3 waiting on you`, not "several"), the same number the `◆ waiting` tab
+  holds. The `?` legend now covers every mark, grouped as process, transcript, unfinished and
+  agent, and explains what makes a session unfinished and what `↵` does on a running one inside
+  and outside Ghostty. What counts as open, waiting or running, and `sessions --json`, are
+  unchanged.
+
 - **The dashboard is fixed regions.** Messages ("already running … ↵ again", "✗ reply failed")
   have their own row at the bottom of the window, full width, instead of pushing hints off the key
   bar; a long one wraps onto a second row. A context line above the session tabs spells out the
