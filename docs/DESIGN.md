@@ -61,12 +61,53 @@ whatever they said, including failures.
 
 | Tone | Colour | Mark | Used for |
 |---|---|---|---|
-| Info | primary text | none | progress and neutral acknowledgement: `⏳ sending…`, `reply discarded`, `following …` (a running `^f` says `searching…` on the query row instead) |
-| Success | success (green) | the message's own `↗` / `↩` / `✓` | resumed or focused elsewhere, reply landed, session ended, archived sessions back |
-| Warning | attention (yellow) | none: worded as what to press next or why not | refused preconditions (`^f needs ripgrep · brew install ripgrep`, `type a word first`), `↵ again` / `^k again` confirmations, "waiting on you" |
+| Info | primary text | none | neutral acknowledgement: `reply to "x" discarded`, `following "x" …`, `your failed reply to "x" is back …` (a running `^f` says `searching…` on the query row instead) |
+| Pending | primary text | `⏳ ` added by the renderer | started, not finished: `sending to "x"…`, `ending "x" (pid N)…`, `issues still loading…`. The result replaces it |
+| Success | success (green) | the message's own `↗` / `↩` / `✓` / `🗄` | resumed or switched to, reply landed, archived / unarchived, session ended, an archived session back |
+| Warning | attention (yellow) | none: worded as what to press next or why not | refused preconditions (`"x" is running (pid · tty · status) — …`, `still sending to "x"`, `^f needs ripgrep`), `↵ again` / `^o again` / `^k again` confirmations, the token warning, "waiting on you" |
 | Error | error (red) | `✗ ` added by the renderer | reply failed, window or browser could not open, search or issues failed, `^k` could not end |
 
-The region exists (see Layout); pending state, per-session targets and the rest of its design are #25.
+Only something that happened is green. In progress (pending), refused (warning) and failed (error)
+never are (`theme::tests::an_error_is_marked_without_colour`,
+`ui::tests::session_feedback_names_its_session_and_is_never_falsely_green`).
+
+### Consequences
+
+What each action says, and what it leaves behind. `"x"` is the session's **target**: the first
+words of its title, quoted, at most `TARGET_MAX = 32` columns (`target()`).
+
+- **Every message about a session names it.** Refusals, warnings, progress and results all carry
+  the target, so a message still says which session it means after `←→` has moved on, and a result
+  that arrives later (a reply, a `^k`, a session un-archiving itself) names the one it is about,
+  not the one highlighted (`a_reply_names_its_session_when_it_lands_after_you_moved`). Messages
+  about a folder (`^g`, `^n`) name the folder or repo instead.
+- **Reply (`^r`).** The first `^r` of a run warns that it spends tokens and names the target; the
+  composer row reads ` ↳ reply to "x" ` so you see what you answer while you type. `↵` sends:
+  `⏳ sending to "x"…` in the feedback row, and until the answer lands the session's tab carries
+  `⏳` and its preview a `⏳ sending your reply "…" · the answer lands here` row, wherever you are
+  looking in between. The result: `↩ "x" replied · …` (success) or `✗ reply to "x" failed · why ·
+  your text is kept: ^r on it to retry` (error), and the preview keeps `✗ reply failed · why ·
+  your text is kept: ^r to retry` until you act. The next `^r` on that session restores the
+  failed text into the composer; `↵` sends it again, `esc` discards it for good. **Nothing is
+  ever resent on its own.** While a reply is in flight, `^r` on that session and a second send are
+  refused (`still sending to "x" — one reply at a time`). A running session is refused with where
+  it runs: `"x" is running (pid · tty · status) — answer it in that terminal`.
+- **Archive (`^a`).** `🗄 archived "x" · to restore it: ↑↓ to 🗄
+  archived, then ^a`; the preview there says `🗄 archived · hidden from every other tab · ^a
+  restores it`; unarchiving says `↩ unarchived "x" · back in its project and ⌂ everything`. A
+  session written to again comes back on its own: `↩ "x" is back from 🗄 archived — written to again`.
+- **Running sessions (`↵`, `^o`).** Under Ghostty 1.3+ sessio switches to the session's own
+  terminal by tty: `↗ switched to "x"'s Ghostty terminal — already running (pid · tty · status)`.
+  Otherwise it does not move you anywhere and says so in terms you can act on: `"x" is already
+  running (pid · tty · status) — go to that terminal, or ↵ again to open it twice`. Only
+  `SESSIO_FOCUS=1` tries raising a Ghostty window by title, and says `raised`, never `focused`.
+  No message implies that a window outside Ghostty was focused.
+- **Consent** (`↵ again`, `^o again`, `^k again`) is armed by its warning and withdrawn by any
+  other key, by the flash expiring (`FLASH`), and by a background result taking the feedback row
+  (`App::report`), so it never stays armed behind a message that no longer asks
+  (`consent_expires_and_anything_else_withdraws_it`).
+- **`^o` outside Ghostty** is a warning: `^o needs Ghostty (it asks Ghostty for the window) — ↵
+  resumes "x" here`. `^n` outside Ghostty replaces sessio in this window, like `↵`.
 
 ## Status vocabulary
 
@@ -87,6 +128,7 @@ glyphs are pairwise distinct.
 | `copilot` | — | tab and preview tag | written by GitHub Copilot CLI | agent tag |
 | `stale` | stale | preview `◉ running · stale · idle Nd · pid · tty`, key bar `^k end-stale` | running but idle for more than 48 hours; `^k` can end it | dim |
 | `◌` | ended | follow header | the followed session stopped running | attention |
+| `⏳` | sending | tab mark, preview `⏳ sending your reply "…"`, pending feedback | a `^r` reply is on its way to this session | primary text |
 | `✓` | contains | preview `✓ contains "…"` | matched a `^f` content search | attention |
 | `⚑` | issues | preview line, `^g` list | open GitHub issues for the folder's repo | attention / dim |
 
@@ -132,8 +174,8 @@ Verified against `handle_key` and `compose_key` in `src/ui.rs`.
 | `^w`, `⌥⌫` | delete the last word of the query |
 | `^u`, `⌘⌫` | clear the query |
 | `^f` | full-text search of the query across every transcript on disk; without ripgrep or with an empty query it says why instead |
-| `^a` | archive / unarchive the highlighted session |
-| `^r` | reply without opening (first press warns it spends tokens; Claude only; refused while running) |
+| `^a` | archive / unarchive the highlighted session, naming it and how to undo it |
+| `^r` | reply without opening (first press warns it spends tokens; Claude only; refused while running or while a reply to it is in flight; restores a failed reply's text) |
 | `⇥`, `^e` | give the latest reply more room (hide the first / last prompts), or back |
 | `PgUp` `PgDn` | scroll the latest reply a page (its window's height less one line); nothing else moves |
 | `↵` | resume here; on a running session switch to its window under Ghostty, else say where and require a second `↵` |
@@ -365,6 +407,14 @@ Automated (in `cargo test`):
 - `theme::tests::an_error_is_marked_without_colour`.
 - `ui::tests::every_status_reads_apart_without_colour`: every status glyph distinct.
 - `ui::tests::a_failed_action_does_not_flash_green`: errors carry `✗` and not the success colour.
+- #25, consequences: `a_target_is_short_quoted_and_never_wider_than_its_budget`,
+  `a_reply_names_its_session_when_it_lands_after_you_moved`,
+  `the_composer_names_the_session_it_answers`, `a_reply_in_flight_stays_marked_until_it_lands`,
+  `a_second_submit_is_refused_while_one_is_in_flight`,
+  `a_failed_reply_keeps_its_text_for_a_deliberate_retry`,
+  `a_running_session_refusal_says_where_it_runs`, `archiving_says_what_happened_and_how_to_undo_it`,
+  `consent_expires_and_anything_else_withdraws_it`,
+  `session_feedback_names_its_session_and_is_never_falsely_green`.
 - `ui::tests::every_state_keeps_the_same_rows`: normal, waiting, error and empty frames share rows.
 - `ui::tests::the_regions_hold_their_rows_at_every_supported_size`,
   `feedback_takes_its_own_row_and_leaves_the_key_bar_alone`,

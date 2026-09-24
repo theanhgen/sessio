@@ -26,7 +26,7 @@ use ratatui::crossterm::terminal::{
 use ratatui::widgets::Paragraph;
 #[cfg(not(target_arch = "wasm32"))]
 use ratatui::Terminal;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::discover::Source;
 use crate::md::md_lines;
@@ -67,6 +67,8 @@ const MIN_ROWS: usize = 12;
 /// No one tab may take more than this, however long its title — the focused tab is allowed to be
 /// the wide one, but not so wide that nothing is left to steer by.
 const TAB_MAX: usize = 44;
+/// A reply in flight, on its session's tab and in its preview until it lands.
+const SENDING_MARK: &str = "⏳";
 /// Columns held back for the `‹N` / `+N›` counts when the strip scrolls.
 const MARKERS: usize = 12;
 /// How many entries a followed session's tail keeps. More than a tall window shows, so the
@@ -77,8 +79,10 @@ enum Msg {
     Items(Vec<Item>, crate::live::LiveMap),
     Detail { key: String, mtime: i64, detail: Box<Detail> },
     Search { gen: u64, query: String, files: Result<HashSet<PathBuf>, String> },
-    /// A headless reply came back (or failed). `key` identifies the session it belongs to.
-    Replied { key: String, ok: bool, text: String },
+    /// A headless reply came back (or failed). `key` and `id` identify the session it belongs to,
+    /// `title` is how it was named when it was sent (the feedback names it even if you have moved
+    /// on, or the list has refreshed), `body` is what was sent, kept if it failed.
+    Replied { key: String, id: String, title: String, body: String, ok: bool, text: String },
     /// A `^k` finished: what happened to the process, ready to flash.
     Ended(Tone, String),
     /// A fresh read of the followed session's tail.
@@ -169,8 +173,12 @@ struct App {
     kill_confirm: Option<(String, i32)>,
     /// The reply being typed, and the session it is addressed to. `None` when not replying.
     draft: Option<(String, String)>, // (session id, text)
-    /// Sessions with a headless reply in flight, by id.
-    sending: HashSet<String>,
+    /// Sessions with a headless reply in flight, by id, and the text on its way.
+    sending: HashMap<String, String>,
+    /// Replies that failed, by session id: the text you wrote and why it failed. Kept until you
+    /// reopen `^r` on that session (which restores it) and send or discard it — never resent on
+    /// its own.
+    failed: HashMap<String, (String, String)>,
     /// Whether the "this spends tokens" warning has been acknowledged this run.
     reply_ok: bool,
     /// The running session `^t` pinned the preview to. Any move unpins it.
@@ -203,6 +211,60 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         {
             self.flash_until = None;
+        }
+    }
+
+    /// Say the result of something that finished in the background: a reply, a `^k`. It takes
+    /// the feedback row from whatever was there, so a `↵ again` / `^k again` question it covers
+    /// is withdrawn with it — consent never stays armed behind a message that no longer asks.
+    fn report(&mut self, tone: Tone, msg: String) {
+        self.confirm = None;
+        self.kill_confirm = None;
+        self.say(tone, msg);
+    }
+
+    /// The flash has run its time: clear it, and the consent it asked for with it. "↵ again" has
+    /// to mean again *now*, not an hour later with the message long gone and the session still
+    /// marked as one the user already agreed to open twice.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the browser has no clock to expire it
+    fn expire_flash(&mut self, now: Instant) {
+        if flash_expired(now, self.flash_until) {
+            self.flash.clear();
+            self.flash_until = None;
+            self.confirm = None;
+            self.kill_confirm = None;
+        }
+    }
+
+    /// How feedback names the session with this id (see `target`), even once it is off screen.
+    fn target_of(&self, id: &str) -> String {
+        match self.items.iter().find(|it| it.id == id) {
+            Some(it) => target(it.display_name()),
+            None => format!("\"{}\"", id.chars().take(8).collect::<String>()),
+        }
+    }
+
+    /// `^a`: archive the highlighted session, or unarchive it, and say which — naming it, since
+    /// the selection moves off it — and how to undo it from where it went.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the demo does not archive
+    fn toggle_archive(&mut self) {
+        let Some(i) = self.selected() else { return };
+        let (key, id) = (self.items[i].key.clone(), self.items[i].id.clone());
+        let who = target(self.items[i].display_name());
+        self.follow = None; // the selection is about to move out from under the pin
+        self.archive.toggle(&key, &id);
+        let archived = self.archive.contains(&key, &id);
+        self.rebuild_tabs();
+        let len = self.view().len();
+        self.cur = self.cur.min(len.saturating_sub(1));
+        self.ensure_detail();
+        if archived {
+            self.say(
+                Tone::Success,
+                format!("{ARCHIVED_TAB} {who} · to restore it: ↑↓ to {ARCHIVED_TAB}, then ^a"),
+            );
+        } else {
+            self.say(Tone::Success, format!("↩ unarchived {who} · back in its project and {ALL_TAB}"));
         }
     }
 
@@ -456,27 +518,77 @@ impl App {
     /// Open the reply composer on the highlighted session, or say why it cannot be opened.
     fn begin_reply(&mut self) {
         let Some(i) = self.selected() else { return };
-        let (id, name) = (self.items[i].id.clone(), self.items[i].name.clone());
+        let id = self.items[i].id.clone();
+        let who = target(self.items[i].display_name());
         if self.items[i].source != Source::Claude {
             // `claude -p --resume` is the only headless turn there is; Copilot has no equivalent
             // sessio drives.
-            self.say(Tone::Warning, "reply is Claude-only — ↵ resumes this Copilot session".into());
+            self.say(Tone::Warning, format!("{who} is a Copilot session — reply is Claude-only · ↵ resumes it"));
         } else if let Some(live) = self.live.get(&id) {
             // The guard ↵ already uses: there is no safe way to put text into the stdin of a
             // `claude` someone is sitting in front of.
             let where_ = running_where(live);
-            self.say(Tone::Warning, format!("that session is running — {where_} · answer it there"));
-        } else if self.sending.contains(&id) {
-            self.say(Tone::Warning, "still waiting on the last reply".into());
+            self.say(Tone::Warning, format!("{who} is running ({where_}) — answer it in that terminal"));
+        } else if self.sending.contains_key(&id) {
+            self.say(Tone::Warning, format!("still sending to {who} — one reply at a time"));
         } else if !self.reply_ok {
             // Once per run: this spends tokens from a list, with no turn-by-turn to watch.
             self.reply_ok = true;
-            self.say(Tone::Warning, format!(
-                "^r sends a turn to \"{}\" and spends tokens — ^r again to write it",
-                first_words(&name, 4)
-            ));
+            self.say(Tone::Warning, format!("^r sends a turn to {who} and spends tokens — ^r again to write it"));
+        } else if let Some((body, _)) = self.failed.get(&id).cloned() {
+            // A failed reply comes back only when asked for, here, and goes only on ↵.
+            self.draft = Some((id, body));
+            self.say(Tone::Info, format!("your failed reply to {who} is back — ↵ sends it again · esc discards it"));
         } else {
             self.draft = Some((id, String::new()));
+        }
+    }
+
+    /// Mark a reply to `id` as on its way and hand back what the worker needs to send it. `None`
+    /// (and nothing marked) when one is already in flight: one reply at a time per session, so a
+    /// second ↵ can never send the same turn twice.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_sending(&mut self, id: &str, body: &str) -> Option<SendJob> {
+        let i = self.items.iter().position(|it| it.id == id)?;
+        let title = target(self.items[i].display_name());
+        if self.sending.contains_key(id) {
+            self.say(Tone::Warning, format!("still sending to {title} — one reply at a time"));
+            return None;
+        }
+        self.failed.remove(id);
+        self.sending.insert(id.to_string(), body.to_string());
+        self.say(Tone::Pending, format!("sending to {title}… · the answer lands in its preview"));
+        Some(SendJob {
+            key: self.items[i].key.clone(),
+            id: id.to_string(),
+            title,
+            cwd: self.items[i].cwd.clone(),
+            body: body.to_string(),
+        })
+    }
+
+    /// A reply came back. The feedback names the session it was for — you may be looking at
+    /// another one by now — and a failure keeps the text for `^r` to bring back. Never resent.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // nothing is sent from the browser
+    fn on_replied(&mut self, key: &str, id: &str, title: &str, body: String, ok: bool, text: &str) {
+        self.sending.remove(id);
+        // Force the next draw to re-read the transcript: the reply is in the file now, and the
+        // cached detail is one turn out of date.
+        self.details.remove(key);
+        self.ensure_detail();
+        if ok {
+            self.failed.remove(id);
+            self.report(Tone::Success, format!("↩ {title} replied · {}", first_words(text, 8)));
+        } else {
+            let mut why = first_words(text, 10);
+            if why.is_empty() {
+                why = "claude exited with an error".into();
+            }
+            self.failed.insert(id.to_string(), (body, why.clone()));
+            self.report(
+                Tone::Error,
+                format!("reply to {title} failed · {why} · your text is kept: ^r on it to retry"),
+            );
         }
     }
 
@@ -506,20 +618,20 @@ impl App {
     /// `^t`: pin the preview to the highlighted session and follow its tail, or unpin it. Only a
     /// running session has a tail worth following; on anything else it says so and does nothing.
     fn toggle_follow(&mut self) {
-        if self.follow.take().is_some() {
-            self.say(Tone::Info, "stopped following".into());
+        if let Some(f) = self.follow.take() {
+            self.say(Tone::Info, format!("stopped following {}", target(&f.name)));
             return;
         }
         let Some(i) = self.selected() else { return };
         let it = &self.items[i];
-        let short = first_words(&it.name, 4);
+        let short = target(it.display_name());
         if it.source != Source::Claude {
             // Neither the running check nor the tail reader knows Copilot's events.
-            self.say(Tone::Warning, "follow is Claude-only".into());
+            self.say(Tone::Warning, format!("{short}: follow is Claude-only"));
             return;
         }
         if !self.live.contains_key(&it.id) {
-            self.say(Tone::Warning, format!("\"{short}\" is not running — nothing to follow"));
+            self.say(Tone::Warning, format!("{short} is not running — nothing to follow"));
             return;
         }
         self.follow = Some(Follow {
@@ -531,7 +643,7 @@ impl App {
             ended: false,
         });
         self.issues = false; // both take the preview's place; only one can have it
-        self.say(Tone::Info, format!("following \"{short}\" — read-only · any move stops it"));
+        self.say(Tone::Info, format!("following {short} — read-only · any move stops it"));
         self.read_tail();
     }
 
@@ -585,7 +697,7 @@ impl App {
                 self.follow = None; // both take the preview's place; only one can have it
             }
             Some(Status::Ready { slug, .. }) => self.say(Tone::Warning, format!("no open issues in {slug}")),
-            Some(Status::Loading) => self.say(Tone::Info, "issues still loading…".into()),
+            Some(Status::Loading) => self.say(Tone::Pending, "issues still loading…".into()),
             Some(Status::Failed(why)) => self.say(Tone::Error, format!("issues: {why}")),
             Some(Status::NoRemote) | None => self.say(Tone::Warning, "no GitHub remote for this folder".into()),
         }
@@ -603,21 +715,21 @@ impl App {
         if it.source != Source::Claude {
             // The running check and the pid guard only know Claude's registry.
             self.kill_confirm = None;
-            self.say(Tone::Warning, "^k is Claude-only".into());
+            self.say(Tone::Warning, format!("{}: ^k is Claude-only", target(it.display_name())));
             return;
         }
-        let (id, title) = (it.id.clone(), first_words(&sanitize(it.display_name()), 6));
+        let (id, title) = (it.id.clone(), target(it.display_name()));
         let live = self.live.get(&id).cloned();
         let v = crate::kill::verdict(live.as_ref(), it.mtime, model::now_ms());
         if let Some(why) = v.refusal() {
             self.kill_confirm = None;
-            self.say(Tone::Warning, format!("can't end \"{title}\": {why}"));
+            self.say(Tone::Warning, format!("can't end {title}: {why}"));
             return;
         }
         let (Some(live), crate::kill::Verdict::Stale { idle_ms }) = (live, v) else { return };
         if crate::kill::own_ancestry().contains(&live.pid) {
             self.kill_confirm = None;
-            self.say(Tone::Warning, format!("can't end \"{title}\": sessio is running inside it"));
+            self.say(Tone::Warning, format!("can't end {title}: sessio is running inside it"));
             return;
         }
         if self.kill_confirm.as_ref() != Some(&(id.clone(), live.pid)) {
@@ -627,23 +739,23 @@ impl App {
                 at.push_str(&format!(" · {}", live.tty));
             }
             let days = crate::kill::idle_days(idle_ms);
-            self.say(Tone::Warning, format!("end \"{title}\" ({at}, idle {days}d)? ^k again"));
+            self.say(Tone::Warning, format!("end {title} ({at}, idle {days}d)? ^k again"));
             return;
         }
         self.kill_confirm = None;
-        self.say(Tone::Info, format!("ending \"{title}\" (pid {})…", live.pid));
+        self.say(Tone::Pending, format!("ending {title} (pid {})…", live.pid));
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             use crate::kill::Outcome;
             let (tone, text) = match crate::kill::end(&id, live.pid) {
                 Ok(Outcome::Ended) => {
-                    (Tone::Success, format!("✓ ended \"{title}\" (pid {})", live.pid))
+                    (Tone::Success, format!("✓ ended {title} (pid {})", live.pid))
                 }
                 Ok(Outcome::StillRunning) => (
                     Tone::Warning,
-                    format!("sent SIGTERM to pid {} — still running after 3s", live.pid),
+                    format!("sent SIGTERM to {title} (pid {}) — still running after 3s", live.pid),
                 ),
-                Err(why) => (Tone::Error, format!("didn't end \"{title}\": {why}")),
+                Err(why) => (Tone::Error, format!("didn't end {title}: {why}")),
             };
             let _ = tx.send(Msg::Ended(tone, text));
         });
@@ -713,7 +825,8 @@ pub fn run() -> io::Result<()> {
         confirm: None,
         kill_confirm: None,
         draft: None,
-        sending: HashSet::new(),
+        sending: HashMap::new(),
+        failed: HashMap::new(),
         reply_ok: false,
         follow: None,
         issues: false,
@@ -765,15 +878,8 @@ fn event_loop(
     let mut refreshing = false;
 
     loop {
-        if flash_expired(Instant::now(), app.flash_until) {
-            app.flash.clear();
-            app.flash_until = None;
-            // The warning and the consent it asks for run out together: "↵ again" has to mean
-            // again *now*, not an hour later with the message long gone and the session still
-            // marked as one the user already agreed to open twice.
-            app.confirm = None;
-            app.kill_confirm = None;
-        }
+        // The warning and the consent it asks for run out together.
+        app.expire_flash(Instant::now());
         term.draw(|f| draw(f, app))?;
 
         // Live refresh: rescan every 2s on a worker so input never stalls behind the scan.
@@ -839,19 +945,10 @@ fn event_loop(
                     // A newer query or `^f` supersedes this one: it is dropped, not shown.
                     app.finish_text_search(gen, query, files, model::load);
                 }
-                Msg::Replied { key, ok, text } => {
-                    app.sending.remove(&key);
-                    // Force the next draw to re-read the transcript: the reply is in the file
-                    // now, and the cached detail is one turn out of date.
-                    app.details.remove(&key);
-                    app.ensure_detail();
-                    if ok {
-                        app.say(Tone::Success, format!("↩ replied · {}", first_words(&text, 8)));
-                    } else {
-                        app.say(Tone::Error, format!("reply failed · {}", first_words(&text, 10)));
-                    }
+                Msg::Replied { key, id, title, body, ok, text } => {
+                    app.on_replied(&key, &id, &title, body, ok, &text);
                 }
-                Msg::Ended(tone, text) => app.say(tone, text),
+                Msg::Ended(tone, text) => app.report(tone, text),
             }
         }
     }
@@ -906,6 +1003,8 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
         }
     }
     // A session you archived but have since worked in again is not one you are done with.
+    let was: Vec<usize> =
+        (0..app.items.len()).filter(|&i| app.archived(&app.items[i])).collect();
     let freed = {
         let (archive, items) = (&mut app.archive, &app.items);
         archive.release_reactivated(
@@ -913,8 +1012,13 @@ fn absorb_items(app: &mut App, new_items: Vec<Item>) {
         )
     };
     if freed > 0 {
-        let s = if freed == 1 { "" } else { "s" };
-        app.say(Tone::Success, format!("↩ {freed} archived session{s} back — active again"));
+        // Named when it is one, so the message still says which after you have moved on.
+        let back: Vec<usize> = was.into_iter().filter(|&i| !app.archived(&app.items[i])).collect();
+        let msg = match back.as_slice() {
+            [i] => format!("↩ {} is back from {ARCHIVED_TAB} — written to again", target(app.items[*i].display_name())),
+            _ => format!("↩ {freed} archived sessions back — written to again"),
+        };
+        app.report(Tone::Success, msg);
     }
     app.tabs = app.tabs_now();
     app.p_idx = active_tab
@@ -947,15 +1051,7 @@ fn handle_key(
         return compose_key(app, k, ctrl);
     }
 
-    // "↵ again to open it twice" means the *very next* key, and the same key. Moving, typing or
-    // switching tabs is not consent to start a second process on a live transcript.
-    if !is_resume_key(&k) {
-        app.confirm = None;
-    }
-    // The same for `^k`: consent to end a process is the very next key, and only that key.
-    if !(ctrl && k.code == KeyCode::Char('k')) {
-        app.kill_confirm = None;
-    }
+    disarm(app, &k);
 
     if ctrl && k.code == KeyCode::Char('c') {
         return Ok(Flow::Quit);
@@ -1013,17 +1109,7 @@ fn handle_key(
                 });
             }
         }
-        KeyCode::Char('a') if ctrl => {
-            if let Some(i) = app.selected() {
-                let (key, id) = (app.items[i].key.clone(), app.items[i].id.clone());
-                app.follow = None; // the selection is about to move out from under the pin
-                app.archive.toggle(&key, &id);
-                app.rebuild_tabs();
-                let len = app.view().len();
-                app.cur = app.cur.min(len.saturating_sub(1));
-                app.ensure_detail();
-            }
-        }
+        KeyCode::Char('a') if ctrl => app.toggle_archive(),
         // A bare `r` cannot open the composer: plain letters filter the list, and "r" is the
         // first character of plenty of things worth searching for.
         KeyCode::Char('r') if ctrl => app.begin_reply(),
@@ -1072,7 +1158,8 @@ fn handle_key(
                 // Without a recorded folder there is nowhere to start it; sessio's own folder
                 // would be a guess dressed up as the project.
                 let Some(dir) = cwd else {
-                    app.say(Tone::Warning, "no folder recorded for this session — nowhere to start one".into());
+                    let who = target(app.items[i].display_name());
+                    app.say(Tone::Warning, format!("{who} has no folder recorded — nowhere to start a new session"));
                     return Ok(Flow::Continue);
                 };
                 if !resume::in_ghostty() {
@@ -1081,8 +1168,8 @@ fn handle_key(
                 // Stay put and say why on failure, as ^o does: falling back to this window would
                 // replace sessio with something the user did not ask for.
                 match resume::ghostty_launch_fresh(std::path::Path::new(&dir)) {
-                    Ok(()) => app.say(Tone::Success, format!("↗ new session in {project} in a new window")),
-                    Err(why) => app.say(Tone::Error, format!("couldn't open a new window ({why})")),
+                    Ok(()) => app.say(Tone::Success, format!("↗ new session in {} in a new Ghostty window", sanitize(&project))),
+                    Err(why) => app.say(Tone::Error, format!("couldn't open a new window for {} ({why})", sanitize(&project))),
                 }
                 return Ok(Flow::Continue);
             }
@@ -1100,6 +1187,21 @@ fn handle_key(
 ///
 /// Separators are whitespace and the punctuation that shows up in project paths and session
 /// titles, so one ⌥⌫ over `mybit/tooling` leaves `mybit/`.
+/// Withdraw any consent `k` does not give. "↵ again to open it twice" means the *very next* key,
+/// and the same key: moving, typing or switching tabs is not consent to start a second process on
+/// a live transcript. The same for `^k`: consent to end a process is the next key, and only `^k`.
+/// (`^o` after a `↵` warning, or `↵` after `^o`, is refused in `resume_selected`: consent is to
+/// the key that was warned about.)
+#[cfg(not(target_arch = "wasm32"))]
+fn disarm(app: &mut App, k: &KeyEvent) {
+    if !is_resume_key(k) {
+        app.confirm = None;
+    }
+    if !(k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('k')) {
+        app.kill_confirm = None;
+    }
+}
+
 /// Keys while the reply composer is open. Esc abandons the draft, ↵ sends it, everything else
 /// types. Deliberately small: this is a one-line composer, not an editor.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1108,13 +1210,15 @@ fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
     match k.code {
         KeyCode::Esc => {
             app.draft = None;
-            app.say(Tone::Info, "reply discarded".into());
+            // Deliberate: a failed reply restored into the composer goes with it.
+            app.failed.remove(&id);
+            app.say(Tone::Info, format!("reply to {} discarded", app.target_of(&id)));
         }
         KeyCode::Enter => {
             let body = text.trim().to_string();
             app.draft = None;
             if body.is_empty() {
-                app.say(Tone::Warning, "nothing to send".into());
+                app.say(Tone::Warning, format!("nothing to send to {} — composer closed", app.target_of(&id)));
             } else {
                 send_reply(app, &id, &body);
             }
@@ -1150,12 +1254,8 @@ fn compose_key(app: &mut App, k: KeyEvent, ctrl: bool) -> io::Result<Flow> {
 /// redraw, refresh and respond to keys while it does.
 #[cfg(not(target_arch = "wasm32"))]
 fn send_reply(app: &mut App, id: &str, body: &str) {
-    let Some(i) = app.items.iter().position(|it| it.id == id) else { return };
-    let (key, cwd) = (app.items[i].key.clone(), app.items[i].cwd.clone());
-    app.sending.insert(id.to_string());
-    app.say(Tone::Info, format!("⏳ sending to \"{}\" …", first_words(&app.items[i].name, 4)));
-
-    let (tx, id, body) = (app.tx.clone(), id.to_string(), body.to_string());
+    let Some(SendJob { key, id, title, cwd, body }) = app.start_sending(id, body) else { return };
+    let tx = app.tx.clone();
     std::thread::spawn(move || {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("-p").arg("--resume").arg(&id).arg(&body);
@@ -1166,15 +1266,21 @@ fn send_reply(app: &mut App, id: &str, body: &str) {
         let msg = match out {
             Ok(o) if o.status.success() => Msg::Replied {
                 key,
+                id,
+                title,
+                body,
                 ok: true,
                 text: crate::safety::sanitize(&String::from_utf8_lossy(&o.stdout)),
             },
             Ok(o) => Msg::Replied {
                 key,
+                id,
+                title,
+                body,
                 ok: false,
                 text: crate::safety::sanitize(&String::from_utf8_lossy(&o.stderr)),
             },
-            Err(e) => Msg::Replied { key, ok: false, text: e.to_string() },
+            Err(e) => Msg::Replied { key, id, title, body, ok: false, text: e.to_string() },
         };
         let _ = tx.send(msg);
     });
@@ -1258,6 +1364,14 @@ fn enter_action(is_live: bool, confirmed: bool) -> EnterAction {
     }
 }
 
+/// The warning when `↵` / `^o` meets a running session sessio could not take you to: which
+/// session, where it runs (pid · tty · status, enough to find the terminal yourself), and that
+/// the same key once more — and only that — opens a second copy.
+#[cfg(not(target_arch = "wasm32"))]
+fn running_warning(who: &str, at: &str, key: &str) -> String {
+    format!("{who} is already running ({at}) — go to that terminal, or {key} again to open it twice")
+}
+
 /// Where the running process is, for a user who has to find it themselves.
 pub fn running_where(live: &crate::live::Live) -> String {
     let mut s = format!("pid {}", live.pid);
@@ -1301,10 +1415,11 @@ fn resume_selected(
         app.items[i].source,
     );
     let key = if new_window { "^o" } else { "↵" };
+    let who = target(&name);
 
     // Only Ghostty can be asked for a window. Say so rather than quietly doing something else.
     if new_window && !resume::in_ghostty() {
-        app.say(Tone::Warning, "^o opens a new window under Ghostty only — ↵ resumes here".into());
+        app.say(Tone::Warning, format!("^o needs Ghostty (it asks Ghostty for the window) — ↵ resumes {who} here"));
         return Ok(Flow::Continue);
     }
 
@@ -1315,16 +1430,18 @@ fn resume_selected(
     let confirmed = app.confirm.as_ref() == Some(&(id.clone(), new_window));
     if let EnterAction::GoToRunning = enter_action(running.is_some(), confirmed) {
         let live = running.expect("GoToRunning implies a live process");
-        let short: String = name.chars().take(40).collect();
+        let at = running_where(&live);
         // Ghostty can name the exact terminal by tty, tab and split included — so going to the
         // session is the default there, not an opt-in. Title matching stays behind SESSIO_FOCUS.
         if resume::in_ghostty() && resume::focus_tty(&live.tty) {
-            app.say(Tone::Success, format!("↗ switched to \"{short}\" — already running ({})", running_where(&live)));
+            app.say(Tone::Success, format!("↗ switched to {who}'s Ghostty terminal — already running ({at})"));
         } else if focus_enabled() && resume::focus_window_titled(&name) {
-            app.say(Tone::Success, format!("↗ focused \"{short}\" — already running"));
+            // Title matching raises a Ghostty window whose title matches, which is not always
+            // the one in front (README): say what was done, not that you are there.
+            app.say(Tone::Success, format!("↗ raised a Ghostty window titled {who} — already running ({at})"));
         } else {
             app.confirm = Some((id, new_window));
-            app.say(Tone::Warning, format!("already running ({}) — {key} again to open it twice", running_where(&live)));
+            app.say(Tone::Warning, running_warning(&who, &at, key));
         }
         return Ok(Flow::Continue);
     }
@@ -1335,15 +1452,14 @@ fn resume_selected(
     }
     // A new window needs a folder to open in; sessio's own would be a guess.
     let Some(dir) = cwd else {
-        app.say(Tone::Warning, "no folder recorded for this session — ↵ resumes it here".into());
+        app.say(Tone::Warning, format!("{who} has no folder recorded — ↵ resumes it here"));
         return Ok(Flow::Continue);
     };
-    let short: String = name.chars().take(40).collect();
     match resume::ghostty_launch(std::path::Path::new(&dir), &resume::resume_argv(source, &id)) {
-        Ok(()) => app.say(Tone::Success, format!("↗ opened \"{short}\" in a new window")),
+        Ok(()) => app.say(Tone::Success, format!("↗ opened {who} in a new Ghostty window")),
         // Stay put and say why. Falling back to this window would replace sessio with something
         // the user did not ask for.
-        Err(why) => app.say(Tone::Error, format!("couldn't open a new window ({why}) — ↵ resumes here")),
+        Err(why) => app.say(Tone::Error, format!("couldn't open a window for {who} ({why}) — ↵ resumes it here")),
     }
     Ok(Flow::Continue)
 }
@@ -1460,8 +1576,8 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     } else {
         session_tabs(app, &view, cols)
     };
-    if let Some((_, text)) = &app.draft {
-        lines.push(compose_line(text));
+    if let Some((id, text)) = &app.draft {
+        lines.push(compose_line(&app.target_of(id), text));
     }
     lines.extend(prev);
     // Every row is cut to its region: a wide title, a CJK path or an emoji-laden branch ends in
@@ -1488,8 +1604,8 @@ fn too_small(app: &App, view: &[usize], cols: usize, rows: usize) -> Vec<Line<'s
             app.flash_tone.style(),
         )));
     }
-    if let Some((_, text)) = &app.draft {
-        lines.push(compose_line(text));
+    if let Some((id, text)) = &app.draft {
+        lines.push(compose_line(&app.target_of(id), text));
     }
     let tab = app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str);
     let pos = if view.is_empty() {
@@ -2017,9 +2133,9 @@ fn fit_left(s: &str, w: usize) -> String {
 
 /// The reply composer: one line, under the tabs and above the session it answers — so the
 /// question you are replying to is still on screen while you write it.
-fn compose_line(text: &str) -> Line<'static> {
+fn compose_line(who: &str, text: &str) -> Line<'static> {
     Line::from(vec![
-        Span::styled(" ↳ reply ", tab_selected()),
+        Span::styled(format!(" ↳ reply to {who} "), tab_selected()),
         Span::raw(" "),
         Span::raw(sanitize(text)),
         Span::styled("▏", dim()),
@@ -2045,6 +2161,44 @@ fn dot_for(app: &App, it: &Item) -> (&'static str, Style) {
     } else {
         (" ", Style::default())
     }
+}
+
+/// What a reply worker needs, taken from the session when the reply was sent.
+#[cfg(not(target_arch = "wasm32"))]
+struct SendJob {
+    key: String,
+    id: String,
+    title: String,
+    cwd: Option<String>,
+    body: String,
+}
+
+/// How much of a title feedback carries: enough to tell sessions apart, short enough that what
+/// happened to it still fits beside it.
+const TARGET_MAX: usize = 32;
+
+/// A session as feedback names it: the first words of its title, quoted, cut to `TARGET_MAX`
+/// columns. Every message about a session carries this, so it still says which one once the
+/// selection has moved on or the answer arrives later.
+fn target(name: &str) -> String {
+    let words = first_words(&sanitize(name), 6);
+    let mut out = String::new();
+    let mut w = 0;
+    let mut cut = false;
+    for c in words.chars() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if w + cw > TARGET_MAX - 1 {
+            cut = true;
+            break;
+        }
+        out.push(c);
+        w += cw;
+    }
+    if cut {
+        out = out.trim_end().to_string();
+        out.push('…');
+    }
+    format!("\"{out}\"")
 }
 
 /// The first `n` words of a title, for a tab that is not the one being read.
@@ -2082,6 +2236,10 @@ fn tab_marks(app: &App, it: &Item, sel: Option<Style>) -> Vec<Span<'static>> {
     }
     if it.open {
         spans.push(Span::styled("▸", on(theme::attention())));
+    }
+    // A reply on its way stays marked on its tab until it lands, wherever you are looking.
+    if app.sending.contains_key(&it.id) {
+        spans.push(Span::styled(SENDING_MARK, on(Tone::Pending.style())));
     }
     if let Some(tag) = source_tag(it) {
         spans.push(Span::styled(format!("{tag} "), on(theme::agent_tag())));
@@ -2268,6 +2426,16 @@ fn preview(
     let fact = |s: Span<'static>| Line::from(vec![Span::raw(" ".repeat(STATE_INDENT)), s]);
     let mut parts: Vec<Part> = Vec::new();
 
+    // A reply you sent here: on its way until it lands, or failed with your text kept. Right under
+    // the state, and never shed, so it is there whenever you come back to this session.
+    if let Some(body) = app.sending.get(&it.id) {
+        let note = format!("{SENDING_MARK} sending your reply \"{}\" · the answer lands here", first_words(&sanitize(body), 6));
+        parts.push(Part { id: "reply sending", shed: None, lines: vec![fact(Span::styled(note, Tone::Pending.style()))] });
+    } else if let Some((_, why)) = app.failed.get(&it.id) {
+        let note = format!("{}reply failed · {} · your text is kept: ^r to retry", Tone::Error.mark(), sanitize(why));
+        parts.push(Part { id: "reply failed", shed: None, lines: vec![fact(Span::styled(note, Tone::Error.style()))] });
+    }
+
     // Where it is: the project, the branch, how far the conversation went. The age is on the
     // state row already.
     let prompts = match it.prompt_count() {
@@ -2289,7 +2457,7 @@ fn preview(
         });
     }
     if app.archived(it) {
-        let note = "🗄 archived · hidden from other tabs · ^a to unarchive";
+        let note = "🗄 archived · hidden from every other tab · ^a restores it";
         parts.push(Part { id: "archived", shed: None, lines: vec![fact(Span::styled(note, dim()))] });
     }
     if let Some(l) = app.issue_status().as_ref().and_then(issues_line) {
@@ -2926,14 +3094,14 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
     ]));
     v.extend([
         k("^a", "archive / unarchive (a session you work in again comes back)"),
-        k("^r", "reply without opening: sends one turn, stays in the list (Claude only)"),
+        k("^r", "reply without opening, one turn (Claude only); failed text is kept"),
         k("^t", "follow a running session's tail, read-only; any move stops"),
         k("⇥ ^e", "give the latest reply more room / less · PgUp PgDn scroll it"),
         k("^g", "GitHub issues for the session's repo (needs gh; ↵ opens one)"),
         k("↵", "resume here. Running (◉ ◆): under Ghostty, switches to its terminal"),
         k("", "by tty; otherwise says its pid · tty. ↵ again opens a second copy"),
         k("^o", "resume in a new Ghostty window, keeping sessio open (same guard)"),
-        k("^n", "new session in the session's folder (new window under Ghostty)"),
+        k("^n", "new session in its folder: a new Ghostty window, else replaces sessio"),
         k("^k", "end a running session idle over 48h; ^k again to confirm"),
         k("? esc", "this help · esc leaves ^f text search, otherwise quits · ^c quits"),
         Line::from(""),
@@ -3552,7 +3720,8 @@ mod tests {
             confirm: None,
             kill_confirm: None,
             draft: None,
-            sending: HashSet::new(),
+            sending: HashMap::new(),
+            failed: HashMap::new(),
             reply_ok: false,
             follow: None,
             issues: false,
@@ -5239,6 +5408,273 @@ mod tests {
             }
         }
     }
+    // ---------- #25: feedback around consequences ----------
+
+    fn kev(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, mods)
+    }
+
+    fn row_text(l: &Line) -> String {
+        l.spans.iter().map(|s| s.content.to_string()).collect()
+    }
+
+    /// The highlighted session's id, key and how feedback names it.
+    fn highlighted(app: &App) -> (String, String, String) {
+        let it = &app.items[app.selected().unwrap()];
+        (it.id.clone(), it.key.clone(), target(it.display_name()))
+    }
+
+    #[test]
+    fn a_target_is_short_quoted_and_never_wider_than_its_budget() {
+        assert_eq!(target("fix login redirect loop"), "\"fix login redirect loop\"");
+        let long = target("refactor the whole cache layer so that eviction is finally predictable");
+        assert!(long.starts_with('"') && long.ends_with("…\""), "{long}");
+        assert!(UnicodeWidthStr::width(long.as_str()) <= TARGET_MAX + 2, "{long}");
+        let cjk = target(&"日本語のテキスト".repeat(8));
+        assert!(UnicodeWidthStr::width(cjk.as_str()) <= TARGET_MAX + 2, "{cjk}");
+        assert!(!target("a\u{1b}[31mred").contains('\u{1b}'), "sanitized");
+    }
+
+    /// Sending names its session, and so does the answer — even when it lands after you have
+    /// moved to another session.
+    #[test]
+    fn a_reply_names_its_session_when_it_lands_after_you_moved() {
+        for ok in [true, false] {
+            let mut app = fixture(&real_tabs());
+            let (id, key, who) = highlighted(&app);
+            let job = app.start_sending(&id, "run the tests again").expect("sends");
+            assert_eq!(job.title, who);
+            assert_eq!(app.flash_tone, Tone::Pending);
+            assert!(app.flash.contains(&who), "{:?}", app.flash);
+
+            app.step_session(1);
+            let (other, _, other_who) = highlighted(&app);
+            assert_ne!(other, id, "moved on");
+
+            let answer = if ok { "all 214 tests pass" } else { "API Error: overloaded" };
+            app.on_replied(&key, &id, &job.title, job.body, ok, answer);
+            assert!(app.flash.contains(&who), "{ok}: names the session it was for: {:?}", app.flash);
+            assert!(!app.flash.contains(&other_who), "{ok}: not the one you are on: {:?}", app.flash);
+            assert_eq!(app.flash_tone, if ok { Tone::Success } else { Tone::Error });
+            assert!(app.sending.is_empty(), "{ok}: no longer in flight");
+        }
+    }
+
+    #[test]
+    fn the_composer_names_the_session_it_answers() {
+        let mut app = fixture(&real_tabs());
+        app.reply_ok = true;
+        let (_, _, who) = highlighted(&app);
+        app.begin_reply();
+        assert!(app.draft.is_some());
+        for (cols, rows) in [(160, 40), (80, 24), (40, 10)] {
+            let f = frame(&mut app, cols, rows).join("\n");
+            assert!(f.contains(&format!("reply to {}", &who[..12])), "{cols}x{rows}:\n{f}");
+        }
+        let _ = compose_key(&mut app, kev(KeyCode::Esc, KeyModifiers::NONE), false);
+        assert!(app.flash.contains(&who) && app.flash.contains("discarded"), "{:?}", app.flash);
+    }
+
+    /// A reply in flight is marked on its tab and in its preview until it lands, wherever you
+    /// are looking in between.
+    #[test]
+    fn a_reply_in_flight_stays_marked_until_it_lands() {
+        let mut app = fixture(&real_tabs());
+        let (id, key, _) = highlighted(&app);
+        let job = app.start_sending(&id, "use seconds").unwrap();
+        let it = app.items[app.selected().unwrap()].clone();
+        let marks: String = tab_marks(&app, &it, None).iter().map(|s| s.content.to_string()).collect();
+        assert!(marks.contains(SENDING_MARK), "{marks:?}");
+        let body = |app: &mut App| frame(app, 140, 30).join("\n");
+        assert!(body(&mut app).contains("sending your reply \"use seconds\""));
+
+        app.step_session(1);
+        let f = body(&mut app);
+        assert!(f.contains(SENDING_MARK), "still on its tab from the next one:\n{f}");
+        assert!(!f.contains("sending your reply"), "the preview is the other session's");
+        app.step_session(-1);
+        assert!(body(&mut app).contains("sending your reply"), "and back again");
+        app.flash.clear();
+
+        app.on_replied(&key, &id, &job.title, job.body, true, "done");
+        let f = body(&mut app);
+        assert!(!f.contains(SENDING_MARK) && !f.contains("sending your reply"), "{f}");
+    }
+
+    /// One reply at a time per session: neither a second send nor a new composer while one is on
+    /// its way.
+    #[test]
+    fn a_second_submit_is_refused_while_one_is_in_flight() {
+        let mut app = fixture(&real_tabs());
+        app.reply_ok = true;
+        let (id, _, who) = highlighted(&app);
+        assert!(app.start_sending(&id, "first").is_some());
+        assert!(app.start_sending(&id, "first").is_none(), "no second send");
+        assert_eq!(app.sending.get(&id).map(String::as_str), Some("first"));
+        assert!(app.flash.contains("still sending to") && app.flash.contains(&who), "{:?}", app.flash);
+        assert_eq!(app.flash_tone, Tone::Warning);
+
+        app.begin_reply();
+        assert!(app.draft.is_none(), "no composer either");
+        assert!(app.flash.contains(&who), "{:?}", app.flash);
+    }
+
+    /// A failed reply is kept, shown on its session, restored by the next `^r` there, and never
+    /// sent again on its own.
+    #[test]
+    fn a_failed_reply_keeps_its_text_for_a_deliberate_retry() {
+        let mut app = fixture(&real_tabs());
+        app.reply_ok = true;
+        let (id, key, who) = highlighted(&app);
+        let job = app.start_sending(&id, "run the migration").unwrap();
+        app.on_replied(&key, &id, &job.title, job.body, false, "");
+        assert!(app.flash.contains("^r"), "says how to get it back: {:?}", app.flash);
+        assert!(app.sending.is_empty(), "not resent");
+        let f = frame(&mut app, 140, 30).join("\n");
+        assert!(f.contains("✗ reply failed") && f.contains("your text is kept"), "{f}");
+
+        // Moving about and a refresh's worth of time change nothing.
+        app.step_session(1);
+        app.step_session(-1);
+        app.expire_flash(Instant::now() + FLASH);
+        assert!(app.sending.is_empty() && app.failed.contains_key(&id));
+
+        app.begin_reply();
+        assert_eq!(app.draft, Some((id.clone(), "run the migration".into())), "restored");
+        assert!(app.flash.contains(&who) && app.flash.contains("↵ sends it again"), "{:?}", app.flash);
+        assert!(app.sending.is_empty(), "restoring is not sending");
+
+        let _ = compose_key(&mut app, kev(KeyCode::Esc, KeyModifiers::NONE), false);
+        assert!(!app.failed.contains_key(&id), "esc is the deliberate discard");
+        app.begin_reply();
+        assert_eq!(app.draft, Some((id, String::new())), "gone for good");
+    }
+
+    #[test]
+    fn a_running_session_refusal_says_where_it_runs() {
+        let mut app = running_fixture();
+        app.reply_ok = true;
+        let (_, _, who) = highlighted(&app);
+        app.begin_reply();
+        assert!(app.draft.is_none());
+        for part in [who.as_str(), "running", "pid 4674", "ttys000", "busy"] {
+            assert!(app.flash.contains(part), "{part}: {:?}", app.flash);
+        }
+        assert_eq!(app.flash_tone, Tone::Warning);
+
+        let w = running_warning(&who, "pid 4674 · ttys000 · idle", "↵");
+        for part in [who.as_str(), "pid 4674", "ttys000", "idle", "↵ again"] {
+            assert!(w.contains(part), "{part}: {w}");
+        }
+        assert!(!w.to_lowercase().contains("focus") && !w.contains("switched"), "{w}");
+    }
+
+    #[test]
+    fn archiving_says_what_happened_and_how_to_undo_it() {
+        let mut app = fixture(&real_tabs());
+        let (id, key, who) = highlighted(&app);
+        app.toggle_archive();
+        assert!(app.archive.contains(&key, &id));
+        assert_ne!(highlighted(&app).0, id, "the selection moved off it");
+        assert!(app.flash.starts_with(ARCHIVED_TAB), "{:?}", app.flash);
+        for part in [who.as_str(), "↑↓ to", "then ^a"] {
+            assert!(app.flash.contains(part), "{part}: {:?}", app.flash);
+        }
+        assert_eq!(app.flash_tone, Tone::Success);
+
+        app.p_idx = app.tabs.iter().position(|t| t == ARCHIVED_TAB).expect("an archived tab");
+        app.cur = 0;
+        assert_eq!(highlighted(&app).0, id);
+        let f = frame(&mut app, 140, 30).join("\n");
+        assert!(f.contains("^a restores it"), "{f}");
+        app.toggle_archive();
+        assert!(!app.archive.contains(&key, &id));
+        assert!(app.flash.contains("unarchived") && app.flash.contains(&who), "{:?}", app.flash);
+    }
+
+    /// Consent to open a running session twice (or to end one) is the next key, the same key, and
+    /// only while its warning is up; a background result that covers the warning withdraws it.
+    #[test]
+    fn consent_expires_and_anything_else_withdraws_it() {
+        let armed = |app: &mut App| {
+            app.confirm = Some(("id1".into(), false));
+            app.kill_confirm = Some(("id1".into(), 4674));
+            app.say(Tone::Warning, "already running — ↵ again to open it twice".into());
+        };
+        let mut app = fixture(&real_tabs());
+        for (k, keeps_resume, keeps_kill) in [
+            (kev(KeyCode::Enter, KeyModifiers::NONE), true, false),
+            (kev(KeyCode::Char('o'), KeyModifiers::CONTROL), true, false),
+            (kev(KeyCode::Char('k'), KeyModifiers::CONTROL), false, true),
+            (kev(KeyCode::Left, KeyModifiers::NONE), false, false),
+            (kev(KeyCode::Down, KeyModifiers::NONE), false, false),
+            (kev(KeyCode::Char('x'), KeyModifiers::NONE), false, false),
+            (kev(KeyCode::Char('a'), KeyModifiers::CONTROL), false, false),
+            (kev(KeyCode::Esc, KeyModifiers::NONE), false, false),
+        ] {
+            armed(&mut app);
+            disarm(&mut app, &k);
+            assert_eq!(app.confirm.is_some(), keeps_resume, "{k:?}");
+            assert_eq!(app.kill_confirm.is_some(), keeps_kill, "{k:?}");
+        }
+
+        armed(&mut app);
+        app.expire_flash(Instant::now());
+        assert!(app.confirm.is_some(), "still up");
+        app.expire_flash(Instant::now() + FLASH);
+        assert!(app.confirm.is_none() && app.kill_confirm.is_none() && app.flash.is_empty());
+
+        armed(&mut app);
+        app.report(Tone::Success, "↩ \"other\" replied · ok".into());
+        assert!(app.confirm.is_none() && app.kill_confirm.is_none(), "the question is gone");
+    }
+
+    /// Every refusal, warning and failure about a session names it, and none of them is green.
+    #[test]
+    fn session_feedback_names_its_session_and_is_never_falsely_green() {
+        let check = |app: &App, what: &str, who: &str| {
+            assert!(app.flash.contains(who), "{what}: {:?} should name {who}", app.flash);
+            assert_ne!(app.flash_tone.style(), Tone::Success.style(), "{what} is not a success");
+            let fb = feedback_lines(app, 200);
+            assert_ne!(fb[0].spans.last().unwrap().style, Tone::Success.style(), "{what}");
+        };
+
+        let mut app = fixture(&real_tabs());
+        let (_, _, who) = highlighted(&app);
+        app.begin_reply();
+        check(&app, "token warning", &who);
+        app.toggle_follow();
+        check(&app, "follow, not running", &who);
+
+        let mut app = running_fixture();
+        let (_, _, who) = highlighted(&app);
+        app.reply_ok = true;
+        app.begin_reply();
+        check(&app, "reply refused, running", &who);
+
+        let mut app = fixture(&real_tabs());
+        let i = app.selected().unwrap();
+        app.items[i].source = Source::Copilot;
+        let (_, _, who) = highlighted(&app);
+        app.reply_ok = true;
+        app.begin_reply();
+        check(&app, "reply, copilot", &who);
+        app.toggle_follow();
+        check(&app, "follow, copilot", &who);
+        app.kill_key();
+        check(&app, "^k, copilot", &who);
+
+        let mut app = fixture(&real_tabs());
+        let (id, key, who) = highlighted(&app);
+        let job = app.start_sending(&id, "x").unwrap();
+        check(&app, "sending", &who);
+        let rows = feedback_lines(&app, 200);
+        assert!(row_text(&rows[0]).contains("⏳ sending to"), "pending is marked, not only coloured");
+        app.on_replied(&key, &id, &job.title, job.body, false, "boom");
+        check(&app, "reply failed", &who);
+        assert!(row_text(&feedback_lines(&app, 200)[0]).contains("✗ reply to"));
+    }
+
 }
 
 
@@ -5350,7 +5786,8 @@ pub mod demo {
             confirm: None,
             kill_confirm: None,
             draft: None,
-            sending: HashSet::new(),
+            sending: HashMap::new(),
+            failed: HashMap::new(),
             reply_ok: false,
             follow: None,
             issues: false,
