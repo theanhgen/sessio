@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::discover::{self, Row, CAP};
+use crate::discover::{self, Row, Source, CAP};
 use crate::parse::{self, Detail, OpenReason};
 use crate::safety::sanitize;
 use crate::store::Archive;
@@ -34,6 +34,8 @@ pub struct Item {
     pub mtime: i64,
     pub size: u64,
     pub dir: String,
+    /// Which agent wrote it: decides how it is read, resumed and tagged.
+    pub source: Source,
 
     pub first: Option<String>,
     pub first_ts: Option<String>,
@@ -73,19 +75,31 @@ impl Item {
     }
 }
 
+/// The full read behind the preview and `show`, by whichever parser the source needs.
+pub fn read_detail(source: Source, file: &Path) -> Detail {
+    match source {
+        Source::Claude => parse::detail(file),
+        Source::Copilot => crate::copilot::detail(file),
+    }
+}
+
 pub fn load(extra: &[PathBuf]) -> Vec<Item> {
-    load_with(extra, false)
+    load_with(discover::scan_all(), extra, false)
 }
 
 /// `load` for a caller that runs once and exits: waits for the git checks instead of reading
 /// unknown as clean, so uncommitted work counts as open on the first and only look.
 pub fn load_settled(extra: &[PathBuf]) -> Vec<Item> {
-    load_with(extra, true)
+    load_with(discover::scan_all(), extra, true)
 }
 
-fn load_with(extra: &[PathBuf], settle: bool) -> Vec<Item> {
-    let root = discover::projects_root();
-    let rows = discover::scan(&root);
+/// Claude Code sessions only — what `--dump-json` compares against the JS original, which has
+/// never heard of Copilot.
+pub fn load_claude(extra: &[PathBuf]) -> Vec<Item> {
+    load_with(discover::scan(&discover::projects_root()), extra, false)
+}
+
+fn load_with(rows: Vec<Row>, extra: &[PathBuf], settle: bool) -> Vec<Item> {
     let selected = discover::select(&rows, CAP, extra);
     let parsed = parse_all(&selected);
 
@@ -111,7 +125,11 @@ fn load_with(extra: &[PathBuf], settle: bool) -> Vec<Item> {
                 file: row.file,
                 mtime: row.mtime,
                 size: row.size,
-                dir: row.dir,
+                dir: match row.source {
+                    Source::Claude => row.dir,
+                    Source::Copilot => crate::copilot::dir_for(head.cwd.as_deref()),
+                },
+                source: row.source,
                 first: head.first,
                 first_ts: head.first_ts,
                 cwd: head.cwd,
@@ -266,7 +284,11 @@ fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
                     if i >= rows.len() {
                         break;
                     }
-                    local.push((i, parse::head(&rows[i].file), parse::tail(&rows[i].file)));
+                    let f = &rows[i].file;
+                    local.push(match rows[i].source {
+                        Source::Claude => (i, parse::head(f), parse::tail(f)),
+                        Source::Copilot => (i, crate::copilot::head(f), crate::copilot::tail(f)),
+                    });
                 }
                 results.lock().expect("no worker panics").extend(local);
             });
@@ -341,6 +363,7 @@ mod tests {
             mtime: NOW,
             size: 0,
             dir: project.into(),
+            source: Source::Claude,
             first: Some("hi".into()),
             first_ts: None,
             cwd: Some(cwd.into()),

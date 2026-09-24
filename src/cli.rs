@@ -13,6 +13,7 @@ use sessio::live::LiveMap;
 use sessio::model::{self, Item};
 use sessio::safety::sanitize;
 use sessio::store::Archive;
+use sessio::discover::Source;
 use sessio::{discover, parse, rank, resume, search, ui};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -26,6 +27,7 @@ const PROJECT_MAX: usize = 20;
 pub fn usage() -> String {
     format!(
         "sessio {} — find and resume past Claude Code sessions.
+GitHub Copilot CLI sessions (~/.copilot) are listed too, tagged `copilot`.
 
 USAGE:
   sessions                          browse and resume (interactive)
@@ -37,7 +39,7 @@ USAGE:
            [--print]                  print the command instead of running it
            [--force]                  resume even though it is already running
   sessions reply <id> <message>     send one turn without opening it (spends tokens;
-                                    `-` reads the message from stdin)
+                                    `-` reads the message from stdin; Claude only)
   sessions archive <id>...          hide from the dashboard and from ls
   sessions unarchive <id>...
   sessions kill <id> [--json]       end a running session idle for more than 48h
@@ -256,7 +258,7 @@ impl World {
 /// A session by its id, or by a prefix only it has: `ls` prints eight characters, and those have
 /// to be enough to act on. Looks past the 300-session cap, since an id can come from anywhere.
 fn session(arg: &str) -> Result<(World, usize), Fail> {
-    let rows = discover::scan(&discover::projects_root());
+    let rows = discover::scan_all();
     let row = match rows.iter().find(|r| r.id == arg) {
         Some(r) => r,
         None => {
@@ -305,25 +307,23 @@ fn list(o: &Opts, query: Option<&str>) -> Result<(), Fail> {
     if o.text && query.is_none() {
         return Err(usage_err("--text needs a term"));
     }
-    let root = discover::projects_root();
     // --text greps every transcript on disk, and its matches are loaded even past the 300 cap.
     let files: Option<HashSet<PathBuf>> = match query.filter(|_| o.text) {
         Some(q) => {
             if search::rg_path().is_none() {
                 return Err(err("find --text needs ripgrep (rg) on PATH"));
             }
-            Some(search::content_search(q, &root).ok_or_else(|| err("full-text search failed"))?)
+            Some(
+                search::content_search(q, &search::roots())
+                    .ok_or_else(|| err("full-text search failed"))?,
+            )
         }
         None => None,
     };
     let extra: Vec<PathBuf> = files.iter().flatten().cloned().collect();
     let w = World::load(&extra);
-    let hits: Option<HashSet<String>> = files.map(|fs| {
-        fs.iter()
-            .filter_map(|f| f.strip_prefix(&root).ok())
-            .map(|r| r.to_string_lossy().into_owned())
-            .collect()
-    });
+    let hits: Option<HashSet<String>> =
+        files.map(|fs| fs.iter().filter_map(|f| discover::key_for_file(f)).collect());
     let project = project_filter(o, &w)?;
 
     let mut idx: Vec<usize> = (0..w.items.len())
@@ -423,7 +423,7 @@ fn mark(w: &World, it: &Item) -> char {
 fn show(o: &Opts) -> Result<(), Fail> {
     let (w, i) = session(one_id(o, "show")?)?;
     let it = &w.items[i];
-    let d = parse::detail(&it.file);
+    let d = model::read_detail(it.source, &it.file);
     // The detail read has the latest title; the head read may only have the first.
     let title = d.custom.as_deref().or(d.ai.as_deref()).unwrap_or(&it.name);
 
@@ -444,6 +444,9 @@ fn show(o: &Opts) -> Result<(), Fail> {
     let mut s = format!("{}\n", one_line(title));
     let mut field = |k: &str, v: &str| s.push_str(&format!("  {k:<9} {v}\n"));
     field("id", &it.id);
+    if it.source != Source::Claude {
+        field("source", it.source.as_str());
+    }
     match it.cwd.as_deref() {
         Some(cwd) => field("project", &format!("{} · {cwd}", it.project)),
         None => field("project", &it.project),
@@ -498,7 +501,7 @@ fn resume_cmd(o: &Opts) -> Result<(), Fail> {
     let (w, i) = session(one_id(o, "resume")?)?;
     let it = &w.items[i];
     let cwd = it.cwd.as_deref().map(Path::new);
-    let manual = resume::manual_command(cwd, &it.id);
+    let manual = resume::manual_command(cwd, it.source, &it.id);
     let running = w.live.get(&it.id);
 
     if o.print {
@@ -518,8 +521,11 @@ fn resume_cmd(o: &Opts) -> Result<(), Fail> {
     if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
         return Err(err(format!("resume needs an interactive terminal. Run it yourself:\n  {manual}")));
     }
-    let e = resume::resume_in_place(cwd, &it.id); // returns only on failure
-    Err(err(format!("couldn't launch claude ({e}). Run it yourself:\n  {manual}")))
+    let e = resume::resume_in_place(cwd, &resume::resume_argv(it.source, &it.id)); // returns only on failure
+    Err(err(format!(
+        "couldn't launch {} ({e}). Run it yourself:\n  {manual}",
+        resume::program(it.source)
+    )))
 }
 
 /// One turn through `claude -p --resume`, as `^r` sends it, with the answer on stdout.
@@ -541,6 +547,13 @@ fn reply(o: &Opts) -> Result<(), Fail> {
     }
     let (w, i) = session(id)?;
     let it = &w.items[i];
+    if it.source != Source::Claude {
+        return Err(err(format!(
+            "reply is Claude-only — resume this {} session instead: sessions resume {}",
+            it.source.as_str(),
+            short(&it.id)
+        )));
+    }
     // There is no safe way to put text into the stdin of a `claude` someone is sitting in front of.
     if let Some(l) = w.live.get(&it.id) {
         return Err(err(format!("that session is running ({}) — answer it there", ui::running_where(l))));
@@ -600,6 +613,9 @@ fn archive(o: &Opts, archived: bool) -> Result<(), Fail> {
 fn kill_cmd(o: &Opts) -> Result<(), Fail> {
     let (w, i) = session(one_id(o, "kill")?)?;
     let it = &w.items[i];
+    if it.source != Source::Claude {
+        return Err(err(format!("won't end {}: kill is Claude-only", short(&it.id))));
+    }
     let live = w.live.get(&it.id);
     let v = sessio::kill::verdict(live, it.mtime, model::now_ms());
     if let Some(why) = v.refusal() {
@@ -658,6 +674,8 @@ struct RunningJson<'a> {
 #[derive(serde::Serialize)]
 struct SessionJson<'a> {
     id: &'a str,
+    /// `claude` or `copilot`: which agent wrote the session, and so which one resumes it.
+    source: &'static str,
     title: &'a str,
     project: &'a str,
     cwd: Option<&'a str>,
@@ -688,6 +706,7 @@ fn session_json<'a>(w: &'a World, it: &'a Item, title: &'a str) -> SessionJson<'
     let some = |s: &'a str| (!s.is_empty()).then_some(s);
     SessionJson {
         id: &it.id,
+        source: it.source.as_str(),
         title,
         project: &it.project,
         cwd: it.cwd.as_deref(),

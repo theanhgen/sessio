@@ -6,6 +6,25 @@ use std::path::{Path, PathBuf};
 /// Scan the 300 most-recent sessions; plenty for getting back into recent work.
 pub const CAP: usize = 300;
 
+/// Which agent wrote a session. Claude Code is the original and the default; GitHub Copilot CLI
+/// sessions come from `~/.copilot/session-state` (see `copilot.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Source {
+    #[default]
+    Claude,
+    Copilot,
+}
+
+impl Source {
+    /// The stable name used in `--json` output and in the UI tag.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Source::Claude => "claude",
+            Source::Copilot => "copilot",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Row {
     /// Transcript uuid — the argument to `claude --resume`.
@@ -17,8 +36,10 @@ pub struct Row {
     /// stat precision and float formatting can't produce spurious oracle diffs.
     pub mtime: i64,
     pub size: u64,
-    /// The project directory's basename, e.g. `-Users-me-work-thing`.
+    /// The project directory's basename, e.g. `-Users-me-work-thing`. A Copilot session has no
+    /// such folder; the model derives one from its cwd.
     pub dir: String,
+    pub source: Source,
 }
 
 /// `~/.claude/projects`, honouring `CLAUDE_CONFIG_DIR`.
@@ -71,6 +92,7 @@ pub fn scan(root: &Path) -> Vec<Row> {
                 size: meta.len(),
                 file: path,
                 dir: dir_name.clone(),
+                source: Source::Claude,
             });
         }
     }
@@ -78,7 +100,29 @@ pub fn scan(root: &Path) -> Vec<Row> {
     rows
 }
 
-fn mtime_ms(meta: &fs::Metadata) -> i64 {
+/// Every session from every source, newest first: Claude Code's transcripts and, when
+/// `~/.copilot` exists, Copilot CLI's. One list, so the cap is shared by recency rather than
+/// split per source.
+pub fn scan_all() -> Vec<Row> {
+    let mut rows = scan(&projects_root());
+    rows.extend(crate::copilot::scan(&crate::copilot::root()));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.mtime));
+    rows
+}
+
+/// The archive/search key of a transcript file, whichever source it belongs to.
+pub fn key_for_file(file: &Path) -> Option<String> {
+    key_for_file_in(file, &projects_root(), &crate::copilot::root())
+}
+
+pub fn key_for_file_in(file: &Path, claude: &Path, copilot: &Path) -> Option<String> {
+    if let Ok(rel) = file.strip_prefix(claude) {
+        return Some(rel.to_string_lossy().into_owned());
+    }
+    crate::copilot::key_for(file.strip_prefix(copilot).ok()?)
+}
+
+pub(crate) fn mtime_ms(meta: &fs::Metadata) -> i64 {
     use std::time::UNIX_EPOCH;
     meta.modified()
         .ok()
@@ -155,6 +199,7 @@ mod tests {
                 mtime: 301 - i,
                 size: 0,
                 dir: "d".into(),
+                source: Source::Claude,
             })
             .collect();
         let extra = vec![PathBuf::from("/t/300.jsonl")];

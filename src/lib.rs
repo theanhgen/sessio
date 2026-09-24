@@ -4,6 +4,7 @@
 //! split exists so the site can run the *real* renderer instead of a hand-written imitation that
 //! drifts every time the layout changes.
 
+pub mod copilot;
 pub mod cta;
 pub mod discover;
 pub mod git;

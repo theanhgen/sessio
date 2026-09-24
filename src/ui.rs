@@ -27,6 +27,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Terminal;
 use unicode_width::UnicodeWidthStr;
 
+use crate::discover::Source;
 use crate::md::md_lines;
 use crate::model::{self, Item, ACTIVE_MS, ALL_TAB, ARCHIVED_TAB, OPEN_TAB, RECENT_MS, WAITING_TAB};
 use crate::parse::{Detail, Entry, Who};
@@ -43,6 +44,8 @@ pub mod theme {
     pub const ACTIVE: Color = Color::Green;
     pub const RECENT: Color = Color::Indexed(208);
     pub const REPLY: Color = Color::Indexed(141);
+    /// The `copilot` tag on sessions GitHub Copilot CLI wrote.
+    pub const COPILOT: Color = Color::Indexed(75);
 
     /// Selection backgrounds. Reversing the terminal's own colours made every selection the same
     /// slab of black, so the panel and the tab strip could not be told apart at a glance — and on
@@ -227,8 +230,12 @@ impl App {
     /// Lazily full-read the highlighted session for its preview.
     fn ensure_detail(&mut self) {
         let Some(i) = self.selected() else { return };
-        let (key, mtime, file) =
-            (self.items[i].key.clone(), self.items[i].mtime, self.items[i].file.clone());
+        let (key, mtime, file, source) = (
+            self.items[i].key.clone(),
+            self.items[i].mtime,
+            self.items[i].file.clone(),
+            self.items[i].source,
+        );
         if let Some((m, d)) = self.details.get(&key) {
             if *m == mtime {
                 let d = d.clone();
@@ -246,12 +253,12 @@ impl App {
         {
             let tx = self.tx.clone();
             std::thread::spawn(move || {
-                let d = crate::parse::detail(&file);
+                let d = model::read_detail(source, &file);
                 let _ = tx.send(Msg::Detail { key, mtime, detail: Box::new(d) });
             });
         }
         #[cfg(target_arch = "wasm32")]
-        let _ = (key, mtime, file);
+        let _ = (key, mtime, file, source);
     }
 
     /// Every edit to the query invalidates the content search and the scroll position.
@@ -293,7 +300,11 @@ impl App {
     fn begin_reply(&mut self) {
         let Some(i) = self.selected() else { return };
         let (id, name) = (self.items[i].id.clone(), self.items[i].name.clone());
-        if let Some(live) = self.live.get(&id) {
+        if self.items[i].source != Source::Claude {
+            // `claude -p --resume` is the only headless turn there is; Copilot has no equivalent
+            // sessio drives.
+            self.say("reply is Claude-only — ↵ resumes this Copilot session".into());
+        } else if let Some(live) = self.live.get(&id) {
             // The guard ↵ already uses: there is no safe way to put text into the stdin of a
             // `claude` someone is sitting in front of.
             let where_ = running_where(live);
@@ -339,6 +350,11 @@ impl App {
         let Some(i) = self.selected() else { return };
         let it = &self.items[i];
         let short = first_words(&it.name, 4);
+        if it.source != Source::Claude {
+            // Neither the running check nor the tail reader knows Copilot's events.
+            self.say("follow is Claude-only".into());
+            return;
+        }
         if !self.live.contains_key(&it.id) {
             self.say(format!("\"{short}\" is not running — nothing to follow"));
             return;
@@ -421,6 +437,12 @@ impl App {
     fn kill_key(&mut self) {
         let Some(i) = self.selected() else { return };
         let it = &self.items[i];
+        if it.source != Source::Claude {
+            // The running check and the pid guard only know Claude's registry.
+            self.kill_confirm = None;
+            self.say("^k is Claude-only".into());
+            return;
+        }
         let (id, title) = (it.id.clone(), first_words(&sanitize(it.display_name()), 6));
         let live = self.live.get(&id).cloned();
         let v = crate::kill::verdict(live.as_ref(), it.mtime, model::now_ms());
@@ -650,13 +672,8 @@ fn event_loop(
                     match files {
                         None => app.say("content search failed".into()),
                         Some(files) => {
-                            let root = discover::projects_root();
-                            let keys = files
-                                .iter()
-                                .filter_map(|f| {
-                                    f.strip_prefix(&root).ok().map(|r| r.to_string_lossy().into_owned())
-                                })
-                                .collect();
+                            let keys =
+                                files.iter().filter_map(|f| discover::key_for_file(f)).collect();
                             let list: Vec<PathBuf> = files.into_iter().collect();
                             app.items = model::load(&list);
                             app.deep = Some(Deep { query, keys, files: list });
@@ -841,8 +858,7 @@ fn handle_key(
                 let tx = app.tx.clone();
                 app.say("searching…".into());
                 std::thread::spawn(move || {
-                    let root = discover::projects_root();
-                    let files = search::content_search(&term_q, &root);
+                    let files = search::content_search(&term_q, &search::roots());
                     let _ = tx.send(Msg::Search { gen, query: term_q, files });
                 });
             }
@@ -1124,8 +1140,12 @@ fn resume_selected(
     new_window: bool,
 ) -> io::Result<Flow> {
     let Some(i) = app.selected() else { return Ok(Flow::Continue) };
-    let (cwd, id, name) =
-        (app.items[i].cwd.clone(), app.items[i].id.clone(), app.items[i].name.clone());
+    let (cwd, id, name, source) = (
+        app.items[i].cwd.clone(),
+        app.items[i].id.clone(),
+        app.items[i].name.clone(),
+        app.items[i].source,
+    );
     let key = if new_window { "^o" } else { "↵" };
 
     // Only Ghostty can be asked for a window. Say so rather than quietly doing something else.
@@ -1157,7 +1177,7 @@ fn resume_selected(
     app.confirm = None;
 
     if !new_window {
-        hand_over(term, cwd.as_deref(), &id);
+        hand_over(term, cwd.as_deref(), source, &id);
     }
     // A new window needs a folder to open in; sessio's own would be a guess.
     let Some(dir) = cwd else {
@@ -1165,7 +1185,7 @@ fn resume_selected(
         return Ok(Flow::Continue);
     };
     let short: String = name.chars().take(40).collect();
-    match resume::ghostty_launch(std::path::Path::new(&dir), &id) {
+    match resume::ghostty_launch(std::path::Path::new(&dir), &resume::resume_argv(source, &id)) {
         Ok(()) => app.say(format!("↗ opened \"{short}\" in a new window")),
         // Stay put and say why. Falling back to this window would replace sessio with something
         // the user did not ask for.
@@ -1174,16 +1194,22 @@ fn resume_selected(
     Ok(Flow::Continue)
 }
 
-/// Replace sessio with `claude --resume`. The terminal is restored *first* — `exec` never
-/// returns, so there is no later opportunity to undo raw mode.
+/// Replace sessio with `claude --resume` (or `copilot --resume=`). The terminal is restored
+/// *first* — `exec` never returns, so there is no later opportunity to undo raw mode.
 #[cfg(not(target_arch = "wasm32"))]
-fn hand_over(term: &mut Terminal<CrosstermBackend<Stdout>>, cwd: Option<&str>, id: &str) -> ! {
+fn hand_over(
+    term: &mut Terminal<CrosstermBackend<Stdout>>,
+    cwd: Option<&str>,
+    source: Source,
+    id: &str,
+) -> ! {
     restore(term);
     let path = cwd.map(std::path::Path::new);
-    let err = resume::resume_in_place(path, id);
+    let err = resume::resume_in_place(path, &resume::resume_argv(source, id));
     println!(
-        "\nCouldn't launch claude ({err}). Run it yourself:\n  {}\n",
-        resume::manual_command(path, id)
+        "\nCouldn't launch {} ({err}). Run it yourself:\n  {}\n",
+        resume::program(source),
+        resume::manual_command(path, source, id)
     );
     std::process::exit(1);
 }
@@ -1589,7 +1615,15 @@ fn tab_marks(app: &App, it: &Item, sel: Option<Style>) -> Vec<Span<'static>> {
     if it.open {
         spans.push(Span::styled("▸", on(Style::default().fg(theme::NAMED))));
     }
+    if let Some(tag) = source_tag(it) {
+        spans.push(Span::styled(format!("{tag} "), on(Style::default().fg(theme::COPILOT))));
+    }
     spans
+}
+
+/// The small tag a session from another agent carries; Claude's, the default, carry none.
+fn source_tag(it: &Item) -> Option<&'static str> {
+    (it.source != Source::Claude).then(|| it.source.as_str())
 }
 
 /// The sessions as browser tabs: one row, each tab as wide as what it has to say, the strip
@@ -1672,7 +1706,13 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
     // The title owns its line, with the one fact that is not about the past — whether it is
     // running right now — pushed to the far edge where it cannot be mistaken for metadata.
     let title = sanitize(it.display_name());
-    let mut head = vec![Span::styled(title.clone(), Style::default().fg(theme::ACCENT))];
+    let mut head = Vec::new();
+    let mut tag_w = 0;
+    if let Some(tag) = source_tag(it) {
+        head.push(Span::styled(format!("{tag} "), Style::default().fg(theme::COPILOT)));
+        tag_w = tag.len() + 1;
+    }
+    head.push(Span::styled(title.clone(), Style::default().fg(theme::ACCENT)));
     if let Some(live) = app.live.get(&it.id) {
         // A process nobody has touched in two days says so, quietly: it is the one `^k` can end.
         let stale = match crate::kill::verdict(Some(live), it.mtime, model::now_ms()) {
@@ -1682,7 +1722,8 @@ fn preview(app: &App, it: &Item, width: usize, reply_max: usize) -> Vec<Line<'st
             _ => String::new(),
         };
         let rest = format!("{stale} · {}", running_where(live));
-        let used = UnicodeWidthStr::width(title.as_str())
+        let used = tag_w
+            + UnicodeWidthStr::width(title.as_str())
             + UnicodeWidthStr::width("◉ running")
             + UnicodeWidthStr::width(rest.as_str());
         if used + 2 <= w {
@@ -2045,7 +2086,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(vec![Span::styled("^w ⌥⌫", key), Span::raw("  delete the last word of the query")]),
         Line::from(vec![Span::styled("^u ⌘⌫", key), Span::raw("  clear the whole query")]),
         Line::from(vec![Span::styled("^a", key), Span::raw("     archive / unarchive (a session you work in again comes back on its own)")]),
-        Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list")]),
+        Line::from(vec![Span::styled("^r", key), Span::raw("     reply to the session without opening it — sends one turn and stays in the list (Claude only)")]),
         Line::from(vec![Span::styled("^t", key), Span::raw("     follow a running (◉) session's tail, read-only — any move stops following")]),
         Line::from(vec![Span::styled("⇥ ^e", key), Span::raw("   expand / collapse the reply preview")]),
         Line::from(vec![Span::styled("^g", key), Span::raw("     open GitHub issues for the session's repo (needs gh; ↵ opens one in the browser)")]),
@@ -2367,6 +2408,7 @@ mod tests {
             mtime: model::now_ms() - (n as i64 * 60_000),
             size: 1024,
             dir: project.into(),
+            source: Source::Claude,
             first: Some("first prompt".into()),
             first_ts: None,
             cwd: Some(format!("/Users/x/{project}")),
@@ -2884,6 +2926,43 @@ mod tests {
         assert!(body.len() <= 16, "fills the window, never past it: {}", body.len());
     }
 
+    /// `^r` drives `claude -p --resume`; a Copilot session has no such door, and says so.
+    #[test]
+    fn a_copilot_session_cannot_be_replied_to() {
+        let mut app = fixture(&real_tabs());
+        app.reply_ok = true;
+        let i = app.selected().unwrap();
+        app.items[i].source = Source::Copilot;
+        app.begin_reply();
+        assert!(app.draft.is_none());
+        assert!(app.flash.contains("reply is Claude-only"), "{:?}", app.flash);
+    }
+
+    /// `^k` only knows how to find and check a running `claude`; a Copilot session says so.
+    #[test]
+    fn a_copilot_session_cannot_be_ended() {
+        let mut app = fixture(&real_tabs());
+        let i = app.selected().unwrap();
+        app.items[i].source = Source::Copilot;
+        app.kill_key();
+        assert!(app.kill_confirm.is_none());
+        assert!(app.flash.contains("^k is Claude-only"), "{:?}", app.flash);
+    }
+
+    /// A Copilot session carries its tag on the tab and in the preview header; Claude's carry none.
+    #[test]
+    fn copilot_sessions_are_tagged_in_the_strip_and_the_preview() {
+        let mut app = fixture(&real_tabs());
+        let i = app.selected().unwrap();
+        let text = |spans: &[Span]| spans.iter().map(|s| s.content.to_string()).collect::<String>();
+        assert!(!text(&tab_marks(&app, &app.items[i], None)).contains("copilot"));
+
+        app.items[i].source = Source::Copilot;
+        assert!(text(&tab_marks(&app, &app.items[i], None)).contains("copilot"));
+        let head = &preview(&app, &app.items[i], 100, 5)[1];
+        assert!(text(&head.spans).starts_with("copilot "), "{head:?}");
+    }
+
     /// An empty draft must not spend a turn.
     #[test]
     fn an_empty_reply_is_not_sent() {
@@ -3240,6 +3319,7 @@ pub mod demo {
             mtime: NOW - ago_min * 60_000,
             size: 8_000 + (n as u64) * 5_300,
             dir: project.into(),
+            source: Source::Claude,
             first: Some("where did we get to with the limiter?".into()),
             first_ts: None,
             cwd: Some(format!("~/code/{project}")),

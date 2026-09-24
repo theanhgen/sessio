@@ -48,6 +48,12 @@
   or is `busy` or `waiting` on you. Just before signalling it re-reads `ps` to check the pid is
   still that session's `claude`, and it never ends the session sessio is itself running inside.
   No `SIGKILL`. `sessions kill <id> [--json]` does the same from a script, under the same rules.
+- **GitHub Copilot CLI sessions, next to Claude Code's.** Sessions under `~/.copilot/session-state`
+  (or `$COPILOT_HOME`) join the same list, grouped by folder and tagged `copilot`: preview, filter,
+  `^f` search, archive, `↵` / `^o` resume (`copilot --resume=<id>`), and `sessions ls` / `show` /
+  `find` / `resume`. `--json` gains a `"source"` field (`claude` or `copilot`); nothing else in it
+  changes. `^r` / `sessions reply`, `^t` and `^k` / `sessions kill` stay Claude-only and say so; running detection and
+  token totals do not cover Copilot yet. Without `~/.copilot` nothing changes.
 - **`↵` resumes in this window; `^o` opens a new one.** Swapped, and `^o` now gets the same
   already-running guard as `↵` instead of skipping it — a second `claude` on a live transcript is
   the same mistake in either window.
