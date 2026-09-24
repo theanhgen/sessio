@@ -16,6 +16,10 @@ pub fn in_ghostty() -> bool {
 /// minimal PATH, and `-e claude` would exec directly and fail to find claude/node. Homebrew et
 /// al. append to the login profile, which `-l` sources. Do not "simplify" this to a direct exec.
 /// The part both launch paths share: where to start, and what to run once there.
+///
+/// The script `cd`s itself rather than trusting `--working-directory`: a Ghostty started through
+/// `open -na` ignores that flag — measured on 1.3.2, the shell came up in whatever folder another
+/// Ghostty window was in — and `claude --resume` in the wrong folder cannot find the session.
 fn launch_args(cwd: &Path, id: &str) -> Vec<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     vec![
@@ -24,9 +28,10 @@ fn launch_args(cwd: &Path, id: &str) -> Vec<String> {
         shell,
         "-l".into(),
         "-c".into(),
-        "exec claude --resume \"$1\"".into(),
-        "sessio".into(), // $0 for the -c script
-        id.to_string(),  // $1
+        "cd -- \"$1\" && exec claude --resume \"$2\"".into(),
+        "sessio".into(),                    // $0 for the -c script
+        cwd.to_string_lossy().into_owned(), // $1
+        id.to_string(),                     // $2
     ]
 }
 
@@ -85,7 +90,10 @@ pub fn ghostty_launch(cwd: &Path, id: &str) -> bool {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             match child.try_wait() {
-                Ok(Some(status)) => return status.success(),
+                // A refusal is not the end: on macOS the CLI always exits 1 here, and returning
+                // its failure skipped the `open -na` route below, so ↵ resumed in place.
+                Ok(Some(status)) if status.success() => return true,
+                Ok(Some(_)) => break,
                 Ok(None) if Instant::now() >= deadline => {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -271,6 +279,38 @@ mod tests {
         assert!(!walk_key_is_bound("keybind = super+[=goto_split:next"), "different key");
         assert!(!walk_key_is_bound("keybind = super+shift+]=goto_split:next"), "needs modifiers");
         assert!(!walk_key_is_bound(""), "no keybinds at all");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_new_window_script_resumes_in_the_sessions_folder() {
+        // Run the exact -c script Ghostty is handed, from the wrong folder, with a stand-in
+        // `claude` that reports where it started and what it was asked to resume.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!("sessio-launch-{}", std::process::id()));
+        let bin = tmp.join("bin");
+        let cwd = tmp.join("a b");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        let fake = bin.join("claude");
+        std::fs::write(&fake, "#!/bin/sh\npwd -P\necho \"$@\"\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = launch_args(&cwd, "abc-123");
+        let c = args.iter().position(|a| a == "-c").unwrap();
+        let out = Command::new("/bin/sh")
+            .args(&args[c..])
+            .current_dir("/")
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .output()
+            .unwrap();
+        let want = cwd.canonicalize().unwrap();
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut lines = text.lines();
+        assert_eq!(lines.next(), Some(want.to_string_lossy().as_ref()));
+        assert_eq!(lines.next(), Some("--resume abc-123"));
     }
 
     #[test]
