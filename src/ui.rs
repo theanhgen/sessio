@@ -176,25 +176,33 @@ impl App {
         self.archive.contains(&it.key, &it.id)
     }
 
+    /// Whether `it` belongs under `tab`, before any query. The one definition the list and the
+    /// panel's counts share, so a count can never disagree with what the tab shows.
+    fn in_tab(&self, tab: &str, it: &Item) -> bool {
+        if tab == ARCHIVED_TAB {
+            return self.archived(it);
+        }
+        let in_tab = match tab {
+            ALL_TAB => true,
+            OPEN_TAB => it.open,
+            WAITING_TAB => self.is_waiting(it),
+            p => it.project == p,
+        };
+        in_tab && !self.archived(it)
+    }
+
+    /// Sessions under `tab` touched in the last 24 hours, and all of them.
+    fn tab_counts(&self, tab: &str, now: i64) -> (usize, usize) {
+        self.items.iter().filter(|it| self.in_tab(tab, it)).fold((0, 0), |(day, all), it| {
+            (day + usize::from(now - it.mtime < DAY_MS), all + 1)
+        })
+    }
+
     /// Indices into `items`, filtered by tab and query, ranked. Port of `view()` at :476.
     fn view(&self) -> Vec<usize> {
         let tab = self.tabs.get(self.p_idx).map(String::as_str).unwrap_or(ALL_TAB);
-        let mut idx: Vec<usize> = if tab == ARCHIVED_TAB {
-            (0..self.items.len()).filter(|&i| self.archived(&self.items[i])).collect()
-        } else {
-            (0..self.items.len())
-                .filter(|&i| {
-                    let it = &self.items[i];
-                    let in_tab = match tab {
-                        ALL_TAB => true,
-                        OPEN_TAB => it.open,
-                        WAITING_TAB => self.is_waiting(it),
-                        p => it.project == p,
-                    };
-                    in_tab && !self.archived(it)
-                })
-                .collect()
-        };
+        let mut idx: Vec<usize> =
+            (0..self.items.len()).filter(|&i| self.in_tab(tab, &self.items[i])).collect();
 
         if let Some(d) = &self.deep {
             idx.retain(|&i| d.keys.contains(&self.items[i].key));
@@ -1327,7 +1335,9 @@ fn sidebar(app: &App, cols: usize) -> usize {
         .map(|t| UnicodeWidthStr::width(sanitize(t).as_str()))
         .max()
         .unwrap_or(0);
-    let natural = (widest + 2).clamp(SIDE_MIN, SIDE_MAX);
+    // The count columns ride on top of the name budget rather than eating into it.
+    let counts = count_cols(app, model::now_ms()).map_or(0, |(a, b)| a + b + 2);
+    let natural = (widest + 2 + counts).clamp(SIDE_MIN, SIDE_MAX + counts);
     natural.min(cols.saturating_sub(SIDE_GAP + BODY_MIN)).max(SIDE_MIN)
 }
 
@@ -1343,19 +1353,59 @@ fn side_panel(app: &App, w: usize, rows: usize) -> Vec<Line<'static>> {
     let label =
         if n > body { format!("{lead} {}/{n}", app.p_idx + 1) } else { lead.to_string() };
 
-    let mut lines = vec![Line::from(Span::styled(fit_width(&label, w), dim()))];
+    // Per tab: sessions touched in the last 24h, then all of them, right-aligned in two columns.
+    // Dropped whole when the panel is too narrow to keep a readable name beside them.
+    let now = model::now_ms();
+    let cols = count_cols(app, now).filter(|(a, b)| w >= a + b + 2 + COUNT_NAME_MIN);
+    let counts_w = cols.map_or(0, |(a, b)| a + b + 2);
+    let head = match cols {
+        Some((a, b)) if w > UnicodeWidthStr::width(label.as_str()) + counts_w => {
+            let name = fit_width(&label, w - counts_w);
+            format!("{name}{:>a$} {:>b$} ", "24h", "all", a = a.max(3), b = b.max(3))
+        }
+        _ => fit_width(&label, w),
+    };
+    let mut lines = vec![Line::from(Span::styled(fit_width(&head, w), dim()))];
     for r in 0..body {
         let Some(name) = app.tabs.get(off + r) else {
             lines.push(Line::from("")); // hold the column open to the full height
             continue;
         };
         let style = if off + r == app.p_idx { panel_selected() } else { dim() };
-        lines.push(Line::from(Span::styled(
-            fit_width(&format!(" {}", sanitize(name)), w),
-            style,
-        )));
+        let text = match cols {
+            Some((a, b)) => {
+                let (day, all) = app.tab_counts(name, now);
+                let day = if day == 0 { "·".to_string() } else { day.to_string() };
+                format!(
+                    "{}{day:>a$} {all:>b$} ",
+                    fit_width(&format!(" {}", sanitize(name)), w - counts_w),
+                    a = a.max(3),
+                    b = b.max(3),
+                )
+            }
+            None => format!(" {}", sanitize(name)),
+        };
+        lines.push(Line::from(Span::styled(fit_width(&text, w), style)));
     }
     lines
+}
+
+/// The name room the panel keeps before it drops the count columns: names come first.
+const COUNT_NAME_MIN: usize = 12;
+
+/// A day, for the panel's "touched in the last 24h" column.
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Widths of the two count columns, sized to the largest number in each (never narrower than
+/// their "24h" / "all" headings). `None` when there are no tabs.
+fn count_cols(app: &App, now: i64) -> Option<(usize, usize)> {
+    let digits = |n: usize| n.to_string().len();
+    app.tabs
+        .iter()
+        .map(|t| app.tab_counts(t, now))
+        .map(|(d, a)| (digits(d), digits(a)))
+        .reduce(|x, y| (x.0.max(y.0), x.1.max(y.1)))
+        .map(|(d, a)| (d.max(3), a.max(3)))
 }
 
 /// The panel down the left, the dashboard to its right, one rule between them on every row.
@@ -2378,9 +2428,10 @@ mod tests {
     fn the_panel_shrinks_before_the_dashboard_does() {
         let app = fixture(&real_tabs());
         let natural = sidebar(&app, 300);
+        let counts = count_cols(&app, model::now_ms()).map_or(0, |(a, b)| a + b + 2);
         for cols in 0..300 {
             let w = sidebar(&app, cols);
-            assert!((SIDE_MIN..=SIDE_MAX).contains(&w), "{cols} cols gave a {w}-wide panel");
+            assert!((SIDE_MIN..=SIDE_MAX + counts).contains(&w), "{cols} cols gave a {w}-wide panel");
             if cols >= natural + SIDE_GAP + BODY_MIN {
                 assert_eq!(w, natural, "{cols} cols can afford the full panel");
             } else if cols >= SIDE_MIN + SIDE_GAP + BODY_MIN {
@@ -2389,6 +2440,35 @@ mod tests {
                 assert_eq!(w, SIDE_MIN, "{cols} cols: as narrow as the panel goes");
             }
         }
+    }
+
+    #[test]
+    fn the_panel_counts_the_last_day_then_everything_right_aligned() {
+        let mut app = fixture(&real_tabs());
+        let now = model::now_ms();
+        for (n, it) in app.items.iter_mut().enumerate() {
+            // Two fresh sessions, the rest a week old.
+            it.mtime = if n < 2 { now - 60_000 } else { now - 7 * DAY_MS };
+        }
+        let all = app.items.len();
+        assert_eq!(app.tab_counts(ALL_TAB, now), (2, all));
+
+        let w = sidebar(&app, 300);
+        let panel = side_panel(&app, w, 30);
+        let text = |l: &Line| l.spans.iter().map(|s| s.content.to_string()).collect::<String>();
+        assert!(text(&panel[0]).trim_end().ends_with("24h all"), "{:?}", text(&panel[0]));
+        let everything = text(&panel[1]);
+        assert!(everything.trim_end().ends_with(&format!("2 {all:>3}")), "{everything:?}");
+        // Every count row ends at the same column.
+        let ends: Vec<usize> = panel[1..=app.tabs.len()]
+            .iter()
+            .map(|l| UnicodeWidthStr::width(text(l).trim_end()))
+            .collect();
+        assert!(ends.windows(2).all(|p| p[0] == p[1]), "misaligned: {ends:?}");
+
+        // Too narrow for names and numbers both: the numbers go, the names stay.
+        let narrow = side_panel(&app, SIDE_MIN, 30);
+        assert!(!text(&narrow[0]).contains("24h"));
     }
 
     #[test]
