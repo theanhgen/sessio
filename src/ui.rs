@@ -1193,9 +1193,9 @@ fn session_tabs(app: &App, view: &[usize], cols: usize) -> Line<'static> {
     if lo > 0 {
         spans.push(Span::styled(format!("‹{lo} "), dim()));
     }
-    for slot in lo..=hi {
+    for (slot, &idx) in (lo..=hi).zip(&view[lo..=hi]) {
         let (label, _) = cell(slot);
-        let it = &app.items[view[slot]];
+        let it = &app.items[idx];
         let style = if slot == cur { tab_selected() } else { dim() };
         spans.extend(tab_marks(app, it, (slot == cur).then_some(style)));
         spans.push(Span::styled(label, style));
@@ -1486,9 +1486,6 @@ fn italic(l: Line<'static>) -> Line<'static> {
             .collect::<Vec<_>>(),
     )
 }
-
-
-/// Columns between the two prompt columns.
 
 fn fit_width(s: &str, w: usize) -> String {
     let mut out = String::new();
@@ -1865,11 +1862,11 @@ mod tests {
         let many: Vec<String> = (0..40).map(|i| format!("project-{i:02}")).collect();
         let refs: Vec<&str> = many.iter().map(String::as_str).collect();
         let mut app = fixture(&refs);
-        for p_idx in 0..refs.len() {
+        for (p_idx, name) in refs.iter().enumerate() {
             app.p_idx = p_idx;
             let panel = side_panel(&app, 18, 12);
             assert!(
-                panel.iter().any(|l| l.spans.iter().any(|s| s.content.contains(&refs[p_idx]))),
+                panel.iter().any(|l| l.spans.iter().any(|s| s.content.contains(name))),
                 "project {p_idx} fell off the panel"
             );
         }
@@ -1907,7 +1904,7 @@ mod tests {
     fn the_tab_strip_is_always_exactly_one_row() {
         for n in [1usize, 2, 8, 40, 200] {
             let mut app = fixture(&real_tabs());
-            app.items = (0..n).map(|i| nth_item(i)).collect();
+            app.items = (0..n).map(nth_item).collect();
             app.tabs = vec![ALL_TAB.to_string()];
             app.p_idx = 0;
             for cols in [60usize, 100, 181] {

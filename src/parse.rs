@@ -128,11 +128,9 @@ pub fn head(path: &Path) -> Head {
                             h.custom = Some(sanitize(t)); // last one wins
                         }
                     }
-                    Some("ai-title") => {
-                        if h.ai.is_none() {
-                            if let Some(t) = str_field(&o, "aiTitle").filter(|t| !t.is_empty()) {
-                                h.ai = Some(sanitize(t)); // first one wins
-                            }
+                    Some("ai-title") if h.ai.is_none() => {
+                        if let Some(t) = str_field(&o, "aiTitle").filter(|t| !t.is_empty()) {
+                            h.ai = Some(sanitize(t)); // first one wins
                         }
                     }
                     _ => {}

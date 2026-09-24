@@ -199,6 +199,101 @@ pub fn decay(open: bool, reason: Option<OpenReason>, mtime: i64, now: i64) -> bo
     open
 }
 
+/// Tabs are built from live (non-archived) sessions; the archived tab appears only while
+/// something is archived, and always sits last. Port of `tabsFor` at bin/sessio.mjs:451.
+pub fn tabs_for(items: &[Item], archive: &Archive) -> Vec<String> {
+    let live: Vec<&Item> = items
+        .iter()
+        .filter(|i| !archive.contains(&i.key, &i.id))
+        .collect();
+    let mut tabs = vec![ALL_TAB.to_string()];
+    if live.iter().any(|i| i.open) {
+        tabs.push(OPEN_TAB.to_string());
+    }
+    let mut seen = HashSet::new();
+    for i in &live {
+        if seen.insert(i.project.clone()) {
+            tabs.push(i.project.clone());
+        }
+    }
+    if items.iter().any(|i| archive.contains(&i.key, &i.id)) {
+        tabs.push(ARCHIVED_TAB.to_string());
+    }
+    tabs
+}
+
+/// The tab to open on when sessio is launched from `dir`: the project whose sessions ran there,
+/// or failing that in its nearest parent. The walk up stops before `home`, so a folder with no
+/// sessions of its own doesn't open on whatever was once started in `~` — only launching from
+/// `~` itself does that. Without a known `home` only the exact folder is considered. A folder
+/// that has sessions but no visible tab (all archived) opens on everything rather than climbing.
+pub fn tab_for_dir(items: &[Item], tabs: &[String], dir: &Path, home: Option<&Path>) -> Option<usize> {
+    for d in dir.ancestors() {
+        if d != dir && home.is_none_or(|h| d == h || !d.starts_with(h)) {
+            break;
+        }
+        let here: Vec<&Item> = items
+            .iter()
+            .filter(|it| it.cwd.as_deref().map(Path::new) == Some(d))
+            .collect();
+        if !here.is_empty() {
+            return here.iter().find_map(|it| tabs.iter().position(|t| *t == it.project));
+        }
+    }
+    None
+}
+
+/// Read head+tail for every selected row, bounded by core count.
+fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(rows.len().max(1));
+    let next = AtomicUsize::new(0);
+    let results = std::sync::Mutex::new(Vec::with_capacity(rows.len()));
+
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                // Accumulate locally and merge once, so the lock isn't taken per file.
+                let mut local = Vec::new();
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= rows.len() {
+                        break;
+                    }
+                    local.push((i, parse::head(&rows[i].file), parse::tail(&rows[i].file)));
+                }
+                results.lock().expect("no worker panics").extend(local);
+            });
+        }
+    });
+
+    // Restore input order — completion order is arbitrary.
+    let mut collected = results.into_inner().expect("workers joined");
+    collected.sort_by_key(|(i, _, _)| *i);
+    collected.into_iter().map(|(_, h, t)| (h, t)).collect()
+}
+
+/// `SystemTime::now()` panics on `wasm32-unknown-unknown`, and a demo wants a fixed clock
+/// anyway: the fixture ages have to read the same on every visit.
+#[cfg(target_arch = "wasm32")]
+pub fn now_ms() -> i64 {
+    DEMO_NOW.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub static DEMO_NOW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,99 +399,4 @@ mod tests {
         assert_eq!(OpenReason::CallToAction.label(), "Claude asked / proposed next");
         assert_eq!(OpenReason::GitWip.label(), "uncommitted changes");
     }
-}
-
-/// Tabs are built from live (non-archived) sessions; the archived tab appears only while
-/// something is archived, and always sits last. Port of `tabsFor` at bin/sessio.mjs:451.
-pub fn tabs_for(items: &[Item], archive: &Archive) -> Vec<String> {
-    let live: Vec<&Item> = items
-        .iter()
-        .filter(|i| !archive.contains(&i.key, &i.id))
-        .collect();
-    let mut tabs = vec![ALL_TAB.to_string()];
-    if live.iter().any(|i| i.open) {
-        tabs.push(OPEN_TAB.to_string());
-    }
-    let mut seen = HashSet::new();
-    for i in &live {
-        if seen.insert(i.project.clone()) {
-            tabs.push(i.project.clone());
-        }
-    }
-    if items.iter().any(|i| archive.contains(&i.key, &i.id)) {
-        tabs.push(ARCHIVED_TAB.to_string());
-    }
-    tabs
-}
-
-/// The tab to open on when sessio is launched from `dir`: the project whose sessions ran there,
-/// or failing that in its nearest parent. The walk up stops before `home`, so a folder with no
-/// sessions of its own doesn't open on whatever was once started in `~` — only launching from
-/// `~` itself does that. Without a known `home` only the exact folder is considered. A folder
-/// that has sessions but no visible tab (all archived) opens on everything rather than climbing.
-pub fn tab_for_dir(items: &[Item], tabs: &[String], dir: &Path, home: Option<&Path>) -> Option<usize> {
-    for d in dir.ancestors() {
-        if d != dir && home.is_none_or(|h| d == h || !d.starts_with(h)) {
-            break;
-        }
-        let here: Vec<&Item> = items
-            .iter()
-            .filter(|it| it.cwd.as_deref().map(Path::new) == Some(d))
-            .collect();
-        if !here.is_empty() {
-            return here.iter().find_map(|it| tabs.iter().position(|t| *t == it.project));
-        }
-    }
-    None
-}
-
-/// Read head+tail for every selected row, bounded by core count.
-fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .min(rows.len().max(1));
-    let next = AtomicUsize::new(0);
-    let results = std::sync::Mutex::new(Vec::with_capacity(rows.len()));
-
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| {
-                // Accumulate locally and merge once, so the lock isn't taken per file.
-                let mut local = Vec::new();
-                loop {
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    if i >= rows.len() {
-                        break;
-                    }
-                    local.push((i, parse::head(&rows[i].file), parse::tail(&rows[i].file)));
-                }
-                results.lock().expect("no worker panics").extend(local);
-            });
-        }
-    });
-
-    // Restore input order — completion order is arbitrary.
-    let mut collected = results.into_inner().expect("workers joined");
-    collected.sort_by_key(|(i, _, _)| *i);
-    collected.into_iter().map(|(_, h, t)| (h, t)).collect()
-}
-
-/// `SystemTime::now()` panics on `wasm32-unknown-unknown`, and a demo wants a fixed clock
-/// anyway: the fixture ages have to read the same on every visit.
-#[cfg(target_arch = "wasm32")]
-pub fn now_ms() -> i64 {
-    DEMO_NOW.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub static DEMO_NOW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

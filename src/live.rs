@@ -425,7 +425,7 @@ mod tests {
         let id = "abcdef01-2345-4678-9abc-def012345678";
         let mut stale = row(id, 68227, "idle");
         stale.proc_start = "Wed Aug 12 04:31:57 2026".into();
-        assert!(merge(parse_ps(PS), vec![stale]).get(id).is_none());
+        assert!(!merge(parse_ps(PS), vec![stale]).contains_key(id));
     }
 
     #[test]
