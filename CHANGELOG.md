@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 - 2026-09-25
 
 The dashboard is redesigned around one spec (`docs/DESIGN.md`): fixed regions that never move,
 every state said in words as well as colour, feedback that names what it is about, and a reply you
