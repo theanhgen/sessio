@@ -4,12 +4,12 @@
 
 🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
 
-`sessio` is a fast, self-contained TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Every one of those is also a plain command (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`) with `--json` for scripts and agents, and an [agent skill](#agent-skill) ships with it.
+`sessio` is a fast, self-contained TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Every one of those is also a plain command (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `kill`) with `--json` for scripts and agents, and an [agent skill](#agent-skill) ships with it.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
 ```
-↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ^t follow · ↵ resume · ^o new-window · ? help · esc quit · live
+↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · ^r reply · ^t follow · ^k end-stale · ↵ resume · ^o new-window · ? help · esc quit · live
 ```
 
 ## Install
@@ -47,6 +47,7 @@ sessions
   <br>Under Ghostty, **`^o`** opens the session in a **new window** and keeps sessio running as a launcher. On macOS it asks the Ghostty you already have open through its AppleScript dictionary (Ghostty 1.3+), so no second Ghostty is started; the first time, macOS may ask whether Ghostty may control itself. On Linux it uses `ghostty +new-window`. If the window can't be opened, sessio says why and stays put — `↵` still resumes here.
 - **`^r` reply without opening** — send one turn to a session and stay in the list. `claude -p --resume` appends to the same transcript, so the answer shows up in the preview on the next refresh. It refuses on a session that is already running (`◉`) — there is no safe way to put text into the stdin of a `claude` you are sitting in front of — and the first `^r` of a run warns that this spends tokens before the second one opens the composer. `esc` discards the draft. It is `^r` rather than a bare `r` because plain letters filter the list.
 - **`^t` follow a running session** — pins the preview to the highlighted `◉` session and shows the end of its transcript (your prompts, Claude's text, and the names of the tools it called), newest at the bottom, re-read on every 2s refresh. Read-only: it reads at most the last 256 KB of the transcript and never writes to it or attaches to the `claude` running it. If the session stops, the tail stays on screen marked `◌ ended`. Any move — a project, a session, a keystroke into the filter — or `^t` again stops following. On a session that is not running it says so and does nothing.
+- **`^k` end a stale session** — a `claude` left open in a forgotten window keeps running and keeps the session `◉`. When one has been running with its transcript untouched for more than 48 hours, the preview says `stale · idle Nd` beside `◉ running`, and `^k` ends it: the first press names the pid, tty and idle time, a second `^k` sends it `SIGTERM`. Anything else is refused with the reason — not running, active within the last 48 hours, `busy` mid-turn, or `waiting` on you. Just before signalling, sessio re-reads `ps` to check the pid is still that session's `claude` (not a recycled pid), and it never ends the session it is itself running inside. It waits up to 3s and says whether the process went; it never escalates to `SIGKILL`.
 - **`?` help** — a full keybinding overlay; any key closes it.
 - **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
 
@@ -68,6 +69,7 @@ sessions
 | `↵` | resume the selected session in its directory, in **this** window, replacing sessio — if it's already running, switches to its window under Ghostty (or says where elsewhere), and a second `↵` opens it twice anyway |
 | `^o` | Ghostty only: resume in a **new** window and keep sessio open — the same already-running guard, confirmed with a second `^o` |
 | `^n` | start a new `claude` in the selected session's folder — a new window under Ghostty, this window everywhere else |
+| `^k` | end a running session idle for more than 48h (not `busy`, not `waiting`) — confirmed with a second `^k` |
 | `?` | toggle the help overlay |
 | `esc` | clear content search, then quit |
 | `^c` | quit |
@@ -87,6 +89,7 @@ sessions show 1b6324f5             # recap, first and last prompt, last reply
 sessions resume 1b6324f5           # resume in its own folder, in this terminal
 sessions reply 1b6324f5 "run the tests again"   # one turn, without opening it
 sessions archive 1b6324f5          # hide it; `unarchive` undoes it
+sessions kill 1b6324f5             # end its claude, if it has sat idle for more than 48h
 ```
 
 - **Ids** are any prefix only one session has; `ls` prints eight characters.
@@ -104,7 +107,9 @@ sessions archive 1b6324f5          # hide it; `unarchive` undoes it
   pass `--force`, and needs a terminal; `--print` prints the command instead. `reply` refuses a
   running session, spends tokens like `^r`, and strips control characters from Claude's answer
   before printing it. A message that starts with `-` goes after `--`, and `-` alone reads it from
-  stdin.
+  stdin. `kill` follows `^k`'s rules without the second press — running it is the consent — and
+  exits `1` with the reason when a session is not running, was active within 48 hours, or is
+  `busy` or `waiting`; `--json` prints the pid, idle days and whether the process went.
 - Exit status: `0` done, `1` couldn't do it, `2` bad command line.
 
 ## Agent skill
