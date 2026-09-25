@@ -369,7 +369,7 @@ everything inside it.
 The page runs in this order: the task, install (copying is the primary action, and a refused copy
 selects the command and says so), the demo, find / understand / continue, the CLI and agent skill,
 keys, requirements. The demo is entered with **Try the demo** (or by tabbing to it) and left with
-`esc`, **Exit demo** or `Tab`; while it has focus it wears an accent ring and says `keys go to the
+`esc`, **Exit demo** or `Tab`; while it has focus the whole window (title bar included) wears an accent ring and says `keys go to the
 demo`. It lays the frame out for its container — 104x26 on a desktop, down to 60x18 — and never
 shrinks the text below 12px; narrower than 60 columns it scrolls sideways inside its window, never
 the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected. The demo's screen is set in Fira Code, which draws every status mark itself at one size and
