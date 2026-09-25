@@ -9,7 +9,7 @@
  cli-tool  │    cli-tool · feat/limiter · 6 prompts
  docs      │    34K file · auto-named
  ╌╌╌╌╌╌╌╌  │ recap: The flake is a timing test racing the
- 🗄 archiv… │ runner's clock.
+ 🗄️ archi… │ runner's clock.
            │ first: why does the macOS test job fail one run
            │ in five?
            │ last: pin the runner image
@@ -28,7 +28,7 @@
  cli-tool  │    cli-tool · feat/limiter · 6 prompts
  docs      │    34K file · auto-named
  ╌╌╌╌╌╌╌╌  │ recap: The flake is a timing test racing the runner's clock.
- 🗄 archiv… │ first: why does the macOS test job fail one run in five?
+ 🗄️ archi… │ first: why does the macOS test job fail one run in five?
            │ last: pin the runner image
            │ reply: Pinned macos-14. The timing test is still fragile.
            │
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    cli-tool · feat/limiter · 6 prompts
  docs          ·   1  │    34K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  The flake is a timing test racing the runner's clock.
- 🗄 archived    ·   1  │      first  why does the macOS test job fail one run in five?
+ 🗄️ archived   ·   1  │      first  why does the macOS test job fail one run in five?
                       │       last  pin the runner image
                       │      reply  Pinned macos-14. The timing test is still fragile.
                       │
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    cli-tool · feat/limiter · 6 prompts
  docs           ·   1  │    34K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  The flake is a timing test racing the runner's clock.
- 🗄 archived     ·   1  │      first  why does the macOS test job fail one run in five?
+ 🗄️ archived    ·   1  │      first  why does the macOS test job fail one run in five?
                        │       last  pin the runner image
                        │      reply  Pinned macos-14. The timing test is still fragile.
                        │

@@ -1,7 +1,7 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ 🗄 archived · 1 session · 0 in 24h · …s one back
+ ⏸ open    │ 🗄️ archived · 1 session · 0 in 24h · … one back
  ◆ waiting │ 1/1 graphql gateway spike│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
  web-app   │ graphql gateway spike
@@ -9,7 +9,7 @@
  cli-tool  │    docs · feat/limiter · 6 prompts
  docs      │    🗄 archived · hidden from every other tab ·…
  ╌╌╌╌╌╌╌╌  │    tokens in 3.4k · out 38.7k · cache w 173k ·…
- 🗄 archiv… │ recap: Spike concluded: not worth it for three
+ 🗄️ archi… │ recap: Spike concluded: not worth it for three
            │ services. Archived.
            │ first: look at the failing test
            │ last: go ahead
@@ -20,7 +20,7 @@
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ 🗄 archived · 1 session · 0 in 24h · …n with ^a · ^a brings one back
+ ⏸ open    │ 🗄️ archived · 1 session · 0 in 24h · … with ^a · ^a brings one back
  ◆ waiting │ 1/1 graphql gateway spike│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ graphql gateway spike
@@ -28,7 +28,7 @@
  cli-tool  │    docs · feat/limiter · 6 prompts
  docs      │    🗄 archived · hidden from every other tab · ^a restores it
  ╌╌╌╌╌╌╌╌  │    tokens in 3.4k · out 38.7k · cache w 173k · r 3.0M · 44K file
- 🗄 archiv… │ recap: Spike concluded: not worth it for three services. Archived.
+ 🗄️ archi… │ recap: Spike concluded: not worth it for three services. Archived.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both platforms.
@@ -45,7 +45,7 @@
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  type to filter
- ⏸ open        2   3  │ 🗄 archived · 1 session · 0 in 24h · hidden with ^a · ^a brings one back
+ ⏸ open        2   3  │ 🗄️ archived · 1 session · 0 in 24h · hidden with ^a · ^a brings one back
  ◆ waiting     1   1  │ 1/1 graphql gateway spike│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ graphql gateway spike
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    docs · feat/limiter · 6 prompts
  docs          ·   1  │    🗄 archived · hidden from every other tab · ^a restores it
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 3.4k · out 38.7k · cache w 173k · r 3.0M · 44K file · auto-named
- 🗄 archived    ·   1  │      recap  Spike concluded: not worth it for three services. Archived.
+ 🗄️ archived   ·   1  │      recap  Spike concluded: not worth it for three services. Archived.
                       │      first  look at the failing test
                       │       last  go ahead
                       │      reply  Fixed. The test now passes on both platforms.
@@ -72,7 +72,7 @@
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  type to filter
- ⏸ open         2   3  │ 🗄 archived · 1 session · 0 in 24h · hidden with ^a · ^a brings one back
+ ⏸ open         2   3  │ 🗄️ archived · 1 session · 0 in 24h · hidden with ^a · ^a brings one back
  ◆ waiting      1   1  │ 1/1 graphql gateway spike│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ graphql gateway spike
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    docs · feat/limiter · 6 prompts
  docs           ·   1  │    🗄 archived · hidden from every other tab · ^a restores it
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 3.4k · out 38.7k · cache w 173k · r 3.0M · 44K file · auto-named
- 🗄 archived     ·   1  │      recap  Spike concluded: not worth it for three services. Archived.
+ 🗄️ archived    ·   1  │      recap  Spike concluded: not worth it for three services. Archived.
                        │      first  look at the failing test
                        │       last  go ahead
                        │      reply  Fixed. The test now passes on both platforms.
@@ -113,7 +113,7 @@
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ 🗄 archived · 1 session · 0 in 24h
+ ⏸ open    │ 🗄️ archived · 1 session · 0 in 24h
  ◆ waiting │ 1/1 graphql gateway spike│
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
  web-app   │ graphql gateway spike
@@ -121,17 +121,17 @@
  cli-tool  │    🗄 archived · hidden from every ot…
  docs      │ reply: Fixed. The test now passes on
  ╌╌╌╌╌╌╌╌  │ both platforms.
- 🗄 archiv… │
+ 🗄️ archi… │
 
 === 49x12 ===
 window too small (need 50x12)
-🗄 archived · 1/1
+🗄️ archived · 1/1
 graphql gateway spike
 updated 6d ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help ·…
 === 80x11 ===
 window too small (need 50x12)
-🗄 archived · 1/1
+🗄️ archived · 1/1
 graphql gateway spike
 updated 6d ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help · esc quit

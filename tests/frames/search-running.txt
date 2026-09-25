@@ -9,7 +9,7 @@
  cli-tool  │    ▶ unfinished · Claude asked / proposed next
  docs      │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌  │ recap: Limiter is in and tested; the
- 🗄 archiv… │ Retry-After units need a decision. Your move.
+ 🗄️ archi… │ Retry-After units need a decision. Your move.
            │ first: where did we get to with the limiter?
            │ last: use seconds, and document it
            │ reply: Added a token-bucket limiter; over-limit
@@ -28,7 +28,7 @@
  cli-tool  │    ▶ unfinished · Claude asked / proposed next
  docs      │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌  │    tokens in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K file
- 🗄 archiv… │ recap: Limiter is in and tested; the Retry-After units need a
+ 🗄️ archi… │ recap: Limiter is in and tested; the Retry-After units need a
            │ decision. Your move.
            │ first: where did we get to with the limiter?
            │ last: use seconds, and document it
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    ▶ unfinished · Claude asked / proposed next
  docs          ·   1  │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K file · auto-named
- 🗄 archived    ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision.
+ 🗄️ archived   ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision.
                       │             Your move.
                       │      first  where did we get to with the limiter?
                       │       last  use seconds, and document it
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    ▶ unfinished · Claude asked / proposed next
  docs           ·   1  │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K file · auto-named
- 🗄 archived     ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision. Your move.
+ 🗄️ archived    ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision. Your move.
                        │      first  where did we get to with the limiter?
                        │       last  use seconds, and document it
                        │      reply  Added a token-bucket limiter; over-limit requests return 429 with a Retry-After.
@@ -121,7 +121,7 @@
  cli-tool  │    ▶ unfinished
  docs      │      Claude asked / proposed next
  ╌╌╌╌╌╌╌╌  │ reply: Added a token-bucket limiter;
- 🗄 archiv… │ ↓ 5 more lines · PgDn scrolls
+ 🗄️ archi… │ ↓ 5 more lines · PgDn scrolls
 
 === 49x12 ===
 window too small (need 50x12)

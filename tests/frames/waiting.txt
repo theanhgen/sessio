@@ -9,7 +9,7 @@
  cli-tool  │      ttys009
  docs      │    web-app · main · 9 prompts
  ╌╌╌╌╌╌╌╌  │ recap: Found the loop in the expiry middleware.
- 🗄 archiv… │ Waiting on permission to run the test suite.
+ 🗄️ archi… │ Waiting on permission to run the test suite.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: The loop is in middleware/session.ts: an
@@ -28,7 +28,7 @@
  cli-tool  │    web-app · main · 9 prompts
  docs      │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file
  ╌╌╌╌╌╌╌╌  │ recap: Found the loop in the expiry middleware. Waiting on
- 🗄 archiv… │ permission to run the test suite.
+ 🗄️ archi… │ permission to run the test suite.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: The loop is in middleware/session.ts: an expired session
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    web-app · main · 9 prompts
  docs          ·   1  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Found the loop in the expiry middleware. Waiting on permission to
- 🗄 archived    ·   1  │             run the test suite.
+ 🗄️ archived   ·   1  │             run the test suite.
                       │      first  look at the failing test
                       │       last  go ahead
                       │      reply  The loop is in middleware/session.ts: an expired session redirects
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    web-app · main · 9 prompts
  docs           ·   1  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Found the loop in the expiry middleware. Waiting on permission to run the test suite.
- 🗄 archived     ·   1  │      first  look at the failing test
+ 🗄️ archived    ·   1  │      first  look at the failing test
                        │       last  go ahead
                        │      reply  The loop is in middleware/session.ts: an expired session redirects to /login, which sits behind the same middleware.
                        │
@@ -121,7 +121,7 @@
  cli-tool  │      pid 4242 · ttys009
  docs      │ reply: The loop is in
  ╌╌╌╌╌╌╌╌  │ middleware/session.ts: an expired
- 🗄 archiv… │ ↓ 4 more lines · PgDn scrolls
+ 🗄️ archi… │ ↓ 4 more lines · PgDn scrolls
 
 === 49x12 ===
 window too small (need 50x12)

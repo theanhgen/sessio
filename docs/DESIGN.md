@@ -123,7 +123,7 @@ glyphs are pairwise distinct.
 | (none) | — | dot, preview `updated 3d ago · not running` | older than 24 hours | — |
 | `▶` | unfinished | tab mark, preview `▶ unfinished · <reason>` | the reason (`open_reason`): `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next` (only for 3 days), `uncommitted changes` (git WIP, on the folder's newest session) | attention |
 | `⏸` | open | tab `⏸ open` | the collection of unfinished sessions | dim / selection |
-| `🗄` | archived | tab `🗄 archived`, preview line | hidden locally by `^a`; comes back when written to again | dim |
+| `🗄` | archived | tab `🗄️ archived` (with U+FE0F: terminals draw `🗄` two cells wide, and only that form measures as two), preview line | hidden locally by `^a`; comes back when written to again | dim |
 | `⌂` | everything | tab `⌂ everything` | all sessions not archived | dim / selection |
 | `copilot` | — | tab and preview tag | written by GitHub Copilot CLI | agent tag |
 | `stale` | stale | preview `◉ running · stale · idle Nd · pid · tty`, key bar `^k end-stale` | running but idle for more than 48 hours; `^k` can end it | dim |

@@ -9,7 +9,7 @@
  cli-tool  │    api · main · 22 prompts
  docs      │    tokens in 1.8k · out 24.2k · cache w 118k ·…
  ╌╌╌╌╌╌╌╌  │ recap: Read-through layer merged; writing the
- 🗄 archiv… │ write-behind queue now.
+ 🗄️ archi… │ write-behind queue now.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Working on the write-behind queue. The
@@ -28,7 +28,7 @@
  cli-tool  │    api · main · 22 prompts
  docs      │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file
  ╌╌╌╌╌╌╌╌  │ recap: Read-through layer merged; writing the write-behind queue
- 🗄 archiv… │ now.
+ 🗄️ archi… │ now.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Working on the write-behind queue. The flush on shutdown
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    api · main · 22 prompts
  docs          ·   1  │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Read-through layer merged; writing the write-behind queue now.
- 🗄 archived    ·   1  │      first  look at the failing test
+ 🗄️ archived   ·   1  │      first  look at the failing test
                       │       last  go ahead
                       │      reply  Working on the write-behind queue. The flush on shutdown needs care.
                       │
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    api · main · 22 prompts
  docs           ·   1  │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Read-through layer merged; writing the write-behind queue now.
- 🗄 archived     ·   1  │      first  look at the failing test
+ 🗄️ archived    ·   1  │      first  look at the failing test
                        │       last  go ahead
                        │      reply  Working on the write-behind queue. The flush on shutdown needs care.
                        │
@@ -121,7 +121,7 @@
  cli-tool  │      ttys004
  docs      │ reply: Working on the write-behind
  ╌╌╌╌╌╌╌╌  │ queue. The flush on shutdown needs
- 🗄 archiv… │ care.
+ 🗄️ archi… │ care.
 
 === 49x12 ===
 window too small (need 50x12)

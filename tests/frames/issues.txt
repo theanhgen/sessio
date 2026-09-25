@@ -9,7 +9,7 @@
  cli-tool  │   #41  document Retry-Afte…          docs    1d
  docs      │   #37  password reset has…                   5d
  ╌╌╌╌╌╌╌╌  │
- 🗄 archiv… │
+ 🗄️ archi… │
            │
            │
            │
@@ -28,7 +28,7 @@
  cli-tool  │   #41  document Retry-After units                        docs    1d
  docs      │   #37  password reset has no limiter                             5d
  ╌╌╌╌╌╌╌╌  │
- 🗄 archiv… │
+ 🗄️ archi… │
            │
            │
            │
@@ -53,7 +53,7 @@
  cli-tool      2   2  │   #41  document Retry-After units                                     docs    1d
  docs          ·   1  │   #37  password reset has no limiter                                          5d
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄 archived    ·   1  │
+ 🗄️ archived   ·   1  │
                       │
                       │
                       │
@@ -80,7 +80,7 @@
  cli-tool       2   2  │   #41  document Retry-After units                                                                                            docs    1d
  docs           ·   1  │   #37  password reset has no limiter                                                                                                 5d
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄 archived     ·   1  │
+ 🗄️ archived    ·   1  │
                        │
                        │
                        │
@@ -121,7 +121,7 @@
  cli-tool  │   #41  document…           docs    1d
  docs      │   #37  password…                   5d
  ╌╌╌╌╌╌╌╌  │
- 🗄 archiv… │
+ 🗄️ archi… │
 
 === 49x12 ===
 window too small (need 50x12)

@@ -9,7 +9,7 @@
  cli-tool  │    ○ recently updated · 15h ago · not running
  docs      │    web-app · main · 6 prompts
  ╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k ·…
- 🗄 archiv… │ recap: Found the cause and fixed it; the tests
+ 🗄️ archi… │ recap: Found the cause and fixed it; the tests
            │ pass. Nothing left.
            │ first: look at the failing test
            │ last: go ahead
@@ -28,7 +28,7 @@
  cli-tool  │    ○ recently updated · 15h ago · not running
  docs      │    web-app · main · 6 prompts
  ╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file
- 🗄 archiv… │ recap: Found the cause and fixed it; the tests pass. Nothing left.
+ 🗄️ archi… │ recap: Found the cause and fixed it; the tests pass. Nothing left.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both platforms.
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    ○ recently updated · 15h ago · not running
  docs          ·   1  │    web-app · main · 6 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
- 🗄 archived    ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
+ 🗄️ archived   ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
                       │      first  look at the failing test
                       │       last  go ahead
                       │      reply  Fixed. The test now passes on both platforms.
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    ○ recently updated · 15h ago · not running
  docs           ·   1  │    web-app · main · 6 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
- 🗄 archived     ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
+ 🗄️ archived    ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
                        │      first  look at the failing test
                        │       last  go ahead
                        │      reply  Fixed. The test now passes on both platforms.
@@ -121,7 +121,7 @@
  cli-tool  │    ○ recently updated · 15h ago
  docs      │      not running
  ╌╌╌╌╌╌╌╌  │ reply: Fixed. The test now passes on
- 🗄 archiv… │ both platforms.
+ 🗄️ archi… │ both platforms.
 
 === 49x12 ===
 window too small (need 50x12)

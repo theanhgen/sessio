@@ -9,7 +9,7 @@
  cli-tool  │    web-app · main · 6 prompts
  docs      │    tokens in 2.4k · out 30.0k · cache w 140k ·…
  ╌╌╌╌╌╌╌╌  │ recap: Found the cause and fixed it; the tests
- 🗄 archiv… │ pass. Nothing left.
+ 🗄️ archi… │ pass. Nothing left.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both
@@ -28,7 +28,7 @@
  cli-tool  │    web-app · main · 6 prompts
  docs      │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file
  ╌╌╌╌╌╌╌╌  │ recap: Found the cause and fixed it; the tests pass. Nothing left.
- 🗄 archiv… │ first: look at the failing test
+ 🗄️ archi… │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both platforms.
            │
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    web-app · main · 6 prompts
  docs          ·   1  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
- 🗄 archived    ·   1  │      first  look at the failing test
+ 🗄️ archived   ·   1  │      first  look at the failing test
                       │       last  go ahead
                       │      reply  Fixed. The test now passes on both platforms.
                       │
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    web-app · main · 6 prompts
  docs           ·   1  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
- 🗄 archived     ·   1  │      first  look at the failing test
+ 🗄️ archived    ·   1  │      first  look at the failing test
                        │       last  go ahead
                        │      reply  Fixed. The test now passes on both platforms.
                        │
@@ -121,7 +121,7 @@
  cli-tool  │      not running
  docs      │ reply: Fixed. The test now passes on
  ╌╌╌╌╌╌╌╌  │ both platforms.
- 🗄 archiv… │
+ 🗄️ archi… │
 
 === 49x12 ===
 window too small (need 50x12)

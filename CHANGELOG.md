@@ -38,8 +38,6 @@
   mistaken for `○`'s sibling.
 - **No space before punctuation after inline code** (`/login,` not `/login ,`), or after bold text
   or a link.
-- **The archive tab is a plain `🗄`**, without the U+FE0F that made terminals disagree on one cell
-  or two.
 - **The website demo's recap and reply labels pass AA.** The demo draws `VOICE` as `#af87ff`
   (6.74:1) instead of xterm 98 (4.05:1 on its background); the terminal is unchanged. The design
   spec's contrast note now says 3:1 is for text at least 24px, or 18.66px bold.

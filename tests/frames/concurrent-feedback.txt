@@ -9,7 +9,7 @@
  cli-tool  │    ○ recently updated · 3h ago · not running
  docs      │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌  │ recap: Release workflow written and dry-run on
- 🗄 archiv… │ a fork. Signing is undecided; the first tag is
+ 🗄️ archi… │ a fork. Signing is undecided; the first tag is
            │ yours.
            │ reply: The release workflow, step by step.
            │
@@ -28,7 +28,7 @@
  cli-tool  │    ○ recently updated · 3h ago · not running
  docs      │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
- 🗄 archiv… │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file
+ 🗄️ archi… │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file
            │ recap: Release workflow written and dry-run on a fork. Signing is
            │ undecided; the first tag is yours.
            │ first: write a release workflow that publishes to npm on a tag
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    ○ recently updated · 3h ago · not running
  docs          ·   1  │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
- 🗄 archived    ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
+ 🗄️ archived   ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
                       │      recap  Release workflow written and dry-run on a fork. Signing is
                       │             undecided; the first tag is yours.
                       │      first  write a release workflow that publishes to npm on a tag
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    ○ recently updated · 3h ago · not running
  docs           ·   1  │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
- 🗄 archived     ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
+ 🗄️ archived    ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
                        │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
                        │      first  write a release workflow that publishes to npm on a tag
                        │       last  walk me through what it does before I tag anything

@@ -9,7 +9,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄 archiv… │
+ 🗄️ archi… │
            │
            │
            │
@@ -28,7 +28,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄 archiv… │
+ 🗄️ archi… │
            │
            │
            │
@@ -53,7 +53,7 @@
  cli-tool      2   2  │
  docs          ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄 archived    ·   1  │
+ 🗄️ archived   ·   1  │
                       │
                       │
                       │
@@ -80,7 +80,7 @@
  cli-tool       2   2  │
  docs           ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄 archived     ·   1  │
+ 🗄️ archived    ·   1  │
                        │
                        │
                        │
@@ -121,7 +121,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄 archiv… │
+ 🗄️ archi… │
 
 === 49x12 ===
 window too small (need 50x12)

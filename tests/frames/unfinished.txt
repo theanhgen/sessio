@@ -9,7 +9,7 @@
  cli-tool  │    ▶ unfinished · your prompt got no reply
  docs      │    docs · main · 6 prompts
  ╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k ·…
- 🗄 archiv… │ no recap yet
+ 🗄️ archi… │ no recap yet
            │ first: look at the failing test
            │ last: and the contributor guide too?
            │ reply: Fixed. The test now passes on both
@@ -28,7 +28,7 @@
  cli-tool  │    ▶ unfinished · your prompt got no reply
  docs      │    docs · main · 6 prompts
  ╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file
- 🗄 archiv… │ no recap yet
+ 🗄️ archi… │ no recap yet
            │ first: look at the failing test
            │ last: and the contributor guide too?
            │ reply: Fixed. The test now passes on both platforms.
@@ -53,7 +53,7 @@
  cli-tool      2   2  │    ▶ unfinished · your prompt got no reply
  docs          ·   1  │    docs · main · 6 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file · auto-named
- 🗄 archived    ·   1  │             no recap yet
+ 🗄️ archived   ·   1  │             no recap yet
                       │      first  look at the failing test
                       │       last  and the contributor guide too?
                       │      reply  Fixed. The test now passes on both platforms.
@@ -80,7 +80,7 @@
  cli-tool       2   2  │    ▶ unfinished · your prompt got no reply
  docs           ·   1  │    docs · main · 6 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file · auto-named
- 🗄 archived     ·   1  │             no recap yet
+ 🗄️ archived    ·   1  │             no recap yet
                        │      first  look at the failing test
                        │       last  and the contributor guide too?
                        │      reply  Fixed. The test now passes on both platforms.
@@ -121,7 +121,7 @@
  cli-tool  │    ▶ unfinished
  docs      │      your prompt got no reply
  ╌╌╌╌╌╌╌╌  │ reply: Fixed. The test now passes on
- 🗄 archiv… │ both platforms.
+ 🗄️ archi… │ both platforms.
 
 === 49x12 ===
 window too small (need 50x12)
