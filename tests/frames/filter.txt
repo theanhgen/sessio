@@ -1,15 +1,15 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 cache▏  filter · ⌂ everything · 1 match
+ ⌂ everyt… │ 🔍 cache▏  filter · 1 match
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │ 1/1 ◉refactor the cache layer│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
  web-app   │ refactor the cache layer
  api       │    ◉ running · busy · pid 5120 · ttys004
  cli-tool  │    api · main · 22 prompts
- docs      │    tokens  in 1.8k · out 24.2k · cache w 118k…
+ docs      │    tokens in 1.8k · out 24.2k · cache w 118k ·…
  ╌╌╌╌╌╌╌╌  │ recap: Read-through layer merged; writing the
- 🗄️ archiv │ write-behind queue now.
+ 🗄 archiv… │ write-behind queue now.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Working on the write-behind queue. The
@@ -19,16 +19,16 @@
 
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everyth │ 🔍 cache▏  filter · ⌂ everything · 1 match
+ ⌂ everyt… │ 🔍 cache▏  filter · 1 match
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting │ 1/1 ◉refactor the cache layer│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ refactor the cache layer
  api       │    ◉ running · busy · pid 5120 · ttys004
  cli-tool  │    api · main · 22 prompts
- docs      │    tokens  in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K · aut…
+ docs      │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file
  ╌╌╌╌╌╌╌╌  │ recap: Read-through layer merged; writing the write-behind queue
- 🗄️ archiv │ now.
+ 🗄 archiv… │ now.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Working on the write-behind queue. The flush on shutdown
@@ -44,16 +44,16 @@
 
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything  6   7  │ 🔍 cache▏  filter · ⌂ everything · 1 match
+ ⌂ everything  6   7  │ 🔍 cache▏  filter · 1 match
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting     1   1  │ 1/1 ◉refactor the cache layer│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ refactor the cache layer
  api           2   2  │    ◉ running · busy · pid 5120 · ttys004
  cli-tool      2   2  │    api · main · 22 prompts
- docs          ·   1  │    tokens  in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K · auto-named
+ docs          ·   1  │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Read-through layer merged; writing the write-behind queue now.
- 🗄️ archived   ·   1  │      first  look at the failing test
+ 🗄 archived    ·   1  │      first  look at the failing test
                       │       last  go ahead
                       │      reply  Working on the write-behind queue. The flush on shutdown needs care.
                       │
@@ -71,16 +71,16 @@
 
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything   6   7  │ 🔍 cache▏  filter · ⌂ everything · 1 match
+ ⌂ everything   6   7  │ 🔍 cache▏  filter · 1 match
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting      1   1  │ 1/1 ◉refactor the cache layer│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ refactor the cache layer
  api            2   2  │    ◉ running · busy · pid 5120 · ttys004
  cli-tool       2   2  │    api · main · 22 prompts
- docs           ·   1  │    tokens  in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K · auto-named
+ docs           ·   1  │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file · auto-named
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Read-through layer merged; writing the write-behind queue now.
- 🗄️ archived    ·   1  │      first  look at the failing test
+ 🗄 archived     ·   1  │      first  look at the failing test
                        │       last  go ahead
                        │      reply  Working on the write-behind queue. The flush on shutdown needs care.
                        │
@@ -112,7 +112,7 @@
 
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 cache▏  filter · ⌂ everything · 1…
+ ⌂ everyt… │ 🔍 cache▏  filter · 1 match
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 1/1 ◉refactor the cache layer│
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
@@ -121,7 +121,7 @@
  cli-tool  │      ttys004
  docs      │ reply: Working on the write-behind
  ╌╌╌╌╌╌╌╌  │ queue. The flush on shutdown needs
- 🗄️ archiv │ care.
+ 🗄 archiv… │ care.
 
 === 49x12 ===
 window too small (need 50x12)

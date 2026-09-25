@@ -1,6 +1,6 @@
 === 60x18 ===
- projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 kubernetes▏  filter · ⌂ everything · no mat…
+ projects  │ type · ◆ 1 waiting on you · ? help · esc quit
+ ⌂ everyt… │ 🔍 kubernetes▏  filter · no matches
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │   nothing in ⌂ everything matches "kubernetes"
  ╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and firs…
@@ -9,7 +9,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
            │
            │
            │
@@ -18,8 +18,8 @@
            │
 
 === 80x24 ===
- projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everyth │ 🔍 kubernetes▏  filter · ⌂ everything · no matches
+ projects  │ type · ◆ 1 waiting on you · ? help · esc quit
+ ⌂ everyt… │ 🔍 kubernetes▏  filter · no matches
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting │   nothing in ⌂ everything matches "kubernetes"
  ╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the new…
@@ -28,7 +28,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
            │
            │
            │
@@ -43,8 +43,8 @@
            │
 
 === 104x26 ===
- ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything  6   7  │ 🔍 kubernetes▏  filter · ⌂ everything · no matches
+ ↑↓ projects 24h all  │ type · ^f search-in-text · ◆ 1 waiting on you · ? help · esc quit · live
+ ⌂ everything  6   7  │ 🔍 kubernetes▏  filter · no matches
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting     1   1  │   nothing in ⌂ everything matches "kubernetes"
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the newest 300
@@ -53,7 +53,7 @@
  cli-tool      2   2  │
  docs          ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄️ archived   ·   1  │
+ 🗄 archived    ·   1  │
                       │
                       │
                       │
@@ -70,8 +70,8 @@
                       │
 
 === 160x40 ===
- ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything   6   7  │ 🔍 kubernetes▏  filter · ⌂ everything · no matches
+ ↑↓ projects  24h all  │ type · ^f search-in-text · ◆ 1 waiting on you · ? help · esc quit · live
+ ⌂ everything   6   7  │ 🔍 kubernetes▏  filter · no matches
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting      1   1  │   nothing in ⌂ everything matches "kubernetes"
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the newest 300
@@ -80,7 +80,7 @@
  cli-tool       2   2  │
  docs           ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄️ archived    ·   1  │
+ 🗄 archived     ·   1  │
                        │
                        │
                        │
@@ -112,7 +112,7 @@
 
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 kubernetes▏  filter · ⌂ everythin…
+ ⌂ everyt… │ 🔍 kubernetes▏  filter · no matches
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │   nothing in ⌂ everything matches "k…
  ╌╌╌╌╌╌╌╌  │   filtering looks at titles, project…
@@ -121,7 +121,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
 
 === 49x12 ===
 window too small (need 50x12)

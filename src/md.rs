@@ -119,10 +119,13 @@ fn segs_width(segs: &[Seg]) -> usize {
 /// Word-wrap styled segments to `width`, with distinct first-line and continuation prefixes.
 fn wrap_segs(segs: Vec<Seg>, w: usize, first: &str, cont: &str) -> Vec<Line<'static>> {
     let w = w.max(1);
-    // Explode into words carrying their style, so a wrap point can fall inside a styled run.
-    let mut words: Vec<Seg> = Vec::new();
+    // Explode into words carrying their style, so a wrap point can fall inside a styled run. A
+    // word is one or more runs: text that touched the run before it in the source (`macos-14`
+    // then `.`) joins that word, so no space is put between them and they wrap together.
+    let mut words: Vec<Vec<Seg>> = Vec::new();
+    let mut touching = false;
     for s in segs {
-        for part in s.text.split_whitespace() {
+        for (n, part) in s.text.split_whitespace().enumerate() {
             // A word wider than the viewport can never fit on a line of its own, so break it
             // at a character boundary. The JS wraps on whitespace only and lets such a word
             // overflow — which silently clips text that has no spaces at all, i.e. most CJK.
@@ -130,16 +133,21 @@ fn wrap_segs(segs: Vec<Seg>, w: usize, first: &str, cont: &str) -> Vec<Line<'sta
                 let mut rest = part.to_string();
                 while width(&rest) > w {
                     let (head, tail) = split_at_width(&rest, w);
-                    words.push(seg(head, s.style));
+                    words.push(vec![seg(head, s.style)]);
                     rest = tail;
                 }
                 if !rest.is_empty() {
-                    words.push(seg(rest, s.style));
+                    words.push(vec![seg(rest, s.style)]);
                 }
             } else {
-                words.push(seg(part, s.style));
+                let glue = n == 0 && touching && !s.text.starts_with(char::is_whitespace);
+                match words.last_mut() {
+                    Some(last) if glue && segs_width(last) + width(part) <= w => last.push(seg(part, s.style)),
+                    _ => words.push(vec![seg(part, s.style)]),
+                }
             }
         }
+        touching = !s.text.is_empty() && !s.text.ends_with(char::is_whitespace);
     }
 
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -148,15 +156,15 @@ fn wrap_segs(segs: Vec<Seg>, w: usize, first: &str, cont: &str) -> Vec<Line<'sta
 
     for word in words {
         let extra = if started { 1 } else { 0 };
-        if started && segs_width(&cur) + extra + width(&word.text) > w {
+        if started && segs_width(&cur) + extra + segs_width(&word) > w {
             lines.push(to_line(std::mem::take(&mut cur)));
             cur.push(seg(cont.to_string(), Style::default()));
-            cur.push(word);
+            cur.extend(word);
         } else {
             if started {
                 cur.push(seg(" ", Style::default()));
             }
-            cur.push(word);
+            cur.extend(word);
             started = true;
         }
     }
@@ -482,6 +490,16 @@ mod tests {
     fn strips_inline_markup_but_keeps_the_text() {
         let out = md_lines("a **bold** and `code` and [link](http://x)", 80);
         assert_eq!(plain(&out), vec!["a bold and code and link"]);
+    }
+
+    #[test]
+    fn code_keeps_the_punctuation_that_touches_it() {
+        let out = md_lines("Pinned `macos-14`. Redirects to `/login`, then (`x`) and `a`s.", 80);
+        assert_eq!(plain(&out), vec!["Pinned macos-14. Redirects to /login, then (x) and as."]);
+        // Glued text wraps as one word: the period never starts a row on its own.
+        let out = md_lines("aaaa `bbbb`.", 9);
+        assert_eq!(plain(&out), vec!["aaaa", "bbbb."]);
+        assert!(out[1].spans.iter().any(|s| s.content == "bbbb" && s.style == theme::code()));
     }
 
     #[test]

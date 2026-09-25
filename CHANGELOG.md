@@ -19,6 +19,30 @@
   a fallback font and sat lower than the `◆ ◉ ● ○` beside it.
 - **The website demo's dividers line up.** Glyphs like `◆`, `⌂` and `🔍` come from fallback fonts
   with their own widths and pushed the columns after them; each is now boxed to its terminal cells.
+- **A cut name says so.** Project names cut to fit the panel end in `…` (`⌂ everyt…`), and an
+  unfocused tab cut to its first two words does too (`ship the…`). The `copilot` tag is not one of
+  the two words.
+- **The key bar offers only keys that can act.** With no session highlighted, `←→ session`,
+  `↵ resume`, `^o`, `^r`, `^a`, `⇥`, `^t follow` and `^g` are gone; on a Copilot session `^r reply`
+  is. Like `^k`, which was already shown only when it would act.
+- **The scope is named once.** The query row no longer repeats the tab (`filter · ⌂ everything`):
+  it reads `type to filter` when empty and `filter · 4 matches` while filtering, and the context
+  row under it names the tab. A project's folder there is left off rather than cut into its own
+  name (`…h-a-long-name`).
+- **The file facts row fits 80 columns.** `tokens in … · 29K file · auto-named`: one space after
+  `tokens`, the transcript's size labelled, and `auto-named` dropped first when the row is short.
+- **Said once.** A reply on its way reads `⏳ sending "…"` in the preview, and a failed one `✗ reply
+  failed · why · ^r retries`; the feedback row explains. `^r` on a Copilot session fits one row at
+  80 columns: `"x" is a Copilot session: ^r is Claude-only · ↵ resumes`.
+- **`●` reads `● active`** in the preview's state row, not `recently updated`, so it is not
+  mistaken for `○`'s sibling.
+- **No space before punctuation after inline code** (`/login,` not `/login ,`), or after bold text
+  or a link.
+- **The archive tab is a plain `🗄`**, without the U+FE0F that made terminals disagree on one cell
+  or two.
+- **The website demo's recap and reply labels pass AA.** The demo draws `VOICE` as `#af87ff`
+  (6.74:1) instead of xterm 98 (4.05:1 on its background); the terminal is unchanged. The design
+  spec's contrast note now says 3:1 is for text at least 24px, or 18.66px bold.
 
 ### Website
 

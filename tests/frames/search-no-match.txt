@@ -1,6 +1,6 @@
 === 60x18 ===
- projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 kubernetes▏  search in text · all sessions…
+ projects  │ ◆ 1 waiting on you · ? help
+ ⌂ everyt… │ 🔍 kubernetes▏  search in text · all sessions…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │   no session's text contains "kubernetes"
  ╌╌╌╌╌╌╌╌  │   searched every Claude and Copilot transcript…
@@ -9,7 +9,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
            │
            │
            │
@@ -18,8 +18,8 @@
            │
 
 === 80x24 ===
- projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 kubernetes▏  search in text · all sessions · no text matches
+ projects  │ type · ◆ 1 waiting on you · ? help · esc back-to-filter
+ ⌂ everyt… │ 🔍 kubernetes▏  search in text · all sessions · no text matches
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting │   no session's text contains "kubernetes"
  ╌╌╌╌╌╌╌╌  │   searched every Claude and Copilot transcript on disk
@@ -28,7 +28,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
            │
            │
            │
@@ -43,7 +43,7 @@
            │
 
 === 104x26 ===
- ↑↓ projects 24h all  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc back-to-filter
+ ↑↓ projects 24h all  │ type · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything  6   7  │ 🔍 kubernetes▏  search in text · all sessions · no text matches
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting     1   1  │   no session's text contains "kubernetes"
@@ -53,7 +53,7 @@
  cli-tool      2   2  │
  docs          ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄️ archived   ·   1  │
+ 🗄 archived    ·   1  │
                       │
                       │
                       │
@@ -70,7 +70,7 @@
                       │
 
 === 160x40 ===
- ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc back-to-filter
+ ↑↓ projects  24h all  │ type · ^f search-in-text · ◆ 1 waiting on you · ? help · esc back-to-filter · live
  ⌂ everything   6   7  │ 🔍 kubernetes▏  search in text · all sessions · no text matches
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting      1   1  │   no session's text contains "kubernetes"
@@ -80,7 +80,7 @@
  cli-tool       2   2  │
  docs           ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄️ archived    ·   1  │
+ 🗄 archived     ·   1  │
                        │
                        │
                        │
@@ -112,7 +112,7 @@
 
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 kubernetes▏  search in text · all…
+ ⌂ everyt… │ 🔍 kubernetes▏  search in text · all…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │   no session's text contains "kubern…
  ╌╌╌╌╌╌╌╌  │   searched every Claude and Copilot…
@@ -121,7 +121,7 @@
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
 
 === 49x12 ===
 window too small (need 50x12)

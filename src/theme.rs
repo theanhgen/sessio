@@ -177,6 +177,19 @@ pub fn rgb(c: Color) -> Option<(u8, u8, u8)> {
     })
 }
 
+/// The website demo's screen background (`--surface-raised`).
+pub const DEMO_BG: (u8, u8, u8) = (0x12, 0x15, 0x19);
+
+/// A role colour as the website demo draws it: `rgb`, except `VOICE`, whose xterm 98 is 4.05:1 on
+/// the demo's background and fails AA for its 12.5px text. The page draws the site's `--voice`
+/// instead; the terminal keeps 98.
+pub fn demo_rgb(c: Color) -> Option<(u8, u8, u8)> {
+    if c == VOICE {
+        return Some((0xaf, 0x87, 0xff));
+    }
+    rgb(c)
+}
+
 /// WCAG 2.x contrast ratio between two sRGB colours.
 pub fn contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f64 {
     fn lum((r, g, b): (u8, u8, u8)) -> f64 {
@@ -237,6 +250,14 @@ mod tests {
                 assert!(r >= 3.0, "{name} on {bg_name} is {r:.2}:1");
             }
         }
+    }
+
+    /// The demo's text is 12.5px, so what it draws in the voice role must clear AA for body text.
+    #[test]
+    fn the_demo_voice_clears_aa_on_its_background() {
+        let r = contrast(demo_rgb(VOICE).unwrap(), DEMO_BG);
+        assert!(r >= 4.5, "voice on the demo is {r:.2}:1");
+        assert_eq!(demo_rgb(RECENT), rgb(RECENT), "only voice is remapped");
     }
 
     #[test]

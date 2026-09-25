@@ -1,127 +1,127 @@
 === 60x18 ===
  projects  │ ↵ resume · ^r reply · ? help · esc quit
- project-2 │ 🔍 ▏  filter · project-31-with-a-long-name
- project-2 │ project-31-with-a-long-name
- project-2 │ 1/1 a session│
- project-2 │ ───────────────────────────────────────────────
- project-2 │ a session
- project-2 │    updated 2d ago · not running
- project-2 │    project-31-with-a-long-name · feat/limiter…
- project-3 │    tokens  in 10.8k · out 108k · cache w 437k…
- project-3 │ recap: Found the cause and fixed it; the tests
- project-3 │ pass. Nothing left.
- project-3 │ first: look at the failing test
- project-3 │ last: go ahead
- project-3 │ reply: Fixed. The test now passes on both
- project-3 │ platforms.
- project-3 │
- project-3 │
+ project-… │ 🔍 ▏  type to filter
+ project-… │ project-31-with-a-long-name
+ project-… │ 1/1 a session│
+ project-… │ ───────────────────────────────────────────────
+ project-… │ a session
+ project-… │    updated 2d ago · not running
+ project-… │    project-31-with-a-long-name · feat/limiter…
+ project-… │    tokens in 10.8k · out 108k · cache w 437k ·…
+ project-… │ recap: Found the cause and fixed it; the tests
+ project-… │ pass. Nothing left.
+ project-… │ first: look at the failing test
+ project-… │ last: go ahead
+ project-… │ reply: Fixed. The test now passes on both
+ project-… │ platforms.
+ project-… │
+ project-… │
 
 === 80x24 ===
  projects  │ ←→ session · ↵ resume · ^r reply · ? help · esc quit
- project-1 │ 🔍 ▏  filter · project-31-with-a-long-name
- project-1 │ project-31-with-a-long-name · 1 session · 0 in 24h · …h-a-long-name
- project-2 │ 1/1 a session│
- project-2 │ ───────────────────────────────────────────────────────────────────
- project-2 │ a session
- project-2 │    updated 2d ago · not running
- project-2 │    project-31-with-a-long-name · feat/limiter · 6 prompts
- project-2 │    tokens  in 10.8k · out 108k · cache w 437k · r 8.5M · 168K · au…
- project-2 │ recap: Found the cause and fixed it; the tests pass. Nothing left.
- project-2 │ first: look at the failing test
- project-2 │ last: go ahead
- project-2 │ reply: Fixed. The test now passes on both platforms.
- project-3 │
- project-3 │
- project-3 │
- project-3 │
- project-3 │
- project-3 │
- project-3 │
- project-3 │
- project-3 │
- project-3 │
+ project-… │ 🔍 ▏  type to filter
+ project-… │ project-31-with-a-long-name · 1 session · 0 in 24h
+ project-… │ 1/1 a session│
+ project-… │ ───────────────────────────────────────────────────────────────────
+ project-… │ a session
+ project-… │    updated 2d ago · not running
+ project-… │    project-31-with-a-long-name · feat/limiter · 6 prompts
+ project-… │    tokens in 10.8k · out 108k · cache w 437k · r 8.5M · 168K file
+ project-… │ recap: Found the cause and fixed it; the tests pass. Nothing left.
+ project-… │ first: look at the failing test
+ project-… │ last: go ahead
+ project-… │ reply: Fixed. The test now passes on both platforms.
+ project-… │
+ project-… │
+ project-… │
+ project-… │
+ project-… │
+ project-… │
+ project-… │
+ project-… │
+ project-… │
+ project-… │
 
 === 104x26 ===
  ↑↓ projects 33/41    │ ←→ session · ↵ resume · ^r reply · ? help · esc quit
- project-16-w  ·   1  │ 🔍 ▏  filter · project-31-with-a-long-name
- project-17-w  ·   1  │ project-31-with-a-long-name · 1 session · 0 in 24h · …roject-31-with-a-long-name
- project-18-w  ·   1  │ 1/1 a session│
- project-19-w  ·   1  │ ────────────────────────────────────────────────────────────────────────────────
- project-20-w  ·   1  │ a session
- project-21-w  ·   1  │    updated 2d ago · not running
- project-22-w  ·   1  │    project-31-with-a-long-name · feat/limiter · 6 prompts
- project-23-w  ·   1  │    tokens  in 10.8k · out 108k · cache w 437k · r 8.5M · 168K · auto-named
- project-24-w  ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
- project-25-w  ·   1  │      first  look at the failing test
- project-26-w  ·   1  │       last  go ahead
- project-27-w  ·   1  │      reply  Fixed. The test now passes on both platforms.
- project-28-w  ·   1  │
- project-29-w  ·   1  │
- project-30-w  ·   1  │
- project-31-w  ·   1  │
- project-32-w  ·   1  │
- project-33-w  ·   1  │
- project-34-w  ·   1  │
- project-35-w  ·   1  │
- project-36-w  ·   1  │
- project-37-w  ·   1  │
- project-38-w  ·   1  │
- project-39-w  ·   1  │
+ project-16-…  ·   1  │ 🔍 ▏  type to filter
+ project-17-…  ·   1  │ project-31-with-a-long-name · 1 session · 0 in 24h
+ project-18-…  ·   1  │ 1/1 a session│
+ project-19-…  ·   1  │ ────────────────────────────────────────────────────────────────────────────────
+ project-20-…  ·   1  │ a session
+ project-21-…  ·   1  │    updated 2d ago · not running
+ project-22-…  ·   1  │    project-31-with-a-long-name · feat/limiter · 6 prompts
+ project-23-…  ·   1  │    tokens in 10.8k · out 108k · cache w 437k · r 8.5M · 168K file · auto-named
+ project-24-…  ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
+ project-25-…  ·   1  │      first  look at the failing test
+ project-26-…  ·   1  │       last  go ahead
+ project-27-…  ·   1  │      reply  Fixed. The test now passes on both platforms.
+ project-28-…  ·   1  │
+ project-29-…  ·   1  │
+ project-30-…  ·   1  │
+ project-31-…  ·   1  │
+ project-32-…  ·   1  │
+ project-33-…  ·   1  │
+ project-34-…  ·   1  │
+ project-35-…  ·   1  │
+ project-36-…  ·   1  │
+ project-37-…  ·   1  │
+ project-38-…  ·   1  │
+ project-39-…  ·   1  │
 
 === 160x40 ===
  ↑↓ projects 33/41    24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ? help · esc quit
- project-02-with-a-lon  1   1  │ 🔍 ▏  filter · project-31-with-a-long-name
- project-03-with-a-lon  1   1  │ project-31-with-a-long-name · 1 session · 0 in 24h · /nonexistent/code/project-31-with-a-long-name
- project-04-with-a-lon  1   1  │ 1/1 a session│
- project-05-with-a-lon  1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- project-06-with-a-lon  1   1  │ a session
- project-07-with-a-lon  1   1  │    updated 2d ago · not running
- project-08-with-a-lon  1   1  │    project-31-with-a-long-name · feat/limiter · 6 prompts
- project-09-with-a-lon  1   1  │    tokens  in 10.8k · out 108k · cache w 437k · r 8.5M · 168K · auto-named
- project-10-with-a-lon  1   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
- project-11-with-a-lon  1   1  │      first  look at the failing test
- project-12-with-a-lon  1   1  │       last  go ahead
- project-13-with-a-lon  1   1  │      reply  Fixed. The test now passes on both platforms.
- project-14-with-a-lon  1   1  │
- project-15-with-a-lon  1   1  │
- project-16-with-a-lon  ·   1  │
- project-17-with-a-lon  ·   1  │
- project-18-with-a-lon  ·   1  │
- project-19-with-a-lon  ·   1  │
- project-20-with-a-lon  ·   1  │
- project-21-with-a-lon  ·   1  │
- project-22-with-a-lon  ·   1  │
- project-23-with-a-lon  ·   1  │
- project-24-with-a-lon  ·   1  │
- project-25-with-a-lon  ·   1  │
- project-26-with-a-lon  ·   1  │
- project-27-with-a-lon  ·   1  │
- project-28-with-a-lon  ·   1  │
- project-29-with-a-lon  ·   1  │
- project-30-with-a-lon  ·   1  │
- project-31-with-a-lon  ·   1  │
- project-32-with-a-lon  ·   1  │
- project-33-with-a-lon  ·   1  │
- project-34-with-a-lon  ·   1  │
- project-35-with-a-lon  ·   1  │
- project-36-with-a-lon  ·   1  │
- project-37-with-a-lon  ·   1  │
- project-38-with-a-lon  ·   1  │
- project-39-with-a-lon  ·   1  │
+ project-02-with-a-lo…  1   1  │ 🔍 ▏  type to filter
+ project-03-with-a-lo…  1   1  │ project-31-with-a-long-name · 1 session · 0 in 24h · /nonexistent/code/project-31-with-a-long-name
+ project-04-with-a-lo…  1   1  │ 1/1 a session│
+ project-05-with-a-lo…  1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ project-06-with-a-lo…  1   1  │ a session
+ project-07-with-a-lo…  1   1  │    updated 2d ago · not running
+ project-08-with-a-lo…  1   1  │    project-31-with-a-long-name · feat/limiter · 6 prompts
+ project-09-with-a-lo…  1   1  │    tokens in 10.8k · out 108k · cache w 437k · r 8.5M · 168K file · auto-named
+ project-10-with-a-lo…  1   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
+ project-11-with-a-lo…  1   1  │      first  look at the failing test
+ project-12-with-a-lo…  1   1  │       last  go ahead
+ project-13-with-a-lo…  1   1  │      reply  Fixed. The test now passes on both platforms.
+ project-14-with-a-lo…  1   1  │
+ project-15-with-a-lo…  1   1  │
+ project-16-with-a-lo…  ·   1  │
+ project-17-with-a-lo…  ·   1  │
+ project-18-with-a-lo…  ·   1  │
+ project-19-with-a-lo…  ·   1  │
+ project-20-with-a-lo…  ·   1  │
+ project-21-with-a-lo…  ·   1  │
+ project-22-with-a-lo…  ·   1  │
+ project-23-with-a-lo…  ·   1  │
+ project-24-with-a-lo…  ·   1  │
+ project-25-with-a-lo…  ·   1  │
+ project-26-with-a-lo…  ·   1  │
+ project-27-with-a-lo…  ·   1  │
+ project-28-with-a-lo…  ·   1  │
+ project-29-with-a-lo…  ·   1  │
+ project-30-with-a-lo…  ·   1  │
+ project-31-with-a-lo…  ·   1  │
+ project-32-with-a-lo…  ·   1  │
+ project-33-with-a-lo…  ·   1  │
+ project-34-with-a-lo…  ·   1  │
+ project-35-with-a-lo…  ·   1  │
+ project-36-with-a-lo…  ·   1  │
+ project-37-with-a-lo…  ·   1  │
+ project-38-with-a-lo…  ·   1  │
+ project-39-with-a-lo…  ·   1  │
 
 === 50x12 ===
  projects  │ ↵ resume · ? help
- project-2 │ 🔍 ▏  filter · project-31-with-a-lon…
- project-2 │ project-31-with-a-long-name
- project-2 │ 1/1 a session│
- project-2 │ ─────────────────────────────────────
- project-3 │ a session
- project-3 │    updated 2d ago · not running
- project-3 │ recap: Found the cause and fixed it;
- project-3 │ the tests pass. Nothing left.
- project-3 │ reply: Fixed. The test now passes on
- project-3 │ both platforms.
+ project-… │ 🔍 ▏  type to filter
+ project-… │ project-31-with-a-long-name
+ project-… │ 1/1 a session│
+ project-… │ ─────────────────────────────────────
+ project-… │ a session
+ project-… │    updated 2d ago · not running
+ project-… │ recap: Found the cause and fixed it;
+ project-… │ the tests pass. Nothing left.
+ project-… │ reply: Fixed. The test now passes on
+ project-… │ both platforms.
 
 === 49x12 ===
 window too small (need 50x12)

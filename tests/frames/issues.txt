@@ -1,6 +1,6 @@
 === 60x18 ===
  projects  │ ↑↓ issue · ↵ open in browser · ^g esc back
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │ 2/7 ‹1 ●▶add rate limiting to auth r…│ +5›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
@@ -9,7 +9,7 @@
  cli-tool  │   #41  document Retry-Afte…          docs    1d
  docs      │   #37  password reset has…                   5d
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
            │
            │
            │
@@ -19,16 +19,16 @@
 
 === 80x24 ===
  projects  │ ↑↓ issue · ↵ open in browser · ←→ session · ^g esc back
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 2/7 ‹1 ●▶add rate limiting to auth routes│◉refactor the│ +4›
+ ◆ waiting │ 2/7 ‹1 ●▶add rate limiting to auth routes│◉refactor the…│ +4›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ ⚑ acme/api · 3 open                                  fetched 1m ago
  api       │ ▸ #42  rate limiter ignores X-Forwarded-For               bug    3h
  cli-tool  │   #41  document Retry-After units                        docs    1d
  docs      │   #37  password reset has no limiter                             5d
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
            │
            │
            │
@@ -44,16 +44,16 @@
 
 === 104x26 ===
  ↑↓ projects 24h all  │ ↑↓ issue · ↵ open in browser · ←→ session · ^g esc back
- ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything  6   7  │ 🔍 ▏  type to filter
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 2/7 ◆fix login│●▶add rate limiting to auth routes│◉refactor the│ +4›
+ ◆ waiting     1   1  │ 2/7 ◆fix login…│●▶add rate limiting to auth routes│◉refactor the…│ +4›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ ⚑ acme/api · 3 open                                               fetched 1m ago
  api           2   2  │ ▸ #42  rate limiter ignores X-Forwarded-For                            bug    3h
  cli-tool      2   2  │   #41  document Retry-After units                                     docs    1d
  docs          ·   1  │   #37  password reset has no limiter                                          5d
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄️ archived   ·   1  │
+ 🗄 archived    ·   1  │
                       │
                       │
                       │
@@ -71,16 +71,16 @@
 
 === 160x40 ===
  ↑↓ projects  24h all  │ ↑↓ issue · ↵ open in browser · ←→ session · ^g esc back
- ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything   6   7  │ 🔍 ▏  type to filter
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 2/7 ◆fix login│●▶add rate limiting to auth routes│◉refactor the│○▶ship the│○dark mode│○copilot triage flaky│▶write onboarding│
+ ◆ waiting      1   1  │ 2/7 ◆fix login…│●▶add rate limiting to auth routes│◉refactor the…│○▶ship the…│○dark mode…│○copilot triage flaky…│▶write onboarding…│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ ⚑ acme/api · 3 open                                                                                                      fetched 1m ago
  api            2   2  │ ▸ #42  rate limiter ignores X-Forwarded-For                                                                                   bug    3h
  cli-tool       2   2  │   #41  document Retry-After units                                                                                            docs    1d
  docs           ·   1  │   #37  password reset has no limiter                                                                                                 5d
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
- 🗄️ archived    ·   1  │
+ 🗄 archived     ·   1  │
                        │
                        │
                        │
@@ -112,7 +112,7 @@
 
 === 50x12 ===
  projects  │ ↑↓ issue · ↵ open in browser · ^g es…
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 2/7 ‹1 ●▶add rate limiting…│ +5›
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
@@ -121,17 +121,17 @@
  cli-tool  │   #41  document…           docs    1d
  docs      │   #37  password…                   5d
  ╌╌╌╌╌╌╌╌  │
- 🗄️ archiv │
+ 🗄 archiv… │
 
 === 49x12 ===
 window too small (need 50x12)
 ⌂ everything · 2/7
 ●▶add rate limiting to auth routes
-● recently updated · 2m ago · not running
+● active · 2m ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help ·…
 === 80x11 ===
 window too small (need 50x12)
 ⌂ everything · 2/7
 ●▶add rate limiting to auth routes
-● recently updated · 2m ago · not running
+● active · 2m ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help · esc quit

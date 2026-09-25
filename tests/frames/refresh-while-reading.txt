@@ -1,6 +1,6 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│ +3›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
@@ -9,7 +9,7 @@
  cli-tool  │    ▶ unfinished · recap says your move
  docs      │    cli-tool · feat/limiter · 31 prompts
  ╌╌╌╌╌╌╌╌  │ recap: Release workflow written and dry-run on
- 🗄️ archiv │ a fork. Signing is undecided; the first tag is
+ 🗄 archiv… │ a fork. Signing is undecided; the first tag is
            │ yours.
            │ reply: ↑ 5 lines above
            │    and says so
@@ -19,16 +19,16 @@
 
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│○dark mode│ +2›
+ ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│○dark mode…│ +2›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ ship the release workflow
  api       │    ○ recently updated · 3h ago · not running
  cli-tool  │    ▶ unfinished · recap says your move
  docs      │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · aut…
- 🗄️ archiv │ recap: Release workflow written and dry-run on a fork. Signing is
+ ╌╌╌╌╌╌╌╌  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file
+ 🗄 archiv… │ recap: Release workflow written and dry-run on a fork. Signing is
            │ undecided; the first tag is yours.
            │ first: write a release workflow that publishes to npm on a tag
            │ last: walk me through what it does before I tag anything
@@ -44,16 +44,16 @@
 
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything  6   7  │ 🔍 ▏  type to filter
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 4/7 ‹1 ●▶add rate│◉refactor the│○▶ship the release workflow│○dark mode│ +2›
+ ◆ waiting     1   1  │ 4/7 ‹2 ◉refactor the…│○▶ship the release workflow│○dark mode…│ +2›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ ship the release workflow
  api           2   2  │    ○ recently updated · 3h ago · not running
  cli-tool      2   2  │    ▶ unfinished · recap says your move
  docs          ·   1  │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · auto-named
- 🗄️ archived   ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
+ 🗄 archived    ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is
                       │             undecided; the first tag is yours.
                       │      first  write a release workflow that publishes to npm on a tag
                       │       last  walk me through what it does before I tag anything
@@ -71,16 +71,16 @@
 
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything   6   7  │ 🔍 ▏  type to filter
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 4/7 ◆fix login│●▶add rate│◉refactor the│○▶ship the release workflow│○dark mode│○copilot triage flaky│▶write onboarding│
+ ◆ waiting      1   1  │ 4/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the release workflow│○dark mode…│○copilot triage flaky…│▶write onboarding…│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ ship the release workflow
  api            2   2  │    ○ recently updated · 3h ago · not running
  cli-tool       2   2  │    ▶ unfinished · recap says your move
  docs           ·   1  │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · auto-named
- 🗄️ archived    ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
+ 🗄 archived     ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
                        │      first  write a release workflow that publishes to npm on a tag
                        │       last  walk me through what it does before I tag anything
                        │      reply  6. step 6 of the release, which does one thing and says so
@@ -112,7 +112,7 @@
 
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 4/7 ‹3 ○▶ship the release…│ +3›
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
@@ -121,7 +121,7 @@
  cli-tool  │      not running
  docs      │    ▶ unfinished
  ╌╌╌╌╌╌╌╌  │      recap says your move
- 🗄️ archiv │ reply: ↑ 2 lines above
+ 🗄 archiv… │ reply: ↑ 2 lines above
 
 === 49x12 ===
 window too small (need 50x12)

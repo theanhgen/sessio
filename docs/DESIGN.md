@@ -84,10 +84,10 @@ words of its title, quoted, at most `TARGET_MAX = 32` columns (`target()`).
 - **Reply (`^r`).** The first `^r` of a run warns that it spends tokens and names the target; the
   composer row reads ` ↳ reply to "x" ` so you see what you answer while you type. `↵` sends:
   `⏳ sending to "x"…` in the feedback row, and until the answer lands the session's tab carries
-  `⏳` and its preview a `⏳ sending your reply "…" · the answer lands here` row, wherever you are
-  looking in between. The result: `↩ "x" replied · …` (success) or `✗ reply to "x" failed · why ·
-  your text is kept: ^r on it to retry` (error), and the preview keeps `✗ reply failed · why ·
-  your text is kept: ^r to retry` until you act. The next `^r` on that session restores the
+  `⏳` and its preview a short `⏳ sending "…"` row, wherever you are looking in between; the
+  feedback row carries the explanation. The result: `↩ "x" replied · …` (success) or `✗ reply to
+  "x" failed · why · your text is kept: ^r on it to retry` (error), and the preview keeps `✗ reply
+  failed · why · ^r retries` until you act (the reason stays, since the flash does not). The next `^r` on that session restores the
   failed text into the composer; `↵` sends it again, `esc` discards it for good. **Nothing is
   ever resent on its own.** While a reply is in flight, `^r` on that session and a second send are
   refused (`still sending to "x" — one reply at a time`). A running session is refused with where
@@ -118,7 +118,7 @@ glyphs are pairwise distinct.
 |---|---|---|---|---|
 | `◆` | waiting | dot, `◆ waiting` tab, key bar `◆ N waiting on you`, preview `◆ waiting on you · <what for> · pid · tty` | a running session is stopped on a question or permission prompt | attention, bold |
 | `◉` | running | dot, preview `◉ running · busy · pid · tty` (or `idle`, or whatever status the registry reports) | a `claude` process is attached right now | running |
-| `●` | active | dot, preview `● recently updated · 2m ago · not running` | transcript written in the last 5 minutes, nothing attached | running |
+| `●` | active | dot, preview `● active · 2m ago · not running` | transcript written in the last 5 minutes, nothing attached | running |
 | `○` | recent | dot, preview `○ recently updated · 3h ago · not running` | written in the last 24 hours, nothing attached | recent |
 | (none) | — | dot, preview `updated 3d ago · not running` | older than 24 hours | — |
 | `▶` | unfinished | tab mark, preview `▶ unfinished · <reason>` | the reason (`open_reason`): `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next` (only for 3 days), `uncommitted changes` (git WIP, on the folder's newest session) | attention |
@@ -128,7 +128,7 @@ glyphs are pairwise distinct.
 | `copilot` | — | tab and preview tag | written by GitHub Copilot CLI | agent tag |
 | `stale` | stale | preview `◉ running · stale · idle Nd · pid · tty`, key bar `^k end-stale` | running but idle for more than 48 hours; `^k` can end it | dim |
 | `◌` | ended | follow header | the followed session stopped running | attention |
-| `⏳` | sending | tab mark, preview `⏳ sending your reply "…"`, pending feedback | a `^r` reply is on its way to this session | primary text |
+| `⏳` | sending | tab mark, preview `⏳ sending "…"`, pending feedback | a `^r` reply is on its way to this session | primary text |
 | `✓` | contains | preview `✓ contains "…"` | matched a `^f` content search | attention |
 | `⚑` | issues | preview line, `^g` list | open GitHub issues for the folder's repo | attention / dim |
 
@@ -138,7 +138,7 @@ The waiting dot outranks running, which outranks recency: a session shows one do
 
 The preview says the highlighted session's state in words, on fixed rows: the row under the title
 (`CHROME + 2`) is always the state, and an unfinished session's `▶ unfinished · <reason>` is always
-the row after it. Exactly one of waiting on you, running, recently updated or not running, then
+the row after it. Exactly one of waiting on you, running, active, recently updated or not running, then
 the pid and tty of a process. Process presence and transcript recency stay apart: a transcript
 written a minute ago with nothing attached says `not running`, and a stale process says `running`.
 
@@ -220,7 +220,7 @@ Invariants:
   |---|---|---|
   | Key bar | body row 0 (`KEYBAR_ROW`) | 1 |
   | Query | body row 1 (`QUERY_ROW`) | 1 |
-  | Project context | body row 2 (`CONTEXT_ROW`): the selected tab's whole name, `N sessions · M in 24h`, then its folder (`~`-shortened, cut from the left) or, for a collection, what it collects. Name first, counts next, place last. | 1 |
+  | Project context | body row 2 (`CONTEXT_ROW`): the selected tab's whole name, `N sessions · M in 24h`, then its folder (`~`-shortened, cut from the left, left off when the cut would reach the folder's own name) or, for a collection, what it collects. Name first, counts next, place last. The one row that names the scope. | 1 |
   | Session strip | body row 3 (`STRIP_ROW`), never wraps, leads with the position `3/18` | 1 |
   | Reply composer | under the strip while `^r` is open | 0 or 1 |
   | Preview | from row `CHROME = 4` (5 with the composer) to the feedback region | the rest |
@@ -245,20 +245,23 @@ Invariants:
   minimum itself and sizes below it.
 - **Project panel** on the left at every size, separated by ` │ ` (`SIDE_GAP = 3`). Width is the
   widest name + 2 + the count columns, clamped to `SIDE_MIN = 10`…`SIDE_MAX = 22` (plus counts),
-  and it gives up columns before the body drops under `BODY_MIN = 80`. Names are cut by
-  `fit_width`, never wrapped. The old wrapping project strip must not return.
+  and it gives up columns before the body drops under `BODY_MIN = 80`. Names are cut by `clip`,
+  ending in `…`, never wrapped. The old wrapping project strip must not return.
 - **Counts**: `24h` and `all`, right-aligned, each at least 3 wide, `·` for zero in the 24h column.
   Dropped whole when the name would get fewer than `COUNT_NAME_MIN = 12` columns.
 - **Panel groups**: a dim `╌` rule sits wherever the kind of tab changes: collections
   (`⌂ everything`, `⏸ open`, `◆ waiting`), then projects, then `🗄 archived`.
 - **Panel scrolling**: centred on the selection (rules included); the label then shows `N/total`.
 - **Session strip**: the focused tab shows its whole title up to `TAB_MAX = 44` columns, others
-  their first two words. It leads with the position (`3/18`), grows outwards from the focused tab
+  their first two words, ending in `…` when words were dropped (the `copilot` tag is not one of
+  them). It leads with the position (`3/18`), grows outwards from the focused tab
   and shows `‹N` / `+N›` for hidden tabs, holding `MARKERS = 12` columns for them. The focused tab
   always fits: on a narrow strip its title is cut with `…`, never the tab. The status dot survives
   at any width.
 - **Key bar shedding**: hints drop from the highest priority number down until the bar fits (the
-  flash no longer competes for it):
+  flash no longer competes for it). A key that acts on the highlighted session (`←→`, `↵`, `^o`,
+  `^r`, `^a`, `⇥`, `^t follow`, `^g`) is offered only while there is one, and `^r` only on a
+  Claude session:
 
   | Priority | Hints |
   |---|---|
@@ -279,7 +282,7 @@ Invariants:
   | state | `CHROME + 2` onward, then `▶ unfinished · <reason>` (see State summary) | never |
   | location | `project · branch · N prompts` | 5th |
   | flags | `✓ contains "…"`, `🗄 archived …`, `⚑` issues | never; issues 3rd |
-  | file facts | `tokens  in … · out … · cache w … · r … · 12K · auto-named`: what the file is, below what it is about | 1st |
+  | file facts | `tokens in … · out … · cache w … · r … · 12K file · auto-named`: what the file is, below what it is about; `auto-named` goes before the row is cut | 1st |
   | recap | Claude's recap (or the compact summary), italic, at most `RECAP_MAX = 6` rows, ending ` …` when cut | rows past `RECAP_MIN = 2` 6th, the rest last |
   | first, last | the conversation's two ends, 2 rows each; hidden by `⇥` | first 2nd, last 4th |
   | reply | Claude's latest reply, whole, in a scrolling window over the rest of the box | never |
@@ -312,18 +315,19 @@ Invariants:
 ## Search states
 
 The query row and an empty list share one `QueryState`, so they cannot disagree. The row is
-`🔍 <query>▏  <mode> · <scope> · <found>`; the mode and scope are dim, the count takes the role in
-the table. Typing filters the `CAP = 300` newest sessions in the selected tab by title, project and
+`🔍 <query>▏  <mode> · <found>`; the mode is dim, the count takes the role in the table. A filter
+covers the selected tab, which the context row under it names, so the query row does not repeat
+it; text search, which reaches past the tab, says `all sessions` (or the tab it is counting in). Typing filters the `CAP = 300` newest sessions in the selected tab by title, project and
 first prompt; `^f` reads every transcript on disk (Claude and Copilot), past the cap, and loads
 what it finds.
 
 | State | Query row | Session strip (empty list) | Advice under it |
 |---|---|---|---|
-| No sessions at all | `filter · <tab>` | `no sessions yet` | where sessio reads from; start `claude` or `copilot` |
-| Empty tab, no query | `filter · <tab>` | `no sessions here` | `↑↓` picks another project |
-| Filter, literal | `filter · <tab> · N matches` | — | — |
-| Filter, fuzzy fallback | `filter · <tab> · N fuzzy matches · none exact` (dim) | — | — |
-| Filter, none | `filter · <tab> · no matches` (attention) | `nothing in <tab> matches "q"` (attention) | what filtering looks at and the cap; `^f` instead, or `brew install ripgrep`; `^w` / `^u` |
+| No sessions at all | `type to filter` | `no sessions yet` | where sessio reads from; start `claude` or `copilot` |
+| Empty tab, no query | `type to filter` | `no sessions here` | `↑↓` picks another project |
+| Filter, literal | `filter · N matches` | — | — |
+| Filter, fuzzy fallback | `filter · N fuzzy matches · none exact` (dim) | — | — |
+| Filter, none | `filter · no matches` (attention) | `nothing in <tab> matches "q"` (attention) | what filtering looks at and the cap; `^f` instead, or `brew install ripgrep`; `^w` / `^u` |
 | Searching | `search in text · all sessions · searching…` | `searching every transcript for "q"…` | — |
 | Search failed | `… · ✗ failed · esc back to filter` (error) | `✗ text search failed` (error) | the reason; `^f` retries, `esc` back |
 | Text results | `search in text · all sessions · N matches` (attention; `N of T` on another tab) | — | — |
@@ -357,8 +361,8 @@ serves light and dark: it is a dark tile either way, like the demo's terminal wi
 
 ## Contrast
 
-WCAG 2.x ratios, computed from the sRGB values (4.5:1 is AA for body text, 3:1 for large or bold
-text and for glyphs).
+WCAG 2.x ratios, computed from the sRGB values (4.5:1 is AA for body text; 3:1 applies only to
+large text, at least 24px regular or 18.66px bold, and to glyphs and other non-text marks).
 
 ### Website (`docs/index.html`)
 
@@ -418,14 +422,17 @@ demo draws (bright variants), on a black terminal, a white one, and the demo's `
 | `RUNNING`, `SUCCESS` | `#00ff00` | 15.30 | 1.37 | 13.34 |
 | `ERROR` | `#ff0000` | 5.25 | 4.00 | 4.58 |
 | `RECENT` (202) | `#ff5f00` | 6.89 | 3.05 | 6.01 |
-| `VOICE` (98) | `#875fd7` | 4.65 | 4.52 | 4.05 |
+| `VOICE` (98) | `#875fd7` | 4.65 | 4.52 | 4.05 (the demo draws `#af87ff`: 6.74) |
 | `AGENT_TAG` (68) | `#5f87d7` | 5.93 | 3.54 | 5.17 |
 
 The "on white" column for the ANSI roles is the raw xterm value and does not describe a real light
 theme, which remaps them (a light theme's yellow is dark). That is a manual check. The fixed roles
 are ours: they were 208 / 141 / 75, at 2.41 / 2.72 / 2.32 on white, and now clear 3:1 on black and
-white (`fixed_colours_survive_a_light_terminal`). `RECENT` marks a glyph, and `VOICE` and
-`AGENT_TAG` label short bold or tag text, so 3:1 is the bar they are held to.
+white (`fixed_colours_survive_a_light_terminal`). `RECENT` marks a glyph, so 3:1 is its bar.
+`VOICE` and `AGENT_TAG` label short text at the terminal's size, which is not large text, so 3:1
+is only the floor the test holds them to: `AGENT_TAG` on white (3.54) is below AA. The website
+demo, whose text is 12.5px, draws `VOICE` as `#af87ff` (`theme::demo_rgb`,
+`the_demo_voice_clears_aa_on_its_background`); the terminal keeps xterm 98.
 
 Fixed pairs, independent of the terminal theme (`selection_text_clears_aa_on_both_selections`,
 `status_colours_stay_legible_on_the_focused_tab`):
@@ -445,6 +452,7 @@ Automated (in `cargo test`):
   `status_colours_stay_legible_on_the_focused_tab`, `fixed_colours_survive_a_light_terminal`: the
   fixed pairs above.
 - `theme::tests::an_error_is_marked_without_colour`.
+- `theme::tests::the_demo_voice_clears_aa_on_its_background`: the demo's `VOICE` on its screen.
 - `ui::tests::every_status_reads_apart_without_colour`: every status glyph distinct.
 - `ui::tests::a_failed_action_does_not_flash_green`: errors carry `✗` and not the success colour.
 - #25, consequences: `a_target_is_short_quoted_and_never_wider_than_its_budget`,
@@ -467,7 +475,8 @@ Automated (in `cargo test`):
   idle, recent-but-not-running, unanswered prompt, git WIP) and the row each lands on;
   `narrow_layouts_keep_the_state_and_the_route_to_it` (pid and tty at every size and below the
   minimum); `presentation_does_not_change_classification`;
-  `the_key_bar_counts_the_sessions_waiting_on_you`; `help_groups_the_status_legend`.
+  `the_key_bar_counts_the_sessions_waiting_on_you`; `the_key_bar_offers_only_keys_that_can_act`;
+  `help_groups_the_status_legend`.
 - `ui::tests::the_query_row_names_the_mode_the_scope_and_the_count`,
   `every_empty_state_reads_differently`, `empty_states_name_the_way_out`,
   `a_stale_search_never_overwrites_newer_query_state`, `a_failed_search_is_an_error_you_can_leave`,
