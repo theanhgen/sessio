@@ -21,7 +21,7 @@
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 3/7 ‹1 ●▸add rate│◉refactor the cache layer│○▸ship the│ +3›
+ ◆ waiting │ 3/7 ‹1 ●▶add rate│◉refactor the cache layer│○▶ship the│ +3›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ refactor the cache layer
  api       │    ◉ running · busy · pid 5120 · ttys004
@@ -46,7 +46,7 @@
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 3/7 ‹1 ●▸add rate│◉refactor the cache layer│○▸ship the│○dark mode│ +2›
+ ◆ waiting     1   1  │ 3/7 ‹1 ●▶add rate│◉refactor the cache layer│○▶ship the│○dark mode│ +2›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ refactor the cache layer
  api           2   2  │    ◉ running · busy · pid 5120 · ttys004
@@ -73,7 +73,7 @@
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 3/7 ◆fix login│●▸add rate│◉refactor the cache layer│○▸ship the│○dark mode│○copilot triage flaky│▸write onboarding│
+ ◆ waiting      1   1  │ 3/7 ◆fix login│●▶add rate│◉refactor the cache layer│○▶ship the│○dark mode│○copilot triage flaky│▶write onboarding│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ refactor the cache layer
  api            2   2  │    ◉ running · busy · pid 5120 · ttys004

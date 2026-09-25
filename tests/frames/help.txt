@@ -38,7 +38,7 @@ process    ◆ waiting  stopped on a question or permission prompt: your move
            ◉ running  a claude is attached, busy or idle (preview: pid · tty)
            stale      running but idle for over 48h; ^k can end it
 transcript ● ○        written in the last 5 min / 24 h; not running
-unfinished ▸          your prompt got no reply · its recap says your move ·
+unfinished ▶          your prompt got no reply · its recap says your move ·
                       Claude asked or proposed next (for 3 days) · uncommitted
                       changes in its folder (git WIP, newest session there)
 agent      copilot    a GitHub Copilot CLI session: no ^r, no ^k
@@ -63,7 +63,7 @@ process    ◆ waiting  stopped on a question or permission prompt: your move
            ◉ running  a claude is attached, busy or idle (preview: pid · tty)
            stale      running but idle for over 48h; ^k can end it
 transcript ● ○        written in the last 5 min / 24 h; not running
-unfinished ▸          your prompt got no reply · its recap says your move ·
+unfinished ▶          your prompt got no reply · its recap says your move ·
                       Claude asked or proposed next (for 3 days) · uncommitted
                       changes in its folder (git WIP, newest session there)
 agent      copilot    a GitHub Copilot CLI session: no ^r, no ^k
@@ -88,7 +88,7 @@ process    ◆ waiting  stopped on a question or permission prompt: your move
            ◉ running  a claude is attached, busy or idle (preview: pid · tty)
            stale      running but idle for over 48h; ^k can end it
 transcript ● ○        written in the last 5 min / 24 h; not running
-unfinished ▸          your prompt got no reply · its recap says your move ·
+unfinished ▶          your prompt got no reply · its recap says your move ·
                       Claude asked or proposed next (for 3 days) · uncommitted
                       changes in its folder (git WIP, newest session there)
 agent      copilot    a GitHub Copilot CLI session: no ^r, no ^k

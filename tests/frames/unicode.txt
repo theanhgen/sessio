@@ -73,7 +73,7 @@
  ↑↓ projects          24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ? help · esc quit
  ⌂ everything           4   4  │ 🔍 ▏  filter · ⌂ everything
  ⏸ open                 1   1  │ ⌂ everything · 4 sessions · 4 in 24h · every project
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ 3/4 ●fix login│●▸add rate│●修复登录重定向循环 🔁 認証モジュールの長い…│○🚀🚀🚀 ship│
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ 3/4 ●fix login│●▶add rate│●修复登录重定向循环 🔁 認証モジュールの長い…│○🚀🚀🚀 ship│
  web-app                1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  api                    1   1  │ 修复登录重定向循环 🔁 認証モジュールの長いタイトル
  日本語-プロジェクト-   1   1  │    ● recently updated · 3m ago · not running

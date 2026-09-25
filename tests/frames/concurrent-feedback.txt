@@ -2,12 +2,12 @@
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 4/7 ‹3 ○▸ship the release workflow│ +3›
+ ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│ +3›
  ╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and t…
  web-app   │ ───────────────────────────────────────────────
  api       │ ship the release workflow
  cli-tool  │    ○ recently updated · 3h ago · not running
- docs      │    ▸ unfinished · recap says your move
+ docs      │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌  │ recap: Release workflow written and dry-run on
  🗄️ archiv │ a fork. Signing is undecided; the first tag is
            │ yours.
@@ -21,12 +21,12 @@
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 4/7 ‹3 ○▸ship the release workflow│○⏳dark mode│ +2›
+ ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│○⏳dark mode│ +2›
  ╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send ·…
  web-app   │ ───────────────────────────────────────────────────────────────────
  api       │ ship the release workflow
  cli-tool  │    ○ recently updated · 3h ago · not running
- docs      │    ▸ unfinished · recap says your move
+ docs      │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
  🗄️ archiv │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · aut…
            │ recap: Release workflow written and dry-run on a fork. Signing is
@@ -46,12 +46,12 @@
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 4/7 ‹2 ◉refactor the│○▸ship the release workflow│○⏳dark mode│ +2›
+ ◆ waiting     1   1  │ 4/7 ‹2 ◉refactor the│○▶ship the release workflow│○⏳dark mode│ +2›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send · esc cancel
  web-app       2   2  │ ────────────────────────────────────────────────────────────────────────────────
  api           2   2  │ ship the release workflow
  cli-tool      2   2  │    ○ recently updated · 3h ago · not running
- docs          ·   1  │    ▸ unfinished · recap says your move
+ docs          ·   1  │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
  🗄️ archived   ·   1  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · auto-named
                       │      recap  Release workflow written and dry-run on a fork. Signing is
@@ -73,12 +73,12 @@
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 4/7 ◆fix login│●▸add rate│◉refactor the│○▸ship the release workflow│○⏳dark mode│○copilot triage flaky│▸write onboarding│
+ ◆ waiting      1   1  │ 4/7 ◆fix login│●▶add rate│◉refactor the│○▶ship the release workflow│○⏳dark mode│○copilot triage flaky│▶write onboarding│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send · esc cancel
  web-app        2   2  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  api            2   2  │ ship the release workflow
  cli-tool       2   2  │    ○ recently updated · 3h ago · not running
- docs           ·   1  │    ▸ unfinished · recap says your move
+ docs           ·   1  │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
  🗄️ archived    ·   1  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · auto-named
                        │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
@@ -114,13 +114,13 @@
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │ 4/7 ‹3 ○▸ship the release…│ +3›
+ ◆ waiting │ 4/7 ‹3 ○▶ship the release…│ +3›
  ╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workfl…
  web-app   │ ─────────────────────────────────────
  api       │ ship the release workflow
  cli-tool  │    ○ recently updated · 3h ago
  docs      │      not running
- ╌╌╌╌╌╌╌╌  │    ▸ unfinished
+ ╌╌╌╌╌╌╌╌  │    ▶ unfinished
  ◆ 2 sessions started waiting on you: "fix login
  redirect loop" (input needed) and "refactor the…
 === 49x12 ===
@@ -128,7 +128,7 @@ window too small (need 50x12)
 ◆ 2 sessions started waiting on you: "fix login…
  ↳ reply to "ship the release workflow"  and tag…
 ⌂ everything · 4/7
-○▸ship the release workflow
+○▶ship the release workflow
 ○ recently updated · 3h ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help ·…
 === 80x11 ===
@@ -136,6 +136,6 @@ window too small (need 50x12)
 ◆ 2 sessions started waiting on you: "fix login redirect loop" (input needed) a…
  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send · esc cancel
 ⌂ everything · 4/7
-○▸ship the release workflow
+○▶ship the release workflow
 ○ recently updated · 3h ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help · esc quit

@@ -982,7 +982,12 @@ fn announce_waiting(app: &mut App, live: &crate::live::LiveMap) {
         })
         .collect();
     if let Some(msg) = notify::message(&waiting) {
-        notify::post(&msg);
+        // One session named: a click on the notification brings its window forward.
+        let tty = match ids.as_slice() {
+            [id] => live.get(id).map(|l| l.tty.as_str()).filter(|t| !t.is_empty()),
+            _ => None,
+        };
+        notify::post(&msg, tty);
         // Not over a pending "↵ again" warning: `say` would hide it and restart its clock, leaving
         // the consent armed behind a message that no longer asks for it.
         if app.confirm.is_none() {
@@ -2342,7 +2347,7 @@ fn tab_marks(app: &App, it: &Item, sel: Option<Style>) -> Vec<Span<'static>> {
         spans.push(Span::styled(dot.to_string(), on(dot_style)));
     }
     if it.open {
-        spans.push(Span::styled("▸", on(theme::attention())));
+        spans.push(Span::styled("▶", on(theme::attention())));
     }
     // A reply on its way stays marked on its tab until it lands, wherever you are looking.
     if app.sending.contains_key(&it.id) {
@@ -2918,11 +2923,11 @@ fn state_segments(app: &App, it: &Item, now: i64) -> Vec<StateSeg> {
     v
 }
 
-/// `▸ unfinished` and why: your prompt got no reply, the recap says your move, Claude asked or
+/// `▶ unfinished` and why: your prompt got no reply, the recap says your move, Claude asked or
 /// proposed something, or its folder has uncommitted changes. The reason is `open_reason`, the
 /// same one `⏸ open` was built from; this only words it.
 fn unfinished_segments(it: &Item) -> Vec<StateSeg> {
-    let mut v: Vec<StateSeg> = vec![("▸ unfinished".into(), theme::attention())];
+    let mut v: Vec<StateSeg> = vec![("▶ unfinished".into(), theme::attention())];
     if let Some(why) = it.open_why() {
         v.push((why.to_string(), dim()));
     }
@@ -3239,7 +3244,7 @@ fn help_lines(cols: usize, rows: usize) -> Vec<Line<'static>> {
             Span::styled("○", theme::recent()),
             Span::raw("        written in the last 5 min / 24 h; not running"),
         ]),
-        group("unfinished", Span::styled("▸", theme::attention()), "your prompt got no reply · its recap says your move ·"),
+        group("unfinished", Span::styled("▶", theme::attention()), "your prompt got no reply · its recap says your move ·"),
         group("", Span::raw(""), "Claude asked or proposed next (for 3 days) · uncommitted"),
         group("", Span::raw(""), "changes in its folder (git WIP, newest session there)"),
         group("agent", Span::styled("copilot", theme::agent_tag()), "a GitHub Copilot CLI session: no ^r, no ^k"),
@@ -4434,10 +4439,10 @@ mod tests {
         it.open = true;
         it.source = Source::Copilot;
         let tab: String = tab_marks(&app, &it, None).iter().map(|s| s.content.to_string()).collect();
-        assert!(tab.contains('▸') && tab.contains("copilot"), "{tab:?}");
+        assert!(tab.contains('▶') && tab.contains("copilot"), "{tab:?}");
         let lead = |t: &str| t.chars().next().unwrap().to_string();
         let others = [
-            "▸".to_string(),
+            "▶".to_string(),
             lead(OPEN_TAB),
             lead(ARCHIVED_TAB),
             lead(ALL_TAB),
@@ -5146,14 +5151,14 @@ mod tests {
             "unanswered prompt",
             app,
             "updated 3d ago · not running",
-            Some("▸ unfinished · your prompt got no reply"),
+            Some("▶ unfinished · your prompt got no reply"),
         ));
 
         let mut app = base();
         app.items[0].mtime = model::now_ms() - 3 * DAY_MS;
         app.items[0].open = true;
         app.items[0].open_reason = Some(OpenReason::GitWip);
-        v.push(("git WIP", app, "updated 3d ago · not running", Some("▸ unfinished · uncommitted changes")));
+        v.push(("git WIP", app, "updated 3d ago · not running", Some("▶ unfinished · uncommitted changes")));
         v
     }
 
@@ -5168,7 +5173,7 @@ mod tests {
             assert_eq!(rows[CHROME + 2].trim(), state, "{what}: the state row");
             match unfinished {
                 Some(u) => assert_eq!(rows[CHROME + 3].trim(), u, "{what}: the unfinished row"),
-                None => assert!(!rows.join("\n").contains("▸ unfinished"), "{what}: {rows:?}"),
+                None => assert!(!rows.join("\n").contains("▶ unfinished"), "{what}: {rows:?}"),
             }
         }
     }
@@ -5258,7 +5263,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let full = text(&help_lines(200, 60)).join("\n");
-        for mark in ["◆ waiting", "◉ running", "stale", "●", "○", "▸", "copilot"] {
+        for mark in ["◆ waiting", "◉ running", "stale", "●", "○", "▶", "copilot"] {
             assert!(full.contains(mark), "{mark} missing:\n{full}");
         }
         for group in ["process", "transcript", "unfinished", "agent"] {
@@ -6133,6 +6138,45 @@ pub mod demo {
         s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     }
 
+    /// `s` as HTML in which every character outside ASCII is boxed to the cells it takes in a
+    /// terminal (`<span class="c1">` one, `c2` two; the page sizes them in `ch`). A browser draws
+    /// `◆`, `⌂` or `🔍` from whatever fallback font has them, at that font's width, which pushed
+    /// every column after them sideways; boxed, the dividers line up as they do in a terminal.
+    /// A zero-width character (a variation selector, a combining mark) joins the cell before it.
+    fn cells(s: &str) -> String {
+        fn close(out: &mut String, cell: &mut String) {
+            if !cell.is_empty() {
+                let class = if UnicodeWidthStr::width(cell.as_str()) >= 2 { "c2" } else { "c1" };
+                out.push_str(&format!("<span class=\"{class}\">{cell}</span>"));
+                cell.clear();
+            }
+        }
+        let mut out = String::with_capacity(s.len());
+        let mut cell = String::new();
+        for ch in s.chars() {
+            if ch.is_ascii() {
+                close(&mut out, &mut cell);
+                out.push_str(&escape(ch.encode_utf8(&mut [0; 4])));
+            } else if ch.width().unwrap_or(0) == 0 && !cell.is_empty() {
+                cell.push(ch);
+            } else {
+                close(&mut out, &mut cell);
+                cell.push(ch);
+            }
+        }
+        close(&mut out, &mut cell);
+        out
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn wide_and_fallback_glyphs_are_boxed_to_their_cells() {
+        assert_eq!(cells("a<b"), "a&lt;b");
+        assert_eq!(cells("│ ◆ x"), "<span class=\"c1\">│</span> <span class=\"c1\">◆</span> x");
+        assert_eq!(cells("🔍q"), "<span class=\"c2\">🔍</span>q");
+        assert_eq!(cells("🗄\u{fe0f}"), "<span class=\"c2\">🗄\u{fe0f}</span>", "as ratatui counts it");
+    }
+
     /// One frame of the real dashboard, as HTML.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
     pub fn render(cols: usize, rows: usize) -> String {
@@ -6154,7 +6198,7 @@ pub mod demo {
                     if sp.style.add_modifier.contains(Modifier::ITALIC) {
                         style.push_str("font-style:italic;");
                     }
-                    let text = escape(sp.content.as_ref());
+                    let text = cells(sp.content.as_ref());
                     if style.is_empty() {
                         out.push_str(&text);
                     } else {

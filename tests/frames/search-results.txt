@@ -2,7 +2,7 @@
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 limiter▏  search in text · all sessions · 2…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 1/2 ◆fix login redirect loop│●▸add rate│
+ ◆ waiting │ 1/2 ◆fix login redirect loop│●▶add rate│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
  web-app   │ fix login redirect loop
  api       │    ◆ waiting on you · input needed · pid 4242
@@ -21,7 +21,7 @@
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 limiter▏  search in text · all sessions · 2 matches
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 1/2 ◆fix login redirect loop│●▸add rate│
+ ◆ waiting │ 1/2 ◆fix login redirect loop│●▶add rate│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ fix login redirect loop
  api       │    ◆ waiting on you · input needed · pid 4242 · ttys009
@@ -46,7 +46,7 @@
  ↑↓ projects 24h all  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything  6   7  │ 🔍 limiter▏  search in text · all sessions · 2 matches
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 1/2 ◆fix login redirect loop│●▸add rate│
+ ◆ waiting     1   1  │ 1/2 ◆fix login redirect loop│●▶add rate│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ fix login redirect loop
  api           2   2  │    ◆ waiting on you · input needed · pid 4242 · ttys009
@@ -73,7 +73,7 @@
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything   6   7  │ 🔍 limiter▏  search in text · all sessions · 2 matches
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 1/2 ◆fix login redirect loop│●▸add rate│
+ ◆ waiting      1   1  │ 1/2 ◆fix login redirect loop│●▶add rate│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ fix login redirect loop
  api            2   2  │    ◆ waiting on you · input needed · pid 4242 · ttys009
