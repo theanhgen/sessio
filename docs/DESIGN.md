@@ -362,6 +362,11 @@ text and for glyphs).
 
 ### Website (`docs/index.html`)
 
+Type: the headline and the logo are Fraunces SemiBold; the headline's promise is drawn as the
+dashboard's selected row (plum, led by the running dot). Body text is the system sans; code and
+labels the system monospace. Everything smaller than body text takes one of three sizes,
+`--fs-s` 12px, `--fs-m` 13.5px, `--fs-l` 15px. Buttons animate colour only and press to 97%.
+
 The page follows `prefers-color-scheme`. Terminal windows (`.term`) stay dark in both schemes: the
 demo draws the palette a dark terminal shows, and `.term` re-declares the dark roles for
 everything inside it.
@@ -372,8 +377,10 @@ keys, requirements. The demo is entered with **Try the demo** (or by tabbing to 
 `esc`, **Exit demo** or `Tab`; while it has focus the whole window (title bar included) wears an accent ring and says `keys go to the
 demo`. It lays the frame out for its container — 104x26 on a desktop, down to 60x18 — and never
 shrinks the text below 12px; narrower than 60 columns it scrolls sideways inside its window, never
-the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected. The demo's screen is set in Fira Code, which draws every status mark itself at one size and
-height (the system monospace has none of them); ligatures are off. Every non-ASCII glyph
+the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected. The demo's screen is set in Fira Code, served from `docs/fonts/` as a subset that keeps the
+geometric shapes (Google's subsets drop them), so every status mark is drawn at one size and
+height; ligatures are off. After each key a screen reader hears the feedback row, or else a
+one-line summary (`demo::summary`: the project and the highlighted session). Every non-ASCII glyph
 the demo draws is boxed to its terminal cells (`1ch` or `2ch`), because the fallback font that
 draws it has its own width and would push the columns after it. The header (logo and section
 links) stays at the top while the page scrolls; on a phone its links scroll sideways in one row.

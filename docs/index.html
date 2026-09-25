@@ -17,8 +17,13 @@
 <link rel="apple-touch-icon" href="brand/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;family=Fira+Code:wght@400;700&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;display=swap">
 <style>
+  /* Fira Code for the demo, served from here: Google's subsets of it leave out the geometric
+     shapes (◆ ◉ ● ○ ▶), so the browser drew those from other fonts at other heights. This subset
+     keeps them, plus arrows, box drawing and Latin. OFL, fonts/OFL-FiraCode.txt. */
+  @font-face{font-family:"Fira Code sessio";src:url(fonts/fira-code-400.woff2) format("woff2");font-weight:400;font-display:swap}
+  @font-face{font-family:"Fira Code sessio";src:url(fonts/fira-code-700.woff2) format("woff2");font-weight:700;font-display:swap}
   /* Colour roles: the same names src/theme.rs uses, defined in docs/DESIGN.md with their contrast
      ratios. Everything coloured on this page is carrying a role, not decorating. */
   :root, .term{
@@ -33,6 +38,8 @@
   :root{
     --radius:14px;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    /* Three sizes for everything smaller than body text. */
+    --fs-s:12px; --fs-m:13.5px; --fs-l:15px;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
   }
   /* Light pages keep the terminal windows dark: the demo draws the xterm palette a dark terminal
@@ -42,11 +49,13 @@
       --surface:#fbfbfc; --surface-raised:#f1f2f4; --surface-sunken:#e8eaee; --rule:#d5d9de;
       --text:#16181c; --dim:#4a525e; --faint:#5b636f;
       --accent:#6d3fa3; --selection:#6b4a8f; --on-selection:#ffffff;
-      --code:#0b6e75; --attention:#8a6100; --running:#1b6e31; --recent:#a4520c; --voice:#6d3fa3;
+      --code:#0b6e75; --attention:#8a6100; --running:#1b6e31; --recent:#a4520c; --voice:#4b3a9e;
       --success:#1b6e31; --error:#b3261e;
       --glow:rgba(109,63,163,.06); --shadow:rgba(20,24,30,.25);
       color-scheme:light;
     }
+    /* The ring is drawn on the light page, outside the dark window, so it takes the page's plum. */
+    .term.active{outline-color:#6d3fa3}
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
@@ -73,14 +82,22 @@
   .brand{display:inline-flex;align-items:center;gap:10px;font-family:"Fraunces",Georgia,serif;font-weight:600;
     font-size:24px;line-height:1;letter-spacing:-.005em;color:var(--text);text-decoration:none}
   .brand img{width:32px;height:32px;display:block}
-  .nav-links{display:flex;gap:6px 18px;font-size:14px;flex-wrap:wrap}
+  .nav-links{display:flex;gap:6px 18px;font-size:var(--fs-m);flex-wrap:wrap}
   .nav-links a{color:var(--dim);text-decoration:none}
   .nav-links a:hover{color:var(--text);text-decoration:underline}
 
   header{padding:40px 0 16px}
-  .kicker{font-family:var(--mono);font-size:13px;color:var(--faint);letter-spacing:.12em;text-transform:uppercase;margin:0}
-  h1{font-size:clamp(32px,6vw,56px);line-height:1.08;margin:12px 0 0;font-weight:700;letter-spacing:-.02em;max-width:820px}
-  h1 .u{color:var(--accent)}
+  /* The headline speaks in the logo's voice (Fraunces), and its promise is drawn the way the
+     dashboard draws the session you are on: the selected row, plum, led by its running dot. */
+  h1{font-family:"Fraunces",Georgia,serif;font-size:clamp(34px,6.2vw,60px);line-height:1.1;margin:12px 0 0;
+    font-weight:600;letter-spacing:-.005em;max-width:860px;font-variation-settings:"opsz" 72}
+  /* The row is painted as a band over the letters' body, not the font's tall line box. */
+  h1 .u{color:var(--on-selection);padding:0 .14em 0 .12em;border-radius:.14em;
+    background:linear-gradient(var(--selection),var(--selection)) 0 62%/100% 86% no-repeat;
+    -webkit-box-decoration-break:clone;box-decoration-break:clone}
+  h1 .nw{white-space:nowrap}
+  h1 .u .dot{display:inline-block;width:.3em;height:.3em;border-radius:50%;background:#4ec96a;
+    margin:0 .2em 0 .02em;vertical-align:.14em}
   .tagline{font-size:clamp(17px,2.6vw,20px);color:var(--dim);margin:18px 0 0;max-width:680px}
 
   /* install: the primary action */
@@ -90,21 +107,24 @@
   .install pre{margin:0;font-family:var(--mono);font-size:15px;line-height:1.7;flex:1 1 220px;min-width:0;overflow-x:auto}
   .install .p{color:var(--faint);user-select:none}
   .install .c{color:var(--faint)}
-  .install-status{min-height:1.4em;margin:8px 0 0;font-size:13.5px;color:var(--dim)}
+  .install-status{margin:8px 0 0;font-size:var(--fs-m);color:var(--dim)}
+  .install-status:empty{margin:0}
   .install-status.ok{color:var(--success)}
   .install-status.bad{color:var(--attention)}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:10px;font-size:15px;
-    border:1px solid var(--rule);color:var(--text);background:var(--surface-raised);transition:.15s;cursor:pointer;
+    border:1px solid var(--rule);color:var(--text);background:var(--surface-raised);cursor:pointer;
+    transition:background-color .15s ease-out,border-color .15s ease-out,color .15s ease-out,transform .1s ease-out;
     font-family:var(--sans);text-decoration:none;line-height:1.3}
   .btn:hover{border-color:var(--faint);text-decoration:none}
   .btn.primary{background:var(--selection);color:var(--on-selection);border-color:var(--selection);font-weight:600}
-  .btn.primary:hover{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+  .btn.primary:hover{background:color-mix(in srgb,var(--selection) 86%,#fff);border-color:color-mix(in srgb,var(--selection) 86%,#fff)}
+  .btn:active:not([disabled]),.demo-row button:active:not([disabled]){transform:scale(.97)}
   .btn[disabled]{opacity:.55;cursor:not-allowed}
-  .cta{display:flex;gap:12px 18px;align-items:center;flex-wrap:wrap;margin-top:18px;font-size:14.5px;color:var(--dim)}
+  .cta{display:flex;gap:12px 18px;align-items:center;flex-wrap:wrap;margin-top:18px;font-size:var(--fs-l);color:var(--dim)}
 
   section{padding:48px 0}
   h2{font-size:clamp(22px,3.4vw,28px);margin:0 0 10px;letter-spacing:-.01em;line-height:1.25}
-  .eyebrow{font-size:12.5px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 6px;font-weight:600}
+  .eyebrow{font-size:var(--fs-s);font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 6px;font-weight:600}
   .lead{color:var(--dim);margin:0 0 22px;max-width:700px}
 
   /* the live demo */
@@ -115,14 +135,14 @@
   .term-bar .b:nth-of-type(1){background:#ff5f57}
   .term-bar .b:nth-of-type(2){background:#febc2e}
   .term-bar .b:nth-of-type(3){background:#28c840}
-  .term-bar .t{margin-left:6px;font-family:var(--mono);font-size:12.5px;color:var(--dim)}
-  .term-bar .state{font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+  .term-bar .t{margin-left:6px;font-family:var(--mono);font-size:var(--fs-s);color:var(--dim)}
+  .term-bar .state{font-family:var(--mono);font-size:var(--fs-s);color:var(--dim)}
   .term.active .term-bar .state{color:var(--running)}
-  .term-bar .btn{margin-left:auto;padding:6px 12px;font-size:13.5px}
+  .term-bar .btn{margin-left:auto;padding:6px 12px;font-size:var(--fs-m)}
   /* Fira Code draws every status mark (◆ ◉ ● ○ ▶ ⌂) itself, one size, centred on the lowercase
      letters, as a terminal font does; the system monospace has none of them, and the fallbacks it
      borrows them from disagree on size and height. Ligatures off: a terminal has none. */
-  #screen{margin:0;padding:12px 14px;font-family:"Fira Code",var(--mono);font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0;font-size:12.5px;line-height:1.45;
+  #screen{margin:0;padding:12px 14px;font-family:"Fira Code sessio",var(--mono);font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0;font-size:12.5px;line-height:1.45;
     overflow-x:auto;color:var(--text);background:var(--surface-raised);white-space:pre;min-height:22em;
     border-radius:0 0 var(--radius) var(--radius)}
   /* Every non-ASCII glyph comes boxed to its terminal cells (demo::render): the fallback fonts
@@ -133,57 +153,66 @@
   /* While the demo has the keyboard the whole window wears the ring, title bar included. */
   #screen:focus{outline:none}
   .term.active{outline:2px solid var(--accent);outline-offset:3px}
-  .demo-help{color:var(--dim);font-size:14.5px;margin:14px 0 0;max-width:760px}
-  .demo-help kbd{font-size:12px}
+  .demo-help{color:var(--dim);font-size:var(--fs-l);margin:14px 0 0;max-width:760px}
+  .demo-help kbd{font-size:var(--fs-s)}
   .demo-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
-  .demo-row .label{font-size:13px;color:var(--faint);margin-right:4px;min-width:5.5em}
-  .demo-row button{cursor:pointer;font-family:var(--mono);font-size:13px;color:var(--text);
-    border:1px solid var(--rule);border-radius:8px;padding:6px 10px;transition:.15s;background:var(--surface-raised);min-height:34px}
+  .demo-row .label{font-size:var(--fs-m);color:var(--faint);margin-right:4px;min-width:5.5em}
+  .demo-row button{cursor:pointer;font-family:var(--mono);font-size:var(--fs-m);color:var(--text);
+    border:1px solid var(--rule);border-radius:8px;padding:6px 10px;
+    transition:border-color .15s ease-out,transform .1s ease-out;background:var(--surface-raised);min-height:34px}
   .demo-row button:hover{border-color:var(--accent)}
   .demo-row button[disabled]{opacity:.5;cursor:not-allowed}
   .limits{margin-top:16px;border-left:3px solid var(--attention);padding:10px 14px;background:var(--surface-raised);
-    border-radius:0 10px 10px 0;color:var(--dim);font-size:14px;max-width:760px}
+    border-radius:0 10px 10px 0;color:var(--dim);font-size:var(--fs-l);max-width:760px}
   .limits b{color:var(--text)}
-  .demo-note{color:var(--faint);font-size:13.5px;margin-top:12px;max-width:760px}
+  .demo-note{color:var(--faint);font-size:var(--fs-m);margin-top:12px;max-width:760px}
 
   .three{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
   .card{background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;padding:20px;min-width:0}
   .card h3{margin:0 0 8px;font-size:18px}
   .card h3 .i{color:var(--accent);font-family:var(--mono);margin-right:8px}
-  .card p{margin:0 0 10px;color:var(--dim);font-size:14.5px}
-  .card ul{margin:0;padding-left:18px;color:var(--dim);font-size:14px}
+  .card p{margin:0 0 10px;color:var(--dim);font-size:var(--fs-l)}
+  .card ul{margin:0;padding-left:18px;color:var(--dim);font-size:var(--fs-l)}
   .card li{margin:6px 0}
   .card li b{color:var(--text);font-weight:600}
 
-  .code{margin:0;padding:16px 18px;font-family:var(--mono);font-size:13px;line-height:1.55;overflow-x:auto;
+  .code{margin:0;padding:16px 18px;font-family:var(--mono);font-size:var(--fs-m);line-height:1.55;overflow-x:auto;
     background:var(--surface-raised);border:1px solid var(--rule);border-radius:12px;color:var(--text)}
   .code .c{color:var(--faint)}
   .code .p{color:var(--running);user-select:none}
   .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px;align-items:start}
   .two > *{min-width:0}
-  .plain{color:var(--dim);font-size:14.5px;margin:0;padding-left:18px}
+  .plain{color:var(--dim);font-size:var(--fs-l);margin:0;padding-left:18px}
   .plain li{margin:6px 0}
   .plain b{color:var(--text)}
 
   .table-wrap{overflow-x:auto}
-  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  table{width:100%;border-collapse:collapse;font-size:var(--fs-l)}
   th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
-  th{color:var(--faint);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+  th{color:var(--faint);font-weight:600;font-size:var(--fs-s);text-transform:uppercase;letter-spacing:.08em}
   kbd{background:var(--surface-sunken);border:1px solid var(--rule);border-bottom-width:2px;border-radius:6px;
-    padding:0 6px;font-size:12.5px;color:var(--text);white-space:nowrap}
+    padding:0 6px;font-size:var(--fs-s);color:var(--text);white-space:nowrap}
   td.k{white-space:nowrap}
 
   .note{background:var(--surface-raised);border:1px solid var(--rule);
-    border-radius:10px;padding:16px 18px;color:var(--dim);font-size:14.5px}
+    border-radius:10px;padding:16px 18px;color:var(--dim);font-size:var(--fs-l)}
   .note b{color:var(--text)}
 
-  footer{border-top:1px solid var(--rule);margin-top:24px;padding:28px 0 56px;color:var(--faint);font-size:13.5px;
+  footer{border-top:1px solid var(--rule);margin-top:24px;padding:28px 0 56px;color:var(--faint);font-size:var(--fs-m);
     display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
   footer a{color:var(--dim)}
+  .running{color:var(--running)}
+  .aside{color:var(--dim);font-size:var(--fs-l);margin:18px 0 0}
+  .sub{margin:0 0 6px;color:var(--text);font-weight:600;font-size:var(--fs-l)}
+  .gap-top{margin-top:18px}
+  .code + .code,.plain + .code{margin-top:14px}
+  .lead.after{margin-top:22px}
   @media(max-width:560px){
     .wrap{padding:0 16px}
     nav{padding:10px 0;gap:8px}
-    .nav-links{flex-wrap:nowrap;overflow-x:auto;width:100%;scrollbar-width:none}
+    .nav-links{flex-wrap:nowrap;overflow-x:auto;width:100%;scrollbar-width:none;padding-right:24px;
+      -webkit-mask-image:linear-gradient(to right,#000 82%,transparent);mask-image:linear-gradient(to right,#000 82%,transparent)}
+    .demo-row .label{flex-basis:100%;min-width:0}
     .nav-links a{white-space:nowrap}
     [id]{scroll-margin-top:96px}
     section{padding:36px 0}
@@ -211,8 +240,8 @@
 
   <main id="top">
   <header>
-    <p class="kicker">sessio · for Claude Code and Copilot CLI</p>
-    <h1>Find the coding-agent session you left, and <span class="u">pick it back up</span>.</h1>
+    <p class="eyebrow">For Claude Code and Copilot CLI</p>
+    <h1>Find the coding-agent session you left, and <span class="u"><span class="nw"><span class="dot" aria-hidden="true"></span>pick</span> it back up</span>.</h1>
     <p class="tagline">A terminal dashboard of every session on your machine: what each one was, where it stopped, whether it is waiting on you — and one key to resume it in the folder it ran in.</p>
 
     <div class="install" id="install">
@@ -225,7 +254,7 @@
     </div>
 
     <div class="cta">
-      <a class="btn" href="#demo" id="try-hero">Try the demo</a>
+      <a class="btn" href="#demo" id="try-hero">Try the demo ↓</a>
       <span>or build from source: <code>cargo install --git https://github.com/theanhgen/sessio</code></span>
     </div>
   </header>
@@ -250,22 +279,19 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
     <p class="sr-only" id="demo-live" role="status" aria-live="polite"></p>
 
     <p class="demo-help" id="demo-instructions">
-      <b>Try the demo</b> gives it the keyboard: <kbd>↑</kbd><kbd>↓</kbd> project, <kbd>←</kbd><kbd>→</kbd> session, type to filter,
-      <kbd>^f</kbd> search the text, <kbd>^a</kbd> archive, <kbd>^r</kbd> reply, <kbd>^e</kbd> expand, <kbd>PgUp</kbd><kbd>PgDn</kbd> scroll the reply, <kbd>?</kbd> help.
-      <kbd>Esc</kbd> leaves the demo, as it quits sessio (it first closes help, a draft or a text search);
-      so do <b>Exit demo</b> and <kbd>Tab</kbd>, which the demo never takes — use <kbd>^e</kbd> for what <kbd>⇥</kbd> does in the terminal.
-      Some browsers keep <kbd>^n</kbd>, <kbd>^t</kbd> and <kbd>^w</kbd> for themselves; <kbd>⌥⌫</kbd> deletes a word too.
+      <b>Try the demo</b> or click the screen to give it the keyboard; <kbd>Esc</kbd>, <kbd>Tab</kbd> or <b>Exit demo</b> gives it back.
+      The buttons press keys for you. It is visual: a screen reader hears what it announces after each key.
     </p>
 
     <div class="demo-row" role="group" aria-label="Demo keys">
       <span class="label">Keys</span>
-      <button type="button" data-key="ArrowUp" aria-label="Up arrow: previous project">↑ project</button>
-      <button type="button" data-key="ArrowDown" aria-label="Down arrow: next project">↓ project</button>
-      <button type="button" data-key="ArrowLeft" aria-label="Left arrow: previous session">← session</button>
-      <button type="button" data-key="ArrowRight" aria-label="Right arrow: next session">→ session</button>
+      <button type="button" data-key="ArrowUp">↑ project</button>
+      <button type="button" data-key="ArrowDown">↓ project</button>
+      <button type="button" data-key="ArrowLeft">← session</button>
+      <button type="button" data-key="ArrowRight">→ session</button>
       <button type="button" data-key="^e">^e expand</button>
-      <button type="button" data-key="PageDown">PgDn</button>
-      <button type="button" data-key="PageUp">PgUp</button>
+      <button type="button" data-key="PageDown" aria-label="PgDn (page down)">PgDn</button>
+      <button type="button" data-key="PageUp" aria-label="PgUp (page up)">PgUp</button>
       <button type="button" data-key="^f">^f search text</button>
       <button type="button" data-key="^a">^a archive</button>
       <button type="button" data-key="^r">^r reply</button>
@@ -285,7 +311,8 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
 
     <div class="limits"><b>What the browser can't do.</b> Nothing here resumes, sends, opens or ends anything:
       <kbd>↵</kbd> resume, <kbd>^o</kbd> new window, <kbd>^n</kbd> new session, sending a <kbd>^r</kbd> reply, <kbd>^k</kbd>, <kbd>^t</kbd> and <kbd>^g</kbd>
-      answer in the feedback row with <i>browser demo:</i> and what the key does in a terminal. <kbd>^f</kbd> searches the fixtures' text, and <kbd>^a</kbd> archives only on this page.</div>
+      answer in the feedback row with <i>browser demo:</i> and what the key does in a terminal. <kbd>^f</kbd> searches the fixtures' text, and <kbd>^a</kbd> archives only on this page.
+      The demo never takes <kbd>Tab</kbd>, so <kbd>^e</kbd> does what <kbd>⇥</kbd> does in a terminal; <kbd>Esc</kbd> first closes help, a draft or a text search. Some browsers keep <kbd>^n</kbd>, <kbd>^t</kbd> and <kbd>^w</kbd> for themselves; <kbd>⌥⌫</kbd> deletes a word too.</div>
     <p class="demo-note">The demo fits its width to the window (60 to 104 columns) instead of shrinking the text; on a narrow screen, scroll it sideways.</p>
   </section>
 
@@ -320,13 +347,13 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
         <p>Resume in the folder it ran in, or answer it without leaving the list.</p>
         <ul>
           <li><b><kbd>↵</kbd> resumes here</b>: <span class="mono">claude --resume</span> in the session's own folder, replacing sessio.</li>
-          <li><b>Never twice by accident.</b> On a running <span style="color:var(--running)">◉</span> session, <kbd>↵</kbd> under Ghostty switches to its terminal; elsewhere it names the pid and tty, and only a second <kbd>↵</kbd> opens another copy.</li>
+          <li><b>Never twice by accident.</b> On a running <span class="running">◉</span> session, <kbd>↵</kbd> under Ghostty switches to its terminal; elsewhere it names the pid and tty, and only a second <kbd>↵</kbd> opens another copy.</li>
           <li><b><kbd>^o</kbd></b> opens it in a new Ghostty window and keeps sessio open; <b><kbd>^n</kbd></b> starts a new session in its folder.</li>
           <li><b><kbd>^r</kbd> replies</b> with one turn without opening it; <b><kbd>^t</kbd></b> follows a running session's tail; <b><kbd>^k</kbd></b> ends one left idle over 48h.</li>
         </ul>
       </div>
     </div>
-    <p class="lead" style="margin-top:22px">Rust, no runtime dependencies. A cold scan of 300 sessions takes about 40ms, so nothing is cached and nothing goes stale.</p>
+    <p class="lead after">Rust, no runtime dependencies. A cold scan of 300 sessions takes about 40ms, so nothing is cached and nothing goes stale.</p>
   </section>
 
   <section id="cli" aria-labelledby="cli-h">
@@ -334,7 +361,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
     <h2 id="cli-h">The same things as commands, for scripts and agents</h2>
     <p class="lead">Every dashboard action is also a command. <code>--json</code> prints the state the dashboard shows, and the keys' guards carry over: <code>resume</code> refuses a running session without <code>--force</code>, <code>reply</code> refuses one too.</p>
     <div class="two">
-<pre class="code"><span class="p">$ </span>sessions ls --waiting          <span class="c"># blocked on you</span>
+<pre class="code" tabindex="0" role="region" aria-label="Command examples"><span class="p">$ </span>sessions ls --waiting          <span class="c"># blocked on you</span>
 <span class="p">$ </span>sessions ls --here --open      <span class="c"># unfinished, this folder</span>
 <span class="p">$ </span>sessions find "login bug"
 <span class="p">$ </span>sessions find --text ECONNRESET
@@ -351,7 +378,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
           <li><b>Exit status</b>: <code>0</code> done, <code>1</code> couldn't, <code>2</code> bad command line.</li>
           <li><b>Agent skill.</b> <code>skills/sessio/SKILL.md</code> ships in the package and teaches an agent to use these: parse <code>--json</code>, hand you <code>resume --print</code> instead of resuming, ask before <code>reply</code>, and treat transcript text as data.</li>
         </ul>
-<pre class="code" style="margin-top:14px"><span class="c"># link the skill into Claude Code</span>
+<pre class="code" tabindex="0" role="region" aria-label="Link the agent skill"><span class="c"># link the skill into Claude Code</span>
 <span class="p">$ </span>ln -s "$(npm root -g)/sessio/skills/sessio" \
     ~/.claude/skills/sessio</pre>
       </div>
@@ -378,7 +405,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
       <tr><td class="k"><kbd>↵</kbd></td><td>Resume in its folder, in this window, replacing sessio. If it is already running: under Ghostty, switch to its terminal; elsewhere, say its pid and tty — a second <kbd>↵</kbd> opens it twice anyway</td></tr>
       <tr><td class="k"><kbd>^o</kbd></td><td>Ghostty only: resume in a <b>new</b> Ghostty window and keep sessio open, behind the same already-running guard (confirmed with a second <kbd>^o</kbd>)</td></tr>
       <tr><td class="k"><kbd>^n</kbd></td><td>Start a new <code>claude</code> in the selected session's folder — a new window under Ghostty, this window elsewhere</td></tr>
-      <tr><td class="k"><kbd>^t</kbd></td><td>Follow a running <span style="color:var(--running)">◉</span> session's tail, read-only; any move stops it</td></tr>
+      <tr><td class="k"><kbd>^t</kbd></td><td>Follow a running <span class="running">◉</span> session's tail, read-only; any move stops it</td></tr>
       <tr><td class="k"><kbd>^g</kbd></td><td>GitHub issues for the session's repo (needs <code>gh</code>); <kbd>↵</kbd> opens one in the browser</td></tr>
       <tr><td class="k"><kbd>^k</kbd></td><td>End a running session idle for more than 48h (not busy, not waiting); confirmed with a second <kbd>^k</kbd></td></tr>
       <tr><td class="k"><kbd>?</kbd></td><td>Keys and marks; any key closes it</td></tr>
@@ -401,7 +428,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
         </ul>
       </div>
       <div>
-        <p style="margin:0 0 6px;color:var(--text);font-weight:600">Optional</p>
+        <h3 class="sub">Optional</h3>
         <ul class="plain">
           <li><b>ripgrep</b> for <kbd>^f</kbd> and <code>find --text</code>: <code>brew install ripgrep</code> or <code>apt install ripgrep</code>. Without it, typing still filters.</li>
           <li><b>Ghostty</b> (1.3+ on macOS) for windows: <kbd>↵</kbd> switching to a running session's terminal, <kbd>^o</kbd> and <kbd>^n</kbd> in a new window.</li>
@@ -410,8 +437,8 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
         </ul>
       </div>
     </div>
-    <p style="color:var(--dim);font-size:14.5px;margin-top:18px">Update with <code>sessions --update</code>; a normal launch never contacts npm.</p>
-    <div class="note" style="margin-top:18px"><b>Note:</b> sessio reads Claude Code's transcript files at <span class="mono">~/.claude/projects/**/*.jsonl</span>. That format is undocumented and internal to Claude Code — it may change without notice. sessio parses defensively and degrades gracefully, but this project is not affiliated with or endorsed by Anthropic.</div>
+    <p class="aside">Update with <code>sessions --update</code>; a normal launch never contacts npm.</p>
+    <div class="note gap-top"><b>Note:</b> sessio reads Claude Code's transcript files at <span class="mono">~/.claude/projects/**/*.jsonl</span>. That format is undocumented and internal to Claude Code — it may change without notice. sessio parses defensively and degrades gracefully, but this project is not affiliated with or endorsed by Anthropic.</div>
   </section>
   </main>
 
@@ -489,12 +516,15 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
     let said = '';
     const paint = () => {
       screenEl.innerHTML = wasm.render(cols, rows);
-      const f = wasm.feedback();
+      // A screen reader cannot read the drawn frame: say what a key did, or else where it left you.
+      const f = wasm.feedback() || wasm.summary();
       if (f !== said) { said = f; live.textContent = f; }
     };
     const enter = () => { screenEl.focus({ preventScroll: false }); };
     const leave = () => { toggle.focus(); live.textContent = 'Left the demo.'; };
 
+    // Measure in the demo's own font, not the fallback it shows while that loads.
+    try { await document.fonts.load('12.5px "Fira Code sessio"'); } catch (_) {}
     measure(); paint();
     new ResizeObserver(() => { const c = cols, r = rows; measure(); if (c !== cols || r !== rows) paint(); }).observe(term);
 
