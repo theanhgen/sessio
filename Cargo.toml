@@ -3,7 +3,7 @@ name = "sessio"
 version = "1.2.0"
 edition = "2021"
 rust-version = "1.82"
-description = "Interactive terminal browser to find and resume past Claude Code sessions."
+description = "Interactive terminal browser to find and resume past coding-agent sessions (Claude Code, GitHub Copilot CLI)."
 license = "MIT"
 repository = "https://github.com/theanhgen/sessio"
 

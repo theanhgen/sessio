@@ -372,7 +372,8 @@ keys, requirements. The demo is entered with **Try the demo** (or by tabbing to 
 `esc`, **Exit demo** or `Tab`; while it has focus it wears an accent ring and says `keys go to the
 demo`. It lays the frame out for its container — 104x26 on a desktop, down to 60x18 — and never
 shrinks the text below 12px; narrower than 60 columns it scrolls sideways inside its window, never
-the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected. Every non-ASCII glyph
+the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected. The demo's screen is set in Fira Code, which draws every status mark itself at one size and
+height (the system monospace has none of them); ligatures are off. Every non-ASCII glyph
 the demo draws is boxed to its terminal cells (`1ch` or `2ch`), because the fallback font that
 draws it has its own width and would push the columns after it. The header (logo and section
 links) stays at the top while the page scrolls; on a phone its links scroll sideways in one row.

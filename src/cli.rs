@@ -26,7 +26,7 @@ const PROJECT_MAX: usize = 20;
 
 pub fn usage() -> String {
     format!(
-        "sessio {} — find and resume past Claude Code sessions.
+        "sessio {} — find and resume past Claude Code and Copilot CLI sessions.
 GitHub Copilot CLI sessions (~/.copilot) are listed too, tagged `copilot`.
 
 USAGE:

@@ -195,7 +195,7 @@ try png("social.png", 1200, 630) { cx in
     cx.setFillColor(color("#e6e9ee"))
     var t = CGAffineTransform(translationX: x0 + iconSize + gapW, y: midY + bigXh / 2)
     cx.addPath(big.path.copy(using: &t)!); cx.fillPath()
-    let tag = NSAttributedString(string: "Find and resume your Claude Code sessions", attributes: [
+    let tag = NSAttributedString(string: "Find the coding-agent session you left", attributes: [
         .font: NSFont.systemFont(ofSize: 40, weight: .regular), .foregroundColor: NSColor(cgColor: color("#8a93a0"))!,
     ])
     let line = CTLineCreateWithAttributedString(tag)

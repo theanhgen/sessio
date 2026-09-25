@@ -1,4 +1,4 @@
-//! sessio — find and resume past Claude Code (and GitHub Copilot CLI) sessions.
+//! sessio — find and resume past coding-agent sessions (Claude Code, GitHub Copilot CLI).
 
 mod cli;
 

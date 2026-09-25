@@ -1,6 +1,6 @@
 ---
 name: sessio
-description: Find, inspect, resume and reply to past Claude Code sessions with the `sessions` CLI. Use when the user asks what they were working on, wants an earlier session back ("the one where we fixed the login bug", "what did I do in this repo yesterday"), asks what is unfinished or which sessions are waiting on them, needs a session's id or resume command, or wants to send a message to another session without opening it.
+description: Find, inspect and resume past Claude Code and GitHub Copilot CLI sessions, and reply to Claude Code ones, with the `sessions` CLI. Use when the user asks what they were working on, wants an earlier session back ("the one where we fixed the login bug", "what did I do in this repo yesterday"), asks what is unfinished or which sessions are waiting on them, needs a session's id or resume command, or wants to send a message to another session without opening it.
 ---
 
 # sessio
