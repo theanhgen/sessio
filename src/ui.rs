@@ -6218,6 +6218,25 @@ pub mod demo {
         APP.with(|a| a.borrow().flash.clone())
     }
 
+    /// The demo's state in one line for a screen reader, which cannot read a drawn frame: the
+    /// project tab and the highlighted session, or that help is open. The page announces it after
+    /// a key that left the feedback row empty.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn summary() -> String {
+        APP.with(|a| {
+            let app = a.borrow();
+            if app.help {
+                return "help: keys and marks. Any key closes it.".into();
+            }
+            let tab = app.tabs.get(app.p_idx).map(String::as_str).unwrap_or("");
+            let view = app.view();
+            match app.selected() {
+                Some(i) => format!("{tab}: {}, session {} of {}", app.items[i].display_name(), app.cur + 1, view.len()),
+                None => format!("{tab}: no sessions"),
+            }
+        })
+    }
+
     /// Something a terminal would do and a browser cannot. Said in the warning tone — it did not
     /// happen — with what the key does where it can.
     fn browser_cannot(app: &mut App, what: String) {

@@ -20,6 +20,19 @@
 - **The website demo's dividers line up.** Glyphs like `◆`, `⌂` and `🔍` come from fallback fonts
   with their own widths and pushed the columns after them; each is now boxed to its terminal cells.
 
+### Website
+
+- **The headline is set in Fraunces, like the logo**, and "pick it back up" is drawn as the
+  dashboard's selected row, plum and led by the running dot.
+- **The demo's marks line up.** Fira Code is served from the site as a subset that keeps `◆ ◉ ● ○ ▶`;
+  Google's subsets of it drop them, so the browser drew them from other fonts at other heights.
+- **Accessibility**: a screen reader hears where each key left you in the demo; the focus ring is
+  visible on the light page; code blocks that scroll can be reached by keyboard; key buttons are
+  named by what they show; "Optional" requirements is a heading.
+- **Calmer page**: three small type sizes instead of seven, one-line demo instructions (the
+  browser caveats moved to the limits note), buttons that press, a shorter eyebrow, no dead space
+  under the install command, and a fade where the phone nav scrolls.
+
 ## 1.2.0 - 2026-09-25
 
 The dashboard is redesigned around one spec (`docs/DESIGN.md`): fixed regions that never move,
