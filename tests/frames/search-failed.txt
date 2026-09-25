@@ -2,11 +2,11 @@
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 limiter▏  search in text · all sessions · ✗…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 1/1 ●▸add rate limiting to auth routes│
+ ◆ waiting │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
  web-app   │ add rate limiting to auth routes
  api       │    ● recently updated · 2m ago · not running
- cli-tool  │    ▸ unfinished · Claude asked / proposed next
+ cli-tool  │    ▶ unfinished · Claude asked / proposed next
  docs      │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌  │ recap: Limiter is in and tested; the
  🗄️ archiv │ Retry-After units need a decision. Your move.
@@ -21,11 +21,11 @@
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 limiter▏  search in text · all sessions · ✗ failed · esc back t…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 1/1 ●▸add rate limiting to auth routes│
+ ◆ waiting │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ add rate limiting to auth routes
  api       │    ● recently updated · 2m ago · not running
- cli-tool  │    ▸ unfinished · Claude asked / proposed next
+ cli-tool  │    ▶ unfinished · Claude asked / proposed next
  docs      │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌  │    tokens  in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K · aut…
  🗄️ archiv │ recap: Limiter is in and tested; the Retry-After units need a
@@ -46,11 +46,11 @@
  ↑↓ projects 24h all  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything  6   7  │ 🔍 limiter▏  search in text · all sessions · ✗ failed · esc back to filter
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 1/1 ●▸add rate limiting to auth routes│
+ ◆ waiting     1   1  │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ add rate limiting to auth routes
  api           2   2  │    ● recently updated · 2m ago · not running
- cli-tool      2   2  │    ▸ unfinished · Claude asked / proposed next
+ cli-tool      2   2  │    ▶ unfinished · Claude asked / proposed next
  docs          ·   1  │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K · auto-named
  🗄️ archived   ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision.
@@ -73,11 +73,11 @@
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything   6   7  │ 🔍 limiter▏  search in text · all sessions · ✗ failed · esc back to filter
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 1/1 ●▸add rate limiting to auth routes│
+ ◆ waiting      1   1  │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ add rate limiting to auth routes
  api            2   2  │    ● recently updated · 2m ago · not running
- cli-tool       2   2  │    ▸ unfinished · Claude asked / proposed next
+ cli-tool       2   2  │    ▶ unfinished · Claude asked / proposed next
  docs           ·   1  │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K · auto-named
  🗄️ archived    ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision. Your move.
@@ -114,12 +114,12 @@
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyth │ 🔍 limiter▏  search in text · all se…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │ 1/1 ●▸add rate limiting…│
+ ◆ waiting │ 1/1 ●▶add rate limiting…│
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
  web-app   │ add rate limiting to auth routes
  api       │    ● recently updated · 2m ago
  cli-tool  │      not running
- docs      │    ▸ unfinished
+ docs      │    ▶ unfinished
  ╌╌╌╌╌╌╌╌  │      Claude asked / proposed next
  ✗ text search failed · rg exited 2: permission
  denied
@@ -127,13 +127,13 @@
 window too small (need 50x12)
 ✗ text search failed · rg exited 2: permission d…
 ⌂ everything · 1/1
-●▸add rate limiting to auth routes
+●▶add rate limiting to auth routes
 ● recently updated · 2m ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help ·…
 === 80x11 ===
 window too small (need 50x12)
 ✗ text search failed · rg exited 2: permission denied
 ⌂ everything · 1/1
-●▸add rate limiting to auth routes
+●▶add rate limiting to auth routes
 ● recently updated · 2m ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help · esc quit

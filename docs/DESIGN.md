@@ -30,7 +30,7 @@ fails on any `Color::`, `.fg(` or `.bg(` outside `src/theme.rs`.
 | Accent | The thing you are looking at: session title, key names, a hint that is switched on | `ACCENT` = ANSI cyan | `--accent` | `#a882d5` | `#6d3fa3` |
 | Selection | The focused session tab (plum) and the selected project (neutral) | `TAB_SEL` = 54, `PANEL_SEL` = 238, text `ON_SEL` = 255 | `--selection`, `--on-selection` | `#6b4a8f` / `#f4effa` | `#6b4a8f` / `#ffffff` |
 | Code | Inline and fenced code in markdown | `CODE` = ANSI cyan | `--code` | `#5fd7d7` | `#0b6e75` |
-| Attention | Your move: waiting (`◆`), unfinished (`▸`), content-search hits, warnings | `ATTENTION` = ANSI yellow | `--attention` | `#e0b341` | `#8a6100` |
+| Attention | Your move: waiting (`◆`), unfinished (`▶`), content-search hits, warnings | `ATTENTION` = ANSI yellow | `--attention` | `#e0b341` | `#8a6100` |
 | Running | A `claude` is attached (`◉`), or written in the last 5 minutes (`●`) | `RUNNING` = ANSI green | `--running` | `#4ec96a` | `#1b6e31` |
 | Recent | Written in the last 24 hours (`○`) | `RECENT` = xterm 202 | `--recent` | `#e88a2b` | `#a4520c` |
 | Voice | Claude's own words: recap and reply labels | `VOICE` = xterm 98 | `--voice` | `#af87ff` | `#6d3fa3` |
@@ -121,7 +121,7 @@ glyphs are pairwise distinct.
 | `●` | active | dot, preview `● recently updated · 2m ago · not running` | transcript written in the last 5 minutes, nothing attached | running |
 | `○` | recent | dot, preview `○ recently updated · 3h ago · not running` | written in the last 24 hours, nothing attached | recent |
 | (none) | — | dot, preview `updated 3d ago · not running` | older than 24 hours | — |
-| `▸` | unfinished | tab mark, preview `▸ unfinished · <reason>` | the reason (`open_reason`): `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next` (only for 3 days), `uncommitted changes` (git WIP, on the folder's newest session) | attention |
+| `▶` | unfinished | tab mark, preview `▶ unfinished · <reason>` | the reason (`open_reason`): `your prompt got no reply`, `recap says your move`, `Claude asked / proposed next` (only for 3 days), `uncommitted changes` (git WIP, on the folder's newest session) | attention |
 | `⏸` | open | tab `⏸ open` | the collection of unfinished sessions | dim / selection |
 | `🗄` | archived | tab `🗄 archived`, preview line | hidden locally by `^a`; comes back when written to again | dim |
 | `⌂` | everything | tab `⌂ everything` | all sessions not archived | dim / selection |
@@ -137,7 +137,7 @@ The waiting dot outranks running, which outranks recency: a session shows one do
 ### State summary
 
 The preview says the highlighted session's state in words, on fixed rows: the row under the title
-(`CHROME + 2`) is always the state, and an unfinished session's `▸ unfinished · <reason>` is always
+(`CHROME + 2`) is always the state, and an unfinished session's `▶ unfinished · <reason>` is always
 the row after it. Exactly one of waiting on you, running, recently updated or not running, then
 the pid and tty of a process. Process presence and transcript recency stay apart: a transcript
 written a minute ago with nothing attached says `not running`, and a stale process says `running`.
@@ -155,7 +155,7 @@ written a minute ago with nothing attached says `not running`, and a stale proce
 ### Help overlay
 
 `?` shows the keys, then the status legend grouped by what each mark is evidence of: **process**
-(`◆ waiting`, `◉ running`, `stale`), **transcript** (`●` `○`, not running), **unfinished** (`▸`
+(`◆ waiting`, `◉ running`, `stale`), **transcript** (`●` `○`, not running), **unfinished** (`▶`
 and its four reasons) and **agent** (`copilot`). It fits 80x24; a shorter window ends on
 `… a taller window shows the rest`. The `↵` line says what happens on a running session under
 Ghostty (switch to its terminal by tty) and elsewhere (say its pid · tty); it must not promise to
@@ -276,7 +276,7 @@ Invariants:
   | Rows | Content | Shed in a short window |
   |---|---|---|
   | rule, title | the session's name (`copilot` tag first) | never |
-  | state | `CHROME + 2` onward, then `▸ unfinished · <reason>` (see State summary) | never |
+  | state | `CHROME + 2` onward, then `▶ unfinished · <reason>` (see State summary) | never |
   | location | `project · branch · N prompts` | 5th |
   | flags | `✓ contains "…"`, `🗄 archived …`, `⚑` issues | never; issues 3rd |
   | file facts | `tokens  in … · out … · cache w … · r … · 12K · auto-named`: what the file is, below what it is about | 1st |
@@ -339,6 +339,22 @@ what it finds.
   (`a_stale_search_never_overwrites_newer_query_state`).
 - **Every string from a transcript** passes through `sanitize` before it is drawn.
 
+## Brand
+
+The icon is the dashboard in miniature: the selected session row in `--selection` plum, its
+running `●` in `--running` green, the `s` of sessio and a title bar in `--on-selection`, between
+two quieter rows (`○` marks and bars barely lighter than the `--surface-raised` tile). One icon
+serves light and dark: it is a dark tile either way, like the demo's terminal window.
+
+- **Type:** Fraunces SemiBold, for the `s` and the name, and nowhere else. The site loads it from
+  Google Fonts for the header; the icon and logo files carry it as outlines.
+- **Spacing:** the `s` is placed by its ink, not its advance: dot, 5 units, `s`, 5 units, bar, the
+  group centred in the row and the letter's body centred on the row's middle line (100-unit tile).
+- **Files:** `docs/brand/` — `icon.svg`, `icon-{32,64,180,256,512,1024}.png`,
+  `logo-{dark,light}.svg` (icon and name, for dark and light backgrounds), `social.png`
+  (1200x630 link preview). `scripts/brand.swift` draws all of them from one description; change
+  the mark there, never by hand. The binary embeds `icon-256.png` for notifications.
+
 ## Contrast
 
 WCAG 2.x ratios, computed from the sRGB values (4.5:1 is AA for body text, 3:1 for large or bold
@@ -356,7 +372,10 @@ keys, requirements. The demo is entered with **Try the demo** (or by tabbing to 
 `esc`, **Exit demo** or `Tab`; while it has focus it wears an accent ring and says `keys go to the
 demo`. It lays the frame out for its container — 104x26 on a desktop, down to 60x18 — and never
 shrinks the text below 12px; narrower than 60 columns it scrolls sideways inside its window, never
-the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected.
+the page. If the wasm fails to load, the screen says so and the rest of the page is unaffected. Every non-ASCII glyph
+the demo draws is boxed to its terminal cells (`1ch` or `2ch`), because the fallback font that
+draws it has its own width and would push the columns after it. The header (logo and section
+links) stays at the top while the page scrolls; on a phone its links scroll sideways in one row.
 
 | Variable | Dark | on surface | on raised | on sunken | Light | on surface | on raised | on sunken |
 |---|---|---|---|---|---|---|---|---|
@@ -483,9 +502,9 @@ Automated (in `cargo test`):
 Manual, for a release or a change to this file:
 
 1. **Dark terminal**: run `sessions` in a dark theme (e.g. Ghostty's default). The selected
-   project (grey) and focused tab (plum, bold) are distinct; `◆ ◉ ● ○ ▸` are all readable.
+   project (grey) and focused tab (plum, bold) are distinct; `◆ ◉ ● ○ ▶` are all readable.
 2. **Light terminal**: switch to a light theme (any light Ghostty theme, or macOS Terminal
-   "Basic"). Same checks; in particular yellow `◆`/`▸`, dim hints, and the orange `○` read against
+   "Basic"). Same checks; in particular yellow `◆`/`▶`, dim hints, and the orange `○` read against
    white.
 3. **Monochrome**: take a screenshot and desaturate it: every state in the vocabulary table is
    still told apart by its glyph, and a failed action (e.g. `^o` outside Ghostty is a warning;

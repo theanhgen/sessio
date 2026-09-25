@@ -204,7 +204,7 @@ fn ls_prints_one_line_per_session() {
     assert_eq!(lines.len(), 3, "{out}");
     assert!(lines[0].contains("aaaa1111") && !lines[0].contains(A), "short ids: {}", lines[0]);
     assert!(lines[0].contains("alpha") && lines[0].contains("Refactor the parser"));
-    assert!(lines[1].starts_with('▸') && lines[2].starts_with('▸'), "open sessions are marked");
+    assert!(lines[1].starts_with('▶') && lines[2].starts_with('▶'), "open sessions are marked");
     // An untitled session shows its first prompt, and a multi-line one stays on its own row.
     assert!(lines[2].ends_with("  first question"), "{}", lines[2]);
 }

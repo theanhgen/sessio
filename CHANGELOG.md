@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **A click on a waiting notification opens that session's window.** With terminal-notifier
+  installed, the `◆ … is waiting on you` notification brings the session's Ghostty window forward,
+  as `↵` does on a running session. Several at once are one notification that brings Ghostty
+  forward. Without terminal-notifier nothing changes.
+- **sessio has an icon and a logo**: the dashboard in miniature, the selected row with its running
+  dot and a Fraunces `s`. It is on notifications, the site's header, tab icon and link previews,
+  and the README. `docs/brand/` holds the files; `scripts/brand.swift` draws them.
+- **The site's header stays at the top** while you scroll.
+
+### Fixed
+
+- **`▶` replaces `▸` for unfinished.** `▸` is not in common terminal fonts, so it was drawn from
+  a fallback font and sat lower than the `◆ ◉ ● ○` beside it.
+- **The website demo's dividers line up.** Glyphs like `◆`, `⌂` and `🔍` come from fallback fonts
+  with their own widths and pushed the columns after them; each is now boxed to its terminal cells.
+
 ## 1.2.0 - 2026-09-25
 
 The dashboard is redesigned around one spec (`docs/DESIGN.md`): fixed regions that never move,

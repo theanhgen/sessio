@@ -8,6 +8,16 @@
 <meta property="og:title" content="sessio">
 <meta property="og:description" content="Find the Claude Code session you left, see where it stopped, and pick it back up.">
 <meta property="og:type" content="website">
+<meta property="og:image" content="https://theanhgen.github.io/sessio/brand/social.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="brand/icon.svg" type="image/svg+xml">
+<link rel="icon" href="brand/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="brand/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;display=swap">
 <style>
   /* Colour roles: the same names src/theme.rs uses, defined in docs/DESIGN.md with their contrast
      ratios. Everything coloured on this page is carrying a role, not decorating. */
@@ -54,9 +64,15 @@
   code{font-size:.92em}
   .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-  nav{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;padding:20px 0;flex-wrap:wrap}
-  .brand{font-family:var(--mono);font-weight:600;font-size:18px;letter-spacing:.02em;color:var(--text);text-decoration:none}
-  .brand .dot{color:var(--running)}
+  /* The header stays put while the page scrolls. It sits inside .wrap, so its background is
+     widened to the window with a spread shadow, and anchors land below it (scroll-margin-top). */
+  nav{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;padding:14px 0;flex-wrap:wrap;
+    position:sticky;top:0;z-index:10;background:var(--surface);
+    box-shadow:0 0 0 100vmax var(--surface),0 1px 0 100vmax var(--rule);clip-path:inset(0 -100vmax -1px)}
+  [id]{scroll-margin-top:84px}
+  .brand{display:inline-flex;align-items:center;gap:10px;font-family:"Fraunces",Georgia,serif;font-weight:600;
+    font-size:24px;line-height:1;letter-spacing:-.005em;color:var(--text);text-decoration:none}
+  .brand img{width:32px;height:32px;display:block}
   .nav-links{display:flex;gap:6px 18px;font-size:14px;flex-wrap:wrap}
   .nav-links a{color:var(--dim);text-decoration:none}
   .nav-links a:hover{color:var(--text);text-decoration:underline}
@@ -103,6 +119,11 @@
   #screen{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.45;
     overflow-x:auto;color:var(--text);background:var(--surface-raised);white-space:pre;min-height:22em;
     border-radius:0 0 var(--radius) var(--radius)}
+  /* Every non-ASCII glyph comes boxed to its terminal cells (demo::render): the fallback fonts
+     that draw ◆ ⌂ 🔍 have their own widths, and unboxed they pushed the columns after them. */
+  #screen .c1,#screen .c2{display:inline-block;overflow:visible;text-align:center}
+  #screen .c1{width:1ch}
+  #screen .c2{width:2ch}
   #screen:focus{outline:2px solid var(--accent);outline-offset:-3px}
   .demo-help{color:var(--dim);font-size:14.5px;margin:14px 0 0;max-width:760px}
   .demo-help kbd{font-size:12px}
@@ -153,6 +174,10 @@
   footer a{color:var(--dim)}
   @media(max-width:560px){
     .wrap{padding:0 16px}
+    nav{padding:10px 0;gap:8px}
+    .nav-links{flex-wrap:nowrap;overflow-x:auto;width:100%;scrollbar-width:none}
+    .nav-links a{white-space:nowrap}
+    [id]{scroll-margin-top:96px}
     section{padding:36px 0}
     header{padding-top:20px}
     .install pre{font-size:14px}
@@ -165,7 +190,7 @@
 <body>
 <div class="wrap">
   <nav aria-label="Site">
-    <a class="brand" href="#top">sessio<span class="dot" aria-hidden="true">●</span></a>
+    <a class="brand" href="#top"><img src="brand/icon.svg" alt="" width="32" height="32">sessio</a>
     <div class="nav-links">
       <a href="#demo">Demo</a>
       <a href="#workflow">How it works</a>

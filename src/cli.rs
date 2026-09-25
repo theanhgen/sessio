@@ -56,7 +56,7 @@ FILTERS (ls, find):
   --json                 one JSON array, for scripts and agents
 
 An <id> is any prefix only one session has; ls prints eight characters.
-Marks: ◆ waiting on you · ◉ running · ▸ unfinished
+Marks: ◆ waiting on you · ◉ running · ▶ unfinished
 
 KEYS (the dashboard; ? there explains each):
   ↑/↓ project · ←/→ session · type to filter · ^w/⌥⌫ word · ^u/⌘⌫ clear
@@ -417,7 +417,7 @@ fn mark(w: &World, it: &Item) -> char {
     match w.live.get(&it.id) {
         Some(l) if l.needs_you() => '◆',
         Some(_) => '◉',
-        None if it.open => '▸',
+        None if it.open => '▶',
         None => ' ',
     }
 }
@@ -465,7 +465,7 @@ fn show(o: &Opts) -> Result<(), Fail> {
         field("status", &format!("{what} — {}", ui::running_where(l)));
     }
     if let Some(why) = it.open_why() {
-        field("open", &format!("▸ {why}"));
+        field("open", &format!("▶ {why}"));
     }
     if w.archived(it) {
         field("archived", "yes");
