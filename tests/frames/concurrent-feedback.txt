@@ -1,6 +1,6 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│ +3›
  ╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and t…
@@ -9,7 +9,7 @@
  cli-tool  │    ○ recently updated · 3h ago · not running
  docs      │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌  │ recap: Release workflow written and dry-run on
- 🗄️ archiv │ a fork. Signing is undecided; the first tag is
+ 🗄️ archi… │ a fork. Signing is undecided; the first tag is
            │ yours.
            │ reply: The release workflow, step by step.
            │
@@ -19,16 +19,16 @@
  loop" (input needed) and "refactor the cache layer"…
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│○⏳dark mode│ +2›
+ ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│○⏳dark mode…│ +2›
  ╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send ·…
  web-app   │ ───────────────────────────────────────────────────────────────────
  api       │ ship the release workflow
  cli-tool  │    ○ recently updated · 3h ago · not running
  docs      │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
- 🗄️ archiv │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · aut…
+ 🗄️ archi… │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file
            │ recap: Release workflow written and dry-run on a fork. Signing is
            │ undecided; the first tag is yours.
            │ first: write a release workflow that publishes to npm on a tag
@@ -44,16 +44,16 @@
  and "refactor the cache layer" (permission to run npm test)
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything  6   7  │ 🔍 ▏  type to filter
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 4/7 ‹2 ◉refactor the│○▶ship the release workflow│○⏳dark mode│ +2›
+ ◆ waiting     1   1  │ 4/7 ‹2 ◉refactor the…│○▶ship the release workflow│○⏳dark mode…│ +2›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send · esc cancel
  web-app       2   2  │ ────────────────────────────────────────────────────────────────────────────────
  api           2   2  │ ship the release workflow
  cli-tool      2   2  │    ○ recently updated · 3h ago · not running
  docs          ·   1  │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
- 🗄️ archived   ·   1  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · auto-named
+ 🗄️ archived   ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
                       │      recap  Release workflow written and dry-run on a fork. Signing is
                       │             undecided; the first tag is yours.
                       │      first  write a release workflow that publishes to npm on a tag
@@ -71,16 +71,16 @@
  layer" (permission to run npm test)
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything   6   7  │ 🔍 ▏  type to filter
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 4/7 ◆fix login│●▶add rate│◉refactor the│○▶ship the release workflow│○⏳dark mode│○copilot triage flaky│▶write onboarding│
+ ◆ waiting      1   1  │ 4/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the release workflow│○⏳dark mode…│○copilot triage flaky…│▶write onboarding…│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workflow"  and tag rc.1▏   ↵ send · esc cancel
  web-app        2   2  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  api            2   2  │ ship the release workflow
  cli-tool       2   2  │    ○ recently updated · 3h ago · not running
  docs           ·   1  │    ▶ unfinished · recap says your move
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    cli-tool · feat/limiter · 31 prompts
- 🗄️ archived    ·   1  │    tokens  in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K · auto-named
+ 🗄️ archived    ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
                        │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
                        │      first  write a release workflow that publishes to npm on a tag
                        │       last  walk me through what it does before I tag anything
@@ -112,7 +112,7 @@
  ◆ 2 sessions started waiting on you: "fix login redirect loop" (input needed) and "refactor the cache layer" (permission to run npm test)
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 4/7 ‹3 ○▶ship the release…│ +3›
  ╌╌╌╌╌╌╌╌  │  ↳ reply to "ship the release workfl…

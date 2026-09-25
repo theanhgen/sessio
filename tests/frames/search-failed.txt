@@ -1,39 +1,39 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 limiter▏  search in text · all sessions · ✗…
+ ⌂ everyt… │ 🔍 limiter▏  search in text · all sessions · ✗…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
  web-app   │ add rate limiting to auth routes
- api       │    ● recently updated · 2m ago · not running
+ api       │    ● active · 2m ago · not running
  cli-tool  │    ▶ unfinished · Claude asked / proposed next
  docs      │    api · feat/limiter · 14 prompts
  ╌╌╌╌╌╌╌╌  │ recap: Limiter is in and tested; the
- 🗄️ archiv │ Retry-After units need a decision. Your move.
+ 🗄️ archi… │ Retry-After units need a decision. Your move.
            │ first: where did we get to with the limiter?
            │ last: use seconds, and document it
            │ reply: Added a token-bucket limiter; over-limit
-           │ requests return 429 with a Retry-After .
+           │ requests return 429 with a Retry-After.
            │
            │ ↓ 2 more lines · PgDn scrolls · ⇥ more room
  ✗ text search failed · rg exited 2: permission denied
 === 80x24 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 limiter▏  search in text · all sessions · ✗ failed · esc back t…
+ ⌂ everyt… │ 🔍 limiter▏  search in text · all sessions · ✗ failed · esc back t…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
  ◆ waiting │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ add rate limiting to auth routes
- api       │    ● recently updated · 2m ago · not running
+ api       │    ● active · 2m ago · not running
  cli-tool  │    ▶ unfinished · Claude asked / proposed next
  docs      │    api · feat/limiter · 14 prompts
- ╌╌╌╌╌╌╌╌  │    tokens  in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K · aut…
- 🗄️ archiv │ recap: Limiter is in and tested; the Retry-After units need a
+ ╌╌╌╌╌╌╌╌  │    tokens in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K file
+ 🗄️ archi… │ recap: Limiter is in and tested; the Retry-After units need a
            │ decision. Your move.
            │ first: where did we get to with the limiter?
            │ last: use seconds, and document it
            │ reply: Added a token-bucket limiter; over-limit requests return 429
-           │ with a Retry-After .
+           │ with a Retry-After.
            │
            │ Want me to wire the same limiter into password reset?
            │
@@ -49,16 +49,16 @@
  ◆ waiting     1   1  │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ add rate limiting to auth routes
- api           2   2  │    ● recently updated · 2m ago · not running
+ api           2   2  │    ● active · 2m ago · not running
  cli-tool      2   2  │    ▶ unfinished · Claude asked / proposed next
  docs          ·   1  │    api · feat/limiter · 14 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K · auto-named
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K file · auto-named
  🗄️ archived   ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision.
                       │             Your move.
                       │      first  where did we get to with the limiter?
                       │       last  use seconds, and document it
                       │      reply  Added a token-bucket limiter; over-limit requests return 429 with a
-                      │             Retry-After .
+                      │             Retry-After.
                       │
                       │             Want me to wire the same limiter into password reset?
                       │
@@ -76,14 +76,14 @@
  ◆ waiting      1   1  │ 1/1 ●▶add rate limiting to auth routes│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ add rate limiting to auth routes
- api            2   2  │    ● recently updated · 2m ago · not running
+ api            2   2  │    ● active · 2m ago · not running
  cli-tool       2   2  │    ▶ unfinished · Claude asked / proposed next
  docs           ·   1  │    api · feat/limiter · 14 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K · auto-named
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 1.5k · out 21.3k · cache w 107k · r 1.6M · 13K file · auto-named
  🗄️ archived    ·   1  │      recap  Limiter is in and tested; the Retry-After units need a decision. Your move.
                        │      first  where did we get to with the limiter?
                        │       last  use seconds, and document it
-                       │      reply  Added a token-bucket limiter; over-limit requests return 429 with a Retry-After .
+                       │      reply  Added a token-bucket limiter; over-limit requests return 429 with a Retry-After.
                        │
                        │             Want me to wire the same limiter into password reset?
                        │
@@ -112,15 +112,15 @@
  ✗ text search failed · rg exited 2: permission denied
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 limiter▏  search in text · all se…
+ ⌂ everyt… │ 🔍 limiter▏  search in text · all se…
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 1/1 ●▶add rate limiting…│
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
  web-app   │ add rate limiting to auth routes
- api       │    ● recently updated · 2m ago
- cli-tool  │      not running
- docs      │    ▶ unfinished
- ╌╌╌╌╌╌╌╌  │      Claude asked / proposed next
+ api       │    ● active · 2m ago · not running
+ cli-tool  │    ▶ unfinished
+ docs      │      Claude asked / proposed next
+ ╌╌╌╌╌╌╌╌  │ reply: Added a token-bucket limiter;
  ✗ text search failed · rg exited 2: permission
  denied
 === 49x12 ===
@@ -128,12 +128,12 @@ window too small (need 50x12)
 ✗ text search failed · rg exited 2: permission d…
 ⌂ everything · 1/1
 ●▶add rate limiting to auth routes
-● recently updated · 2m ago · not running
+● active · 2m ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help ·…
 === 80x11 ===
 window too small (need 50x12)
 ✗ text search failed · rg exited 2: permission denied
 ⌂ everything · 1/1
 ●▶add rate limiting to auth routes
-● recently updated · 2m ago · not running
+● active · 2m ago · not running
 ◆ 1 waiting on you · ↑↓ ←→ · ↵ resume · ? help · esc quit

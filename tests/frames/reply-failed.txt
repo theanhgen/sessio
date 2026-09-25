@@ -1,15 +1,15 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 5/7 ‹3 ○▶ship the│○dark mode tokens│ +2›
+ ◆ waiting │ 5/7 ‹3 ○▶ship the…│○dark mode tokens│ +2›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
  web-app   │ dark mode tokens
  api       │    ○ recently updated · 15h ago · not running
  cli-tool  │    ✗ reply failed · Error: API overloaded, try…
  docs      │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌  │    tokens  in 2.4k · out 30.0k · cache w 140k…
- 🗄️ archiv │ recap: Found the cause and fixed it; the tests
+ ╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k ·…
+ 🗄️ archi… │ recap: Found the cause and fixed it; the tests
            │ pass. Nothing left.
            │ first: look at the failing test
            │ last: go ahead
@@ -19,16 +19,16 @@
  overloaded, try again later · your text is kept: ^r on it…
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 5/7 ‹3 ○▶ship the│○dark mode tokens│○copilot triage flaky│ +1›
+ ◆ waiting │ 5/7 ‹4 ○dark mode tokens│○copilot triage flaky…│ +1›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ dark mode tokens
  api       │    ○ recently updated · 15h ago · not running
- cli-tool  │    ✗ reply failed · Error: API overloaded, try again later · your…
+ cli-tool  │    ✗ reply failed · Error: API overloaded, try again later · ^r re…
  docs      │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌  │    tokens  in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K · aut…
- 🗄️ archiv │ recap: Found the cause and fixed it; the tests pass. Nothing left.
+ ╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file
+ 🗄️ archi… │ recap: Found the cause and fixed it; the tests pass. Nothing left.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both platforms.
@@ -44,15 +44,15 @@
  your text is kept: ^r on it to retry
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything  6   7  │ 🔍 ▏  type to filter
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 5/7 ‹3 ○▶ship the│○dark mode tokens│○copilot triage flaky│ +1›
+ ◆ waiting     1   1  │ 5/7 ‹3 ○▶ship the…│○dark mode tokens│○copilot triage flaky…│ +1›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ dark mode tokens
  api           2   2  │    ○ recently updated · 15h ago · not running
- cli-tool      2   2  │    ✗ reply failed · Error: API overloaded, try again later · your text is kept:…
+ cli-tool      2   2  │    ✗ reply failed · Error: API overloaded, try again later · ^r retries
  docs          ·   1  │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K · auto-named
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
  🗄️ archived   ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
                       │      first  look at the failing test
                       │       last  go ahead
@@ -71,15 +71,15 @@
  on it to retry
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything   6   7  │ 🔍 ▏  type to filter
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 5/7 ◆fix login│●▶add rate│◉refactor the│○▶ship the│○dark mode tokens│○copilot triage flaky│▶write onboarding│
+ ◆ waiting      1   1  │ 5/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the…│○dark mode tokens│○copilot triage flaky…│▶write onboarding…│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ dark mode tokens
  api            2   2  │    ○ recently updated · 15h ago · not running
- cli-tool       2   2  │    ✗ reply failed · Error: API overloaded, try again later · your text is kept: ^r to retry
+ cli-tool       2   2  │    ✗ reply failed · Error: API overloaded, try again later · ^r retries
  docs           ·   1  │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens  in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K · auto-named
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
  🗄️ archived    ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
                        │      first  look at the failing test
                        │       last  go ahead
@@ -112,7 +112,7 @@
  ✗ reply to "dark mode tokens" failed · Error: API overloaded, try again later · your text is kept: ^r on it to retry
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 5/7 ‹4 ○dark mode tokens│ +2›
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────

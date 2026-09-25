@@ -1,6 +1,6 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
  ◆ waiting │ 3/7 ‹2 ◉refactor the cache layer│ +4›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
@@ -9,7 +9,7 @@
  cli-tool  │        you  go ahead with the write-behind part
  docs      │     claude  Starting on the queue and its
  ╌╌╌╌╌╌╌╌  │             flush.
- 🗄️ archiv │       tool  Read, Edit, Bash
+ 🗄️ archi… │       tool  Read, Edit, Bash
            │     claude  The queue is in; the flush on
            │             shutdown is next.
            │
@@ -19,16 +19,16 @@
  stops it
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 3/7 ‹1 ●▶add rate│◉refactor the cache layer│○▶ship the│ +3›
+ ◆ waiting │ 3/7 ‹1 ●▶add rate…│◉refactor the cache layer│○▶ship the…│ +3›
  ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
  web-app   │ refactor the cache layer    ◉ following · pid 5120 · ttys004 · busy
  api       │    read-only tail · refreshes every 2s · ^t or any move stops foll…
  cli-tool  │        you  go ahead with the write-behind part
  docs      │     claude  Starting on the queue and its flush.
  ╌╌╌╌╌╌╌╌  │       tool  Read, Edit, Bash
- 🗄️ archiv │     claude  The queue is in; the flush on shutdown is next.
+ 🗄️ archi… │     claude  The queue is in; the flush on shutdown is next.
            │
            │
            │
@@ -44,9 +44,9 @@
  following "refactor the cache layer" — read-only · any move stops it
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything  6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything  6   7  │ 🔍 ▏  type to filter
  ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 3/7 ‹1 ●▶add rate│◉refactor the cache layer│○▶ship the│○dark mode│ +2›
+ ◆ waiting     1   1  │ 3/7 ‹1 ●▶add rate…│◉refactor the cache layer│○▶ship the…│○dark mode…│ +2›
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
  web-app       2   2  │ refactor the cache layer                 ◉ following · pid 5120 · ttys004 · busy
  api           2   2  │    read-only tail · refreshes every 2s · ^t or any move stops following
@@ -71,9 +71,9 @@
  following "refactor the cache layer" — read-only · any move stops it
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^t unfollow · ^g issues · ◆ 1 waiting on you · ? help · esc quit
- ⌂ everything   6   7  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything   6   7  │ 🔍 ▏  type to filter
  ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 3/7 ◆fix login│●▶add rate│◉refactor the cache layer│○▶ship the│○dark mode│○copilot triage flaky│▶write onboarding│
+ ◆ waiting      1   1  │ 3/7 ◆fix login…│●▶add rate…│◉refactor the cache layer│○▶ship the…│○dark mode…│○copilot triage flaky…│▶write onboarding…│
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  web-app        2   2  │ refactor the cache layer                                                                        ◉ following · pid 5120 · ttys004 · busy
  api            2   2  │    read-only tail · refreshes every 2s · ^t or any move stops following
@@ -112,7 +112,7 @@
  following "refactor the cache layer" — read-only · any move stops it
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
  ◆ waiting │ 3/7 ‹2 ◉refactor the cache…│ +4›
  ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────

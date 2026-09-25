@@ -522,7 +522,7 @@ impl App {
         if self.items[i].source != Source::Claude {
             // `claude -p --resume` is the only headless turn there is; Copilot has no equivalent
             // sessio drives.
-            self.say(Tone::Warning, format!("{who} is a Copilot session — reply is Claude-only · ↵ resumes it"));
+            self.say(Tone::Warning, format!("{who} is a Copilot session: ^r is Claude-only · ↵ resumes"));
         } else if let Some(live) = self.live.get(&id) {
             // The guard ↵ already uses: there is no safe way to put text into the stdin of a
             // `claude` someone is sitting in front of.
@@ -1789,6 +1789,11 @@ fn clip(line: Line<'static>, w: usize) -> Line<'static> {
     Line::from(out)
 }
 
+/// `clip` for a plain string: `s` cut to `w` columns, ending in `…` when anything was lost.
+fn clip_str(s: &str, w: usize) -> String {
+    clip(Line::raw(s.to_string()), w).spans.iter().map(|sp| sp.content.as_ref()).collect()
+}
+
 /// One hint in the key bar. `p` is how expendable it is: the bar sheds the highest `p` first.
 struct Seg {
     p: u8,
@@ -1831,34 +1836,44 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     // The panel takes columns off this bar, enough at some widths to lose `^f`, `^a` and `live`.
     // So it also takes the `↑↓` hint off it: the panel labels that key itself, right above the
     // column it moves through, which is a better place for it than a bar of ten hints.
-    let mut segs: Vec<Seg> =
-        vec![Seg { p: 3, t: Cow::Borrowed("←→ session"), accent: false }, Seg { p: 4, t: Cow::Borrowed("type"), accent: false }];
+    // Keys that act on a session are offered only when there is one to act on, as `^k` is.
+    let sel = app.selected().map(|i| &app.items[i]);
+    let mut segs: Vec<Seg> = Vec::new();
+    if sel.is_some() {
+        segs.push(Seg { p: 3, t: Cow::Borrowed("←→ session"), accent: false });
+    }
+    segs.push(Seg { p: 4, t: Cow::Borrowed("type"), accent: false });
     if rg_found() {
         segs.push(Seg { p: 5, t: Cow::Borrowed("^f search-in-text"), accent: false });
     }
-    segs.push(if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
-        Seg { p: 5, t: Cow::Borrowed("^a unarchive"), accent: false }
-    } else {
-        Seg { p: 5, t: Cow::Borrowed("^a archive"), accent: false }
-    });
-    segs.push(if app.expand {
-        Seg { p: 4, t: Cow::Borrowed("⇥ collapse"), accent: true }
-    } else {
-        Seg { p: 4, t: Cow::Borrowed("⇥ expand-reply"), accent: false }
-    });
-    if ghostty() {
+    if sel.is_some() {
+        segs.push(if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
+            Seg { p: 5, t: Cow::Borrowed("^a unarchive"), accent: false }
+        } else {
+            Seg { p: 5, t: Cow::Borrowed("^a archive"), accent: false }
+        });
+        segs.push(if app.expand {
+            Seg { p: 4, t: Cow::Borrowed("⇥ collapse"), accent: true }
+        } else {
+            Seg { p: 4, t: Cow::Borrowed("⇥ expand-reply"), accent: false }
+        });
         segs.push(Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false });
-        segs.push(Seg { p: 2, t: Cow::Borrowed("^o new-window"), accent: false });
-    } else {
-        segs.push(Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false });
+        if ghostty() {
+            segs.push(Seg { p: 2, t: Cow::Borrowed("^o new-window"), accent: false });
+        }
     }
-    segs.push(Seg { p: 2, t: Cow::Borrowed("^r reply"), accent: false });
-    segs.push(if app.follow.is_some() {
-        Seg { p: 4, t: Cow::Borrowed("^t unfollow"), accent: true }
-    } else {
-        Seg { p: 5, t: Cow::Borrowed("^t follow"), accent: false }
-    });
-    segs.push(Seg { p: 4, t: Cow::Borrowed("^g issues"), accent: false });
+    // Claude only: a Copilot session refuses `^r`.
+    if sel.is_some_and(|it| it.source == Source::Claude) {
+        segs.push(Seg { p: 2, t: Cow::Borrowed("^r reply"), accent: false });
+    }
+    if app.follow.is_some() {
+        segs.push(Seg { p: 4, t: Cow::Borrowed("^t unfollow"), accent: true });
+    } else if sel.is_some() {
+        segs.push(Seg { p: 5, t: Cow::Borrowed("^t follow"), accent: false });
+    }
+    if sel.is_some() {
+        segs.push(Seg { p: 4, t: Cow::Borrowed("^g issues"), accent: false });
+    }
     // Only offered when it would do something: most sessions are not running, and of the ones
     // that are, few have sat for two days.
     let stale = app.selected().is_some_and(|i| {
@@ -1987,14 +2002,16 @@ fn side_panel(app: &App, w: usize, rows: usize) -> Vec<Line<'static>> {
             Some((a, b)) => {
                 let (day, all) = app.tab_counts(name, now);
                 let day = if day == 0 { "·".to_string() } else { day.to_string() };
+                // Cut with `…`, as every other region cuts a row, so a clipped name says so.
+                let room = w - counts_w;
                 format!(
                     "{}{day:>a$} {all:>b$} ",
-                    fit_width(&format!(" {}", sanitize(name)), w - counts_w),
+                    fit_width(&clip_str(&format!(" {}", sanitize(name)), room), room),
                     a = a.max(3),
                     b = b.max(3),
                 )
             }
-            None => format!(" {}", sanitize(name)),
+            None => clip_str(&format!(" {}", sanitize(name)), w),
         };
         lines.push(Line::from(Span::styled(fit_width(&text, w), style)));
     }
@@ -2074,18 +2091,20 @@ fn query_line(app: &App, state: &QueryState) -> Line<'static> {
     ];
     let tab = sanitize(app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str));
     let plural = |n: usize| if n == 1 { "" } else { "es" };
+    // A filter covers the selected tab, which the context row under this one already names, so
+    // it is not said again here. Empty, the row says what typing does.
     let (scope, found): (String, Option<(String, Style)>) = match state {
-        QueryState::NoSessions | QueryState::Browse => (format!("filter · {tab}"), None),
+        QueryState::NoSessions | QueryState::Browse => ("type to filter".into(), None),
         QueryState::Filter { n: 0, .. } => {
-            (format!("filter · {tab}"), Some(("no matches".into(), theme::attention())))
+            ("filter".into(), Some(("no matches".into(), theme::attention())))
         }
         QueryState::Filter { n, fuzzy: false } => {
-            (format!("filter · {tab}"), Some((format!("{n} match{}", plural(*n)), theme::text())))
+            ("filter".into(), Some((format!("{n} match{}", plural(*n)), theme::text())))
         }
         // Nothing contained the query as typed, so these only spell it out in order: say so,
         // rather than let a loose match pass for an exact one.
         QueryState::Filter { n, fuzzy: true } => (
-            format!("filter · {tab}"),
+            "filter".into(),
             Some((format!("{n} fuzzy match{} · none exact", plural(*n)), dim())),
         ),
         QueryState::Searching => {
@@ -2208,8 +2227,13 @@ fn context_line(app: &App, sel: Option<usize>, cols: usize) -> Line<'static> {
         }
     };
     let room = cols.saturating_sub(name_w + counts_w + SEP_W);
+    // A folder cut into its own last name reads as the project's name cut from the front, and
+    // repeats what leads the row: only a cut that keeps `…/<folder>` whole is worth showing.
+    let fits = UnicodeWidthStr::width(place.as_str()) <= room
+        || tab_group(tab) != 1
+        || UnicodeWidthStr::width(place.rsplit('/').next().unwrap_or("")) + 2 <= room;
     // A place cut to a handful of columns says nothing; leave it off instead.
-    if !place.is_empty() && room >= 8 {
+    if !place.is_empty() && room >= 8 && fits {
         spans.push(Span::styled(format!("{SEP}{}", fit_left(&place, room)), dim()));
     }
     Line::from(spans)
@@ -2319,13 +2343,18 @@ fn first_words(s: &str, n: usize) -> String {
 }
 
 /// What a tab says: the whole title when it is the one in focus, two words when it is not. So
-/// the tab you are reading is legible and the rest are just enough to steer by.
+/// the tab you are reading is legible and the rest are just enough to steer by. A title cut to
+/// its two words ends in `…`. The `copilot` tag is a mark of its own, not one of the words.
 fn tab_label(it: &Item, active: bool) -> String {
     let name = sanitize(it.display_name());
     if active {
-        name
+        return name;
+    }
+    let short = first_words(&name, 2);
+    if name.split_whitespace().nth(2).is_some() {
+        format!("{short}…")
     } else {
-        first_words(&name, 2)
+        short
     }
 }
 
@@ -2540,11 +2569,13 @@ fn preview(
 
     // A reply you sent here: on its way until it lands, or failed with your text kept. Right under
     // the state, and never shed, so it is there whenever you come back to this session.
+    // Short states: the feedback row says the rest while it lasts. A failure keeps its reason here,
+    // the one place it outlives the flash.
     if let Some(body) = app.sending.get(&it.id) {
-        let note = format!("{SENDING_MARK} sending your reply \"{}\" · the answer lands here", first_words(&sanitize(body), 6));
+        let note = format!("{SENDING_MARK} sending \"{}\"", first_words(&sanitize(body), 6));
         parts.push(Part { id: "reply sending", shed: None, lines: vec![fact(Span::styled(note, Tone::Pending.style()))] });
     } else if let Some((_, why)) = app.failed.get(&it.id) {
-        let note = format!("{}reply failed · {} · your text is kept: ^r to retry", Tone::Error.mark(), sanitize(why));
+        let note = format!("{}reply failed · {} · ^r retries", Tone::Error.mark(), sanitize(why));
         parts.push(Part { id: "reply failed", shed: None, lines: vec![fact(Span::styled(note, Tone::Error.style()))] });
     }
 
@@ -2589,9 +2620,13 @@ fn preview(
         .detail
         .as_ref()
         .and_then(|d| d.tokens.as_ref())
-        .map(|t| format!("tokens  {} · ", tokens_fmt(t)))
+        .map(|t| format!("tokens {} · ", tokens_fmt(t)))
         .unwrap_or_default();
-    let about = format!("{tokens}{} · {kind}", size_fmt(it.size));
+    // Whether it was named is the least of these: it goes before the row is cut.
+    let mut about = format!("{tokens}{} file · {kind}", size_fmt(it.size));
+    if STATE_INDENT + UnicodeWidthStr::width(about.as_str()) > w {
+        about = format!("{tokens}{} file", size_fmt(it.size));
+    }
     parts.push(Part { id: "about", shed: Some(1), lines: vec![fact(Span::styled(about, dim()))] });
 
     let detail = it.detail.as_ref();
@@ -2670,6 +2705,9 @@ fn preview(
     // except the recap's first rows, which say whose move it is: the reply goes down to one line
     // and its indicator before they do.
     let room = rows.saturating_sub(lines.len());
+    // One line and its indicator, plus the `reply: ↑ N lines above` row a scrolled inline window
+    // opens on.
+    let reply_floor = 2 + usize::from(labels == Labels::Inline && app.reply_top(&it.key) > 0);
     loop {
         let used: usize = parts.iter().map(|p| p.lines.len()).sum();
         if used + reply_need <= room {
@@ -2681,7 +2719,7 @@ fn preview(
             .filter_map(|(n, p)| p.shed.map(|s| (n, s)))
             .min_by_key(|&(_, s)| s);
         match shed {
-            Some((_, s)) if s >= RECAP_KEEP && reply_need > 2 => reply_need = 2,
+            Some((_, s)) if s >= RECAP_KEEP && reply_need > reply_floor => reply_need = reply_floor,
             Some((n, _)) => {
                 parts.remove(n);
             }
@@ -2875,8 +2913,8 @@ type StateSeg = (String, Style);
 const STATE_INDENT: usize = 3;
 
 /// The highlighted session's state, lead first. Exactly one of: `◆ waiting on you` (and what for),
-/// `◉ running` (busy / idle, or stale and for how long), `● recently updated` / `○ recently
-/// updated` (how long ago, and that nothing is attached), or `not running` — then the pid and
+/// `◉ running` (busy / idle, or stale and for how long), `● active` / `○ recently updated` (how
+/// long ago, and that nothing is attached), or `not running` — then the pid and
 /// tty of a running one. Process presence and transcript recency stay apart: a session written a
 /// minute ago with no `claude` attached says `not running`, however fresh it is.
 ///
@@ -2888,7 +2926,9 @@ fn state_segments(app: &App, it: &Item, now: i64) -> Vec<StateSeg> {
         let age = now - it.mtime;
         let ago = format!("{} ago", ago(it.mtime));
         if age < ACTIVE_MS {
-            v.push(("● recently updated".into(), theme::running()));
+            // `active`, not `recently updated`: it shares `◉`'s green, and must not read as `○`'s
+            // sibling in words either.
+            v.push(("● active".into(), theme::running()));
             v.push((ago, dim()));
         } else if age < RECENT_MS {
             v.push(("○ recently updated".into(), theme::recent()));
@@ -3451,7 +3491,9 @@ mod tests {
     fn the_query_row_names_the_mode_the_scope_and_the_count() {
         let mut app = fixture(&real_tabs());
         let idle = query_row(&mut app, 136, 26);
-        assert!(idle.contains(&format!("filter · {ALL_TAB}")), "{idle:?}");
+        assert!(idle.contains("type to filter"), "{idle:?}");
+        // The context row under it names the tab; this row does not repeat it.
+        assert!(!idle.split(SEARCH_ICON).nth(1).unwrap().contains(ALL_TAB), "{idle:?}");
 
         app.q = "session".into();
         let lit = query_row(&mut app, 136, 26);
@@ -3463,10 +3505,10 @@ mod tests {
         let fz = query_row(&mut app, 136, 26);
         assert!(fz.contains("fuzzy match") && fz.contains("none exact"), "{fz:?}");
 
-        // The scope follows the tab.
+        // The scope is the tab's, named once, on the context row.
         app.q.clear();
         app.p_idx = app.tabs.iter().position(|t| t == "sessio").unwrap();
-        assert!(query_row(&mut app, 136, 26).contains("filter · sessio"));
+        assert!(!query_row(&mut app, 136, 26).split(SEARCH_ICON).nth(1).unwrap().contains("sessio"));
 
         app.p_idx = 0;
         with_text_results(&mut app, "session", &["key1", "key2"]);
@@ -4103,8 +4145,16 @@ mod tests {
         // Its neighbour is the same title, cut to two words.
         let neighbour = app.items[view[3]].display_name().to_string();
         let two = first_words(&neighbour, 2);
-        assert!(text.contains(&two), "an idle tab keeps two words: {text:?}");
+        assert!(text.contains(&format!("{two}…│")), "an idle tab keeps two words and says so: {text:?}");
         assert!(!text.contains(&neighbour), "but not the whole title: {text:?}");
+
+        // A title of two words or fewer is whole, so it has no `…`; the `copilot` tag is not a word.
+        let mut short = app.items[view[3]].clone();
+        short.name = "two words".into();
+        assert_eq!(tab_label(&short, false), "two words");
+        short.source = Source::Copilot;
+        short.name = "triage flaky CI job".into();
+        assert_eq!(tab_label(&short, false), "triage flaky…");
     }
 
     /// Moving focus re-sizes both tabs, and costs nothing below the strip.
@@ -4338,7 +4388,7 @@ mod tests {
         app.items[i].source = Source::Copilot;
         app.begin_reply();
         assert!(app.draft.is_none());
-        assert!(app.flash.contains("reply is Claude-only"), "{:?}", app.flash);
+        assert!(app.flash.contains("^r is Claude-only"), "{:?}", app.flash);
     }
 
     /// `^k` only knows how to find and check a running `claude`; a Copilot session says so.
@@ -5137,7 +5187,7 @@ mod tests {
         // Written two minutes ago, nothing attached: fresh, and still not running.
         let mut app = base();
         app.items[0].mtime = model::now_ms() - 2 * 60_000;
-        v.push(("recent, not running", app, "● recently updated · 2m ago · not running", None));
+        v.push(("recent, not running", app, "● active · 2m ago · not running", None));
 
         let mut app = base();
         app.items[0].mtime = model::now_ms() - 3 * 3_600_000;
@@ -5217,6 +5267,29 @@ mod tests {
             assert_eq!(before, after, "{what}");
             assert_eq!(tabs, app.tabs_now(), "{what}");
         }
+    }
+
+    /// The bar offers a key only when it would act: nothing to move to, resume or reply to with
+    /// no session, and no `^r` on a Copilot session.
+    #[test]
+    fn the_key_bar_offers_only_keys_that_can_act() {
+        let mut app = fixture(&real_tabs());
+        let bar = |app: &App| -> String { header(app, 400).spans.iter().map(|s| s.content.as_ref()).collect() };
+        let claude = bar(&app);
+        for k in ["←→ session", "↵ resume", "^r reply"] {
+            assert!(claude.contains(k), "{k}: {claude}");
+        }
+        let i = app.selected().unwrap();
+        app.items[i].source = Source::Copilot;
+        let copilot = bar(&app);
+        assert!(!copilot.contains("^r reply") && copilot.contains("↵ resume"), "{copilot}");
+
+        app.items.clear();
+        let none = bar(&app);
+        for k in ["←→ session", "↵ resume", "^o new-window", "^r reply", "^a archive", "⇥ expand-reply", "^t follow", "^g issues"] {
+            assert!(!none.contains(k), "{k}: {none}");
+        }
+        assert!(none.contains("? help"), "{none}");
     }
 
     /// The bar counts exactly, the count is what the `◆ waiting` tab holds, and it survives the
@@ -5477,7 +5550,7 @@ mod tests {
             at(app.items[0].display_name()),
             at("not running"),
             at("lifelab · main · 5 prompts"),
-            at("tokens  in 10"),
+            at("tokens in 10"),
             at("recap  Goal"),
             at("first  first prompt"),
             at("last  use seconds"),
@@ -5485,7 +5558,7 @@ mod tests {
         ];
         assert!(order.windows(2).all(|p| p[0] < p[1]), "{order:?}\n{}", rows.join("\n"));
         // File size and naming sit with the token totals, below where the session is.
-        assert!(rows[at("tokens")].contains("1K · unnamed"), "{rows:?}");
+        assert!(rows[at("tokens")].contains("1K file · unnamed"), "{rows:?}");
     }
 
     #[test]
@@ -5613,19 +5686,20 @@ mod tests {
         let marks: String = tab_marks(&app, &it, None).iter().map(|s| s.content.to_string()).collect();
         assert!(marks.contains(SENDING_MARK), "{marks:?}");
         let body = |app: &mut App| frame(app, 140, 30).join("\n");
-        assert!(body(&mut app).contains("sending your reply \"use seconds\""));
+        let note = "sending \"use seconds\"";
+        assert!(body(&mut app).contains(note));
 
         app.step_session(1);
         let f = body(&mut app);
         assert!(f.contains(SENDING_MARK), "still on its tab from the next one:\n{f}");
-        assert!(!f.contains("sending your reply"), "the preview is the other session's");
+        assert!(!f.contains(note), "the preview is the other session's");
         app.step_session(-1);
-        assert!(body(&mut app).contains("sending your reply"), "and back again");
+        assert!(body(&mut app).contains(note), "and back again");
         app.flash.clear();
 
         app.on_replied(&key, &id, &job.title, job.body, true, "done");
         let f = body(&mut app);
-        assert!(!f.contains(SENDING_MARK) && !f.contains("sending your reply"), "{f}");
+        assert!(!f.contains(SENDING_MARK) && !f.contains(note), "{f}");
     }
 
     /// One reply at a time per session: neither a second send nor a new composer while one is on
@@ -5658,7 +5732,7 @@ mod tests {
         assert!(app.flash.contains("^r"), "says how to get it back: {:?}", app.flash);
         assert!(app.sending.is_empty(), "not resent");
         let f = frame(&mut app, 140, 30).join("\n");
-        assert!(f.contains("✗ reply failed") && f.contains("your text is kept"), "{f}");
+        assert!(f.contains("✗ reply failed") && f.contains("^r retries"), "{f}");
 
         // Moving about and a refresh's worth of time change nothing.
         app.step_session(1);
@@ -6129,9 +6203,9 @@ pub mod demo {
         app
     }
 
-    /// A role colour as the page draws it: the xterm-256 value `theme::rgb` gives, as hex.
+    /// A role colour as the page draws it: the value `theme::demo_rgb` gives, as hex.
     fn css(c: ratatui::style::Color) -> Option<String> {
-        theme::rgb(c).map(|(r, g, b)| format!("#{r:02x}{g:02x}{b:02x}"))
+        theme::demo_rgb(c).map(|(r, g, b)| format!("#{r:02x}{g:02x}{b:02x}"))
     }
 
     fn escape(s: &str) -> String {

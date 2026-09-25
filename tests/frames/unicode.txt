@@ -1,12 +1,12 @@
 === 60x18 ===
  projects  │ ↵ resume · ^r reply · ? help · esc quit
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 4 sessions · 4 in 24h · …project
  ╌╌╌╌╌╌╌╌  │ 3/4 ‹2 ●修复登录重定向循环 🔁 認証モ…│ +1›
  web-app   │ ───────────────────────────────────────────────
  api       │ 修复登录重定向循环 🔁 認証モジュールの長いタイ…
- 日本語-プ │    ● recently updated · 3m ago · not running
- emoji-🚀- │    日本語-プロジェクト-とても長い名前 · feat/…
+ 日本語-…  │    ● active · 3m ago · not running
+ emoji-🚀… │    日本語-プロジェクト-とても長い名前 · feat/…
            │ recap:
            │ 認証ミドルウェアのループを修正しました。テスト
            │ は通っています。
@@ -19,14 +19,14 @@
 
 === 80x24 ===
  projects  │ ←→ session · ↵ resume · ^r reply · ? help · esc quit
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 4 sessions · 4 in 24h · every project
  ╌╌╌╌╌╌╌╌  │ 3/4 ‹2 ●修复登录重定向循环 🔁 認証モジュールの長い…│ +1›
  web-app   │ ───────────────────────────────────────────────────────────────────
  api       │ 修复登录重定向循环 🔁 認証モジュールの長いタイトル
- 日本語-プ │    ● recently updated · 3m ago · not running
- emoji-🚀- │    日本語-プロジェクト-とても長い名前 · feat/認証-🔁-リダイレクト…
-           │    tokens  in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K · aut…
+ 日本語-…  │    ● active · 3m ago · not running
+ emoji-🚀… │    日本語-プロジェクト-とても長い名前 · feat/認証-🔁-リダイレクト…
+           │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file
            │ recap:
            │ 認証ミドルウェアのループを修正しました。テストは通っています。
            │ first: ログインのリダイレクトが止まらない 🔁
@@ -44,14 +44,14 @@
 
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ? help · esc quit
- ⌂ everything  4   4  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything  4   4  │ 🔍 ▏  type to filter
  ⏸ open        1   1  │ ⌂ everything · 4 sessions · 4 in 24h · every project
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ 3/4 ‹2 ●修复登录重定向循环 🔁 認証モジュールの長い…│○🚀🚀🚀 ship│
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ 3/4 ‹2 ●修复登录重定向循环 🔁 認証モジュールの長い…│○🚀🚀🚀 ship…│
  web-app       1   1  │ ────────────────────────────────────────────────────────────────────────────────
  api           1   1  │ 修复登录重定向循环 🔁 認証モジュールの長いタイトル
- 日本語-プロ   1   1  │    ● recently updated · 3m ago · not running
- emoji-🚀-lau  1   1  │    日本語-プロジェクト-とても長い名前 · feat/認証-🔁-リダイレクト · 6 prompts
-                      │    tokens  in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K · auto-named
+ 日本語-プロ…  1   1  │    ● active · 3m ago · not running
+ emoji-🚀-la…  1   1  │    日本語-プロジェクト-とても長い名前 · feat/認証-🔁-リダイレクト · 6 prompts
+                      │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file · auto-named
                       │      recap  認証ミドルウェアのループを修正しました。テストは通っています。
                       │      first  ログインのリダイレクトが止まらない 🔁
                       │       last  go ahead
@@ -71,14 +71,14 @@
 
 === 160x40 ===
  ↑↓ projects          24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ? help · esc quit
- ⌂ everything           4   4  │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everything           4   4  │ 🔍 ▏  type to filter
  ⏸ open                 1   1  │ ⌂ everything · 4 sessions · 4 in 24h · every project
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ 3/4 ●fix login│●▶add rate│●修复登录重定向循环 🔁 認証モジュールの長い…│○🚀🚀🚀 ship│
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ 3/4 ●fix login…│●▶add rate…│●修复登录重定向循环 🔁 認証モジュールの長い…│○🚀🚀🚀 ship…│
  web-app                1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  api                    1   1  │ 修复登录重定向循环 🔁 認証モジュールの長いタイトル
- 日本語-プロジェクト-   1   1  │    ● recently updated · 3m ago · not running
+ 日本語-プロジェクト-…  1   1  │    ● active · 3m ago · not running
  emoji-🚀-launch        1   1  │    日本語-プロジェクト-とても長い名前 · feat/認証-🔁-リダイレクト · 6 prompts
-                               │    tokens  in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K · auto-named
+                               │    tokens in 1.8k · out 24.2k · cache w 118k · r 1.9M · 18K file · auto-named
                                │      recap  認証ミドルウェアのループを修正しました。テストは通っています。
                                │      first  ログインのリダイレクトが止まらない 🔁
                                │       last  go ahead
@@ -112,26 +112,26 @@
 
 === 50x12 ===
  projects  │ ↵ resume · ? help
- ⌂ everyth │ 🔍 ▏  filter · ⌂ everything
+ ⌂ everyt… │ 🔍 ▏  type to filter
  ⏸ open    │ ⌂ everything · 4 sessions · 4 in 24h
  ╌╌╌╌╌╌╌╌  │ 3/4 ‹2 ●修复登录重定向循环…│ +1›
  web-app   │ ─────────────────────────────────────
  api       │ 修复登录重定向循环 🔁 認証モジュール…
- 日本語-プ │    ● recently updated · 3m ago
- emoji-🚀- │      not running
+ 日本語-…  │    ● active · 3m ago · not running
+ emoji-🚀… │ recap:
+           │ 認証ミドルウェアのループを修正しまし…
            │ reply: 修正しました 🎉
-           │
-           │ ↓ 4 more lines · PgDn scrolls
+           │ ↓ 5 more lines · PgDn scrolls
 
 === 49x12 ===
 window too small (need 50x12)
 ⌂ everything · 3/4
 ●修复登录重定向循环 🔁 認証モジュールの長いタイ…
-● recently updated · 3m ago · not running
+● active · 3m ago · not running
 ↑↓ ←→ · ↵ resume · ? help · esc quit
 === 80x11 ===
 window too small (need 50x12)
 ⌂ everything · 3/4
 ●修复登录重定向循环 🔁 認証モジュールの長いタイトル
-● recently updated · 3m ago · not running
+● active · 3m ago · not running
 ↑↓ ←→ · ↵ resume · ? help · esc quit
