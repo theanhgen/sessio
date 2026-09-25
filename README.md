@@ -7,11 +7,11 @@
 
 # sessio
 
-**Find and resume your past [Claude Code](https://claude.com/claude-code) sessions from the terminal.**
+**Find the coding-agent session you left, and pick it back up — [Claude Code](https://claude.com/claude-code) and [GitHub Copilot CLI](https://github.com/features/copilot/cli), from the terminal.**
 
 🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
 
-`sessio` is a fast, self-contained TUI that reads your local Claude Code transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Every one of those is also a plain command (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `kill`) with `--json` for scripts and agents, and an [agent skill](#agent-skill) ships with it.
+`sessio` is a fast, self-contained TUI that reads your local Claude Code and Copilot CLI transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Every one of those is also a plain command (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `kill`) with `--json` for scripts and agents, and an [agent skill](#agent-skill) ships with it.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
@@ -165,7 +165,7 @@ to run rather than changing the checkout itself.
 
 - **Node.js ≥ 16** — only to install from npm. sessio itself is a native binary with no runtime
   dependencies; `cargo install` and the prebuilt archives don't need node at all.
-- **Claude Code** installed, with a `claude` binary on your PATH (used to resume)
+- **Claude Code** or **GitHub Copilot CLI**, with `claude` or `copilot` on your PATH (used to resume)
 - **ripgrep** (optional) for `^f` full-text search
 - **terminal-notifier** (optional, macOS) so a click on a waiting notification opens that session's window
 - macOS or Linux

@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sessio — find and continue your Claude Code sessions</title>
-<meta name="description" content="Find the Claude Code session you left, see where it stopped, and pick it back up in the right folder. A terminal dashboard plus a CLI with --json for scripts and agents.">
+<title>sessio — find and continue your coding-agent sessions</title>
+<meta name="description" content="Find the Claude Code or Copilot CLI session you left, see where it stopped, and pick it back up in the right folder. A terminal dashboard plus a CLI with --json for scripts and agents.">
 <meta property="og:title" content="sessio">
-<meta property="og:description" content="Find the Claude Code session you left, see where it stopped, and pick it back up.">
+<meta property="og:description" content="Find the coding-agent session you left, see where it stopped, and pick it back up.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://theanhgen.github.io/sessio/brand/social.png">
 <meta property="og:image:width" content="1200">
@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="brand/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;family=Fira+Code:wght@400;700&amp;display=swap">
 <style>
   /* Colour roles: the same names src/theme.rs uses, defined in docs/DESIGN.md with their contrast
      ratios. Everything coloured on this page is carrying a role, not decorating. */
@@ -116,7 +116,10 @@
   .term-bar .state{font-family:var(--mono);font-size:12.5px;color:var(--dim)}
   .term.active .term-bar .state{color:var(--running)}
   .term-bar .btn{margin-left:auto;padding:6px 12px;font-size:13.5px}
-  #screen{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.45;
+  /* Fira Code draws every status mark (◆ ◉ ● ○ ▶ ⌂) itself, one size, centred on the lowercase
+     letters, as a terminal font does; the system monospace has none of them, and the fallbacks it
+     borrows them from disagree on size and height. Ligatures off: a terminal has none. */
+  #screen{margin:0;padding:12px 14px;font-family:"Fira Code",var(--mono);font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0;font-size:12.5px;line-height:1.45;
     overflow-x:auto;color:var(--text);background:var(--surface-raised);white-space:pre;min-height:22em;
     border-radius:0 0 var(--radius) var(--radius)}
   /* Every non-ASCII glyph comes boxed to its terminal cells (demo::render): the fallback fonts
@@ -203,8 +206,8 @@
 
   <main id="top">
   <header>
-    <p class="kicker">sessio · for Claude Code</p>
-    <h1>Find the Claude Code session you left, and <span class="u">pick it back up</span>.</h1>
+    <p class="kicker">sessio · for Claude Code and Copilot CLI</p>
+    <h1>Find the coding-agent session you left, and <span class="u">pick it back up</span>.</h1>
     <p class="tagline">A terminal dashboard of every session on your machine: what each one was, where it stopped, whether it is waiting on you — and one key to resume it in the folder it ran in.</p>
 
     <div class="install" id="install">
@@ -387,7 +390,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
     <div class="two">
       <div>
         <ul class="plain">
-          <li><b>Claude Code</b>, with the <code>claude</code> binary on your PATH — it is what sessio resumes.</li>
+          <li><b>Claude Code or GitHub Copilot CLI</b>, with <code>claude</code> or <code>copilot</code> on your PATH — it is what sessio resumes.</li>
           <li><b>macOS or Linux.</b></li>
           <li><b>Node.js ≥ 16</b>, only to install from npm. sessio is a native binary; <code>cargo install</code> needs no Node at all.</li>
         </ul>

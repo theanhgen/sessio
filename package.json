@@ -1,7 +1,7 @@
 {
   "name": "sessio",
   "version": "1.2.0",
-  "description": "Interactive terminal browser to find and resume past Claude Code sessions.",
+  "description": "Interactive terminal browser to find and resume past coding-agent sessions (Claude Code, GitHub Copilot CLI).",
   "keywords": [
     "claude",
     "claude-code",
