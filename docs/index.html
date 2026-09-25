@@ -111,7 +111,10 @@
   .term{background:var(--surface-raised);border:1px solid var(--rule);border-radius:var(--radius);
     overflow:hidden;box-shadow:0 30px 80px -30px var(--shadow);text-align:left;color:var(--text)}
   .term-bar{display:flex;align-items:center;gap:8px 10px;padding:9px 12px;background:var(--surface-sunken);border-bottom:1px solid var(--rule);flex-wrap:wrap}
-  .term-bar .b{width:11px;height:11px;border-radius:50%;background:#3a4048;flex:none}
+  .term-bar .b{width:12px;height:12px;border-radius:50%;background:#3a4048;flex:none;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)}
+  .term-bar .b:nth-of-type(1){background:#ff5f57}
+  .term-bar .b:nth-of-type(2){background:#febc2e}
+  .term-bar .b:nth-of-type(3){background:#28c840}
   .term-bar .t{margin-left:6px;font-family:var(--mono);font-size:12.5px;color:var(--dim)}
   .term-bar .state{font-family:var(--mono);font-size:12.5px;color:var(--dim)}
   .term.active .term-bar .state{color:var(--running)}
@@ -127,7 +130,9 @@
   #screen .c1,#screen .c2{display:inline-block;overflow:visible;text-align:center}
   #screen .c1{width:1ch}
   #screen .c2{width:2ch}
-  #screen:focus{outline:2px solid var(--accent);outline-offset:-3px}
+  /* While the demo has the keyboard the whole window wears the ring, title bar included. */
+  #screen:focus{outline:none}
+  .term.active{outline:2px solid var(--accent);outline-offset:3px}
   .demo-help{color:var(--dim);font-size:14.5px;margin:14px 0 0;max-width:760px}
   .demo-help kbd{font-size:12px}
   .demo-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
