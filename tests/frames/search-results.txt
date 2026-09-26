@@ -1,16 +1,16 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 limiter▏  search in text · all sessions · 2…
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 1/2 ◆fix login redirect loop│●▶add rate…│
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
- web-app   │ fix login redirect loop
- api       │    ◆ waiting on you · input needed · pid 4242
- cli-tool  │      ttys009
- docs      │    web-app · main · 9 prompts
- ╌╌╌╌╌╌╌╌  │    ✓ contains "limiter"
- 🗄️ archi… │ recap: Found the loop in the expiry middleware.
-           │ Waiting on permission to run the test suite.
+ ⏸ open    │ 1/2 ◆fix login redirect loop│●▶add rate…│
+ ◆ waiting │ ───────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ fix login redirect loop
+ web-app   │    ◆ waiting on you · input needed · pid 4242
+ api       │      ttys009
+ cli-tool  │    web-app · main · 9 prompts
+ docs      │    ✓ contains "limiter"
+ ╌╌╌╌╌╌╌╌  │ recap: Found the loop in the expiry middleware.
+ 🗄️ archi… │ Waiting on permission to run the test suite.
+           │ first: look at the failing test
            │ last: go ahead
            │ reply: The loop is in middleware/session.ts: an
            │ expired session redirects to /login, which sits
@@ -20,16 +20,15 @@
 === 80x24 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 limiter▏  search in text · all sessions · 2 matches
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 1/2 ◆fix login redirect loop│●▶add rate…│
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
- web-app   │ fix login redirect loop
- api       │    ◆ waiting on you · input needed · pid 4242 · ttys009
- cli-tool  │    web-app · main · 9 prompts
- docs      │    ✓ contains "limiter"
- ╌╌╌╌╌╌╌╌  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file
- 🗄️ archi… │ recap: Found the loop in the expiry middleware. Waiting on
-           │ permission to run the test suite.
+ ⏸ open    │ 1/2 ◆fix login redirect loop│●▶add rate…│
+ ◆ waiting │ ───────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ fix login redirect loop
+ web-app   │    ◆ waiting on you · input needed · pid 4242 · ttys009
+ api       │    web-app · main · 9 prompts
+ cli-tool  │    ✓ contains "limiter"
+ docs      │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file
+ ╌╌╌╌╌╌╌╌  │ recap: Found the loop in the expiry middleware. Waiting on
+ 🗄️ archi… │ permission to run the test suite.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: The loop is in middleware/session.ts: an expired session
@@ -41,20 +40,20 @@
            │
            │
            │
+           │
 
 === 104x26 ===
  ↑↓ projects 24h all  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything  6   7  │ 🔍 limiter▏  search in text · all sessions · 2 matches
- ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 1/2 ◆fix login redirect loop│●▶add rate…│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
- web-app       2   2  │ fix login redirect loop
- api           2   2  │    ◆ waiting on you · input needed · pid 4242 · ttys009
- cli-tool      2   2  │    web-app · main · 9 prompts
- docs          ·   1  │    ✓ contains "limiter"
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file · auto-named
- 🗄️ archived   ·   1  │      recap  Found the loop in the expiry middleware. Waiting on permission to
-                      │             run the test suite.
+ ⏸ open        2   3  │ 1/2 ◆fix login redirect loop│●▶add rate…│
+ ◆ waiting     1   1  │ ────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ fix login redirect loop
+ web-app       2   2  │    ◆ waiting on you · input needed · pid 4242 · ttys009
+ api           2   2  │    web-app · main · 9 prompts
+ cli-tool      2   2  │    ✓ contains "limiter"
+ docs          ·   1  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file · auto-named
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Found the loop in the expiry middleware. Waiting on permission to
+ 🗄️ archived   ·   1  │             run the test suite.
                       │      first  look at the failing test
                       │       last  go ahead
                       │      reply  The loop is in middleware/session.ts: an expired session redirects
@@ -68,24 +67,25 @@
                       │
                       │
                       │
+                      │
 
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc back-to-filter
  ⌂ everything   6   7  │ 🔍 limiter▏  search in text · all sessions · 2 matches
- ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 1/2 ◆fix login redirect loop│●▶add rate…│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- web-app        2   2  │ fix login redirect loop
- api            2   2  │    ◆ waiting on you · input needed · pid 4242 · ttys009
- cli-tool       2   2  │    web-app · main · 9 prompts
- docs           ·   1  │    ✓ contains "limiter"
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file · auto-named
- 🗄️ archived    ·   1  │      recap  Found the loop in the expiry middleware. Waiting on permission to run the test suite.
-                       │      first  look at the failing test
-                       │       last  go ahead
+ ⏸ open         2   3  │ 1/2 ◆fix login redirect loop│●▶add rate…│
+ ◆ waiting      1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ fix login redirect loop
+ web-app        2   2  │    ◆ waiting on you · input needed · pid 4242 · ttys009   web-app · main · 9 prompts
+ api            2   2  │    ✓ contains "limiter"
+ cli-tool       2   2  │    tokens in 1.2k · out 18.4k · cache w 96.0k · r 1.4M · 8K file · auto-named
+ docs           ·   1  │      recap  Found the loop in the expiry middleware. Waiting on permission to run the test suite.
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  look at the failing test
+ 🗄️ archived    ·   1  │       last  go ahead
                        │      reply  The loop is in middleware/session.ts: an expired session redirects to /login, which sits behind the same middleware.
                        │
                        │             I need to run npm test next.
+                       │
+                       │
                        │
                        │
                        │
@@ -113,15 +113,15 @@
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 limiter▏  search in text · all se…
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │ 1/2 ◆fix login redirect…│ +1›
- ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
- web-app   │ fix login redirect loop
- api       │    ◆ waiting on you · input needed
- cli-tool  │      pid 4242 · ttys009
- docs      │    ✓ contains "limiter"
- ╌╌╌╌╌╌╌╌  │ reply: The loop is in
- 🗄️ archi… │ ↓ 5 more lines · PgDn scrolls
+ ⏸ open    │ 1/2 ◆fix login redirect…│ +1›
+ ◆ waiting │ ─────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ fix login redirect loop
+ web-app   │    ◆ waiting on you · input needed
+ api       │      pid 4242 · ttys009
+ cli-tool  │    ✓ contains "limiter"
+ docs      │ reply: The loop is in
+ ╌╌╌╌╌╌╌╌  │ middleware/session.ts: an expired
+ 🗄️ archi… │ ↓ 4 more lines · PgDn scrolls
 
 === 49x12 ===
 window too small (need 50x12)

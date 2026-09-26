@@ -82,7 +82,7 @@ pub fn agent_tag() -> Style {
 
 /// The highlight for the project the panel is sitting on.
 pub fn panel_selected() -> Style {
-    Style::default().bg(PANEL_SEL).fg(ON_SEL)
+    Style::default().bg(PANEL_SEL).fg(ON_SEL).add_modifier(Modifier::BOLD)
 }
 
 /// The highlight for the session tab in focus. A different hue from the panel's on purpose: two

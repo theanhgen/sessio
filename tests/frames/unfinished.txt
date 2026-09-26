@@ -1,37 +1,37 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⏸ open · 3 sessions · 2 in 24h · …every project
- ◆ waiting │ 3/3 ‹2 ▶write onboarding docs│
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
- web-app   │ write onboarding docs
- api       │    updated 2d ago · not running
- cli-tool  │    ▶ unfinished · your prompt got no reply
- docs      │    docs · main · 6 prompts
- ╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k ·…
- 🗄️ archi… │ no recap yet
-           │ first: look at the failing test
+ ⏸ open    │ 3/3 ‹2 ▶write onboarding docs│
+ ◆ waiting │ ───────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ write onboarding docs
+ web-app   │    updated 2d ago · not running
+ api       │    ▶ unfinished · your prompt got no reply
+ cli-tool  │    docs · main · 6 prompts
+ docs      │    tokens in 3.1k · out 35.8k · cache w 162k ·…
+ ╌╌╌╌╌╌╌╌  │ no recap yet
+ 🗄️ archi… │ first: look at the failing test
            │ last: and the contributor guide too?
            │ reply: Fixed. The test now passes on both
            │ platforms.
+           │
            │
            │
 
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⏸ open · 3 sessions · 2 in 24h · unfinished, in every project
- ◆ waiting │ 3/3 ●▶add rate…│○▶ship the…│▶write onboarding docs│
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
- web-app   │ write onboarding docs
- api       │    updated 2d ago · not running
- cli-tool  │    ▶ unfinished · your prompt got no reply
- docs      │    docs · main · 6 prompts
- ╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file
- 🗄️ archi… │ no recap yet
-           │ first: look at the failing test
-           │ last: and the contributor guide too?
+ ⏸ open    │ 3/3 ●▶add rate…│○▶ship the…│▶write onboarding docs│
+ ◆ waiting │ ───────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ write onboarding docs
+ web-app   │    updated 2d ago · not running   docs · main · 6 prompts
+ api       │    ▶ unfinished · your prompt got no reply
+ cli-tool  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file
+ docs      │ no recap yet
+ ╌╌╌╌╌╌╌╌  │ first: look at the failing test
+ 🗄️ archi… │ last: and the contributor guide too?
            │ reply: Fixed. The test now passes on both platforms.
+           │
+           │
            │
            │
            │
@@ -45,18 +45,18 @@
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  type to filter
- ⏸ open        2   3  │ ⏸ open · 3 sessions · 2 in 24h · unfinished, in every project
- ◆ waiting     1   1  │ 3/3 ●▶add rate…│○▶ship the…│▶write onboarding docs│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
- web-app       2   2  │ write onboarding docs
- api           2   2  │    updated 2d ago · not running
- cli-tool      2   2  │    ▶ unfinished · your prompt got no reply
- docs          ·   1  │    docs · main · 6 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file · auto-named
- 🗄️ archived   ·   1  │             no recap yet
-                      │      first  look at the failing test
-                      │       last  and the contributor guide too?
+ ⏸ open        2   3  │ 3/3 ●▶add rate…│○▶ship the…│▶write onboarding docs│
+ ◆ waiting     1   1  │ ────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ write onboarding docs
+ web-app       2   2  │    updated 2d ago · not running   docs · main · 6 prompts
+ api           2   2  │    ▶ unfinished · your prompt got no reply
+ cli-tool      2   2  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file · auto-named
+ docs          ·   1  │             no recap yet
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  look at the failing test
+ 🗄️ archived   ·   1  │       last  and the contributor guide too?
                       │      reply  Fixed. The test now passes on both platforms.
+                      │
+                      │
                       │
                       │
                       │
@@ -72,18 +72,18 @@
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  type to filter
- ⏸ open         2   3  │ ⏸ open · 3 sessions · 2 in 24h · unfinished, in every project
- ◆ waiting      1   1  │ 3/3 ●▶add rate…│○▶ship the…│▶write onboarding docs│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- web-app        2   2  │ write onboarding docs
- api            2   2  │    updated 2d ago · not running
- cli-tool       2   2  │    ▶ unfinished · your prompt got no reply
- docs           ·   1  │    docs · main · 6 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file · auto-named
- 🗄️ archived    ·   1  │             no recap yet
-                       │      first  look at the failing test
-                       │       last  and the contributor guide too?
+ ⏸ open         2   3  │ 3/3 ●▶add rate…│○▶ship the…│▶write onboarding docs│
+ ◆ waiting      1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ write onboarding docs
+ web-app        2   2  │    updated 2d ago · not running   docs · main · 6 prompts
+ api            2   2  │    ▶ unfinished · your prompt got no reply
+ cli-tool       2   2  │    tokens in 3.1k · out 35.8k · cache w 162k · r 2.8M · 39K file · auto-named
+ docs           ·   1  │             no recap yet
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  look at the failing test
+ 🗄️ archived    ·   1  │       last  and the contributor guide too?
                        │      reply  Fixed. The test now passes on both platforms.
+                       │
+                       │
                        │
                        │
                        │
@@ -113,13 +113,13 @@
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⏸ open · 3 sessions · 2 in 24h
- ◆ waiting │ 3/3 ‹2 ▶write onboarding d…│
- ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
- web-app   │ write onboarding docs
- api       │    updated 2d ago · not running
- cli-tool  │    ▶ unfinished
- docs      │      your prompt got no reply
+ ⏸ open    │ 3/3 ‹2 ▶write onboarding d…│
+ ◆ waiting │ ─────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ write onboarding docs
+ web-app   │    updated 2d ago · not running
+ api       │    ▶ unfinished
+ cli-tool  │      your prompt got no reply
+ docs      │    docs · main · 6 prompts
  ╌╌╌╌╌╌╌╌  │ reply: Fixed. The test now passes on
  🗄️ archi… │ both platforms.
 

@@ -1,65 +1,62 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│ +3›
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
- web-app   │ ship the release workflow
- api       │    ○ recently updated · 3h ago · not running
- cli-tool  │    ▶ unfinished · recap says your move
- docs      │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌  │ recap: Release workflow written and dry-run on
- 🗄️ archi… │ a fork. Signing is undecided; the first tag is
-           │ yours.
-           │ reply: ↑ 5 lines above
-           │    and says so
-           │ 2. step 2 of the release, which does one thing
-           │    and says so
-           │ lines 6–8 of 56 · ↓ 48 more · PgUp PgDn
+ ⏸ open    │ 4/7 ‹3 ○▶ship the release workflow│ +3›
+ ◆ waiting │ ───────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ ship the release workflow
+ web-app   │    ○ recently updated · 3h ago · not running
+ api       │    ▶ unfinished · recap says your move
+ cli-tool  │    cli-tool · feat/limiter · 31 prompts
+ docs      │ recap: Release workflow written and dry-run on
+ ╌╌╌╌╌╌╌╌  │ a fork. Signing is undecided; the first tag is
+ 🗄️ archi… │ yours.
+           │ last: walk me through what it does before I tag
+           │ anything
+           │ reply: ↑ 3 lines above
+           │
+           │ 1. step 1 of the release, which does one thing
+           │ lines 4–5 of 56 · ↓ 51 more · PgUp PgDn
 
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 4/7 ‹3 ○▶ship the release workflow│○dark mode…│ +2›
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
- web-app   │ ship the release workflow
- api       │    ○ recently updated · 3h ago · not running
- cli-tool  │    ▶ unfinished · recap says your move
- docs      │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file
- 🗄️ archi… │ recap: Release workflow written and dry-run on a fork. Signing is
-           │ undecided; the first tag is yours.
+ ⏸ open    │ 4/7 ‹3 ○▶ship the release workflow│○dark mode…│ +2›
+ ◆ waiting │ ───────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ ship the release workflow
+ web-app   │    ○ recently updated · 3h ago · not running
+ api       │    ▶ unfinished · recap says your move
+ cli-tool  │    cli-tool · feat/limiter · 31 prompts
+ docs      │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file
+ ╌╌╌╌╌╌╌╌  │ recap: Release workflow written and dry-run on a fork. Signing is
+ 🗄️ archi… │ undecided; the first tag is yours.
            │ first: write a release workflow that publishes to npm on a tag
            │ last: walk me through what it does before I tag anything
-           │ reply: ↑ 13 lines above
-           │ 10. step 10 of the release, which does one thing and says so
-           │ 11. step 11 of the release, which does one thing and says so
+           │ reply: ↑ 15 lines above
            │ 12. step 12 of the release, which does one thing and says so
            │
            │ Still open
            │
            │ • open question 1: whether to sign the binaries before the first
-           │ lines 14–20 of 44 · ↓ 24 more · PgUp PgDn · ⇥ more room
+           │   report
+           │ • open question 2: whether to sign the binaries before the first
+           │   report
+           │ lines 16–23 of 44 · ↓ 21 more · PgUp PgDn · ⇥ more room
 
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  type to filter
- ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 4/7 ‹2 ◉refactor the…│○▶ship the release workflow│○dark mode…│ +2›
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
- web-app       2   2  │ ship the release workflow
- api           2   2  │    ○ recently updated · 3h ago · not running
- cli-tool      2   2  │    ▶ unfinished · recap says your move
- docs          ·   1  │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
- 🗄️ archived   ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is
-                      │             undecided; the first tag is yours.
+ ⏸ open        2   3  │ 4/7 ‹2 ◉refactor the…│○▶ship the release workflow│○dark mode…│ +2›
+ ◆ waiting     1   1  │ ────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ship the release workflow
+ web-app       2   2  │    ○ recently updated · 3h ago · not running
+ api           2   2  │    ▶ unfinished · recap says your move
+ cli-tool      2   2  │    cli-tool · feat/limiter · 31 prompts
+ docs          ·   1  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  Release workflow written and dry-run on a fork. Signing is
+ 🗄️ archived   ·   1  │             undecided; the first tag is yours.
                       │      first  write a release workflow that publishes to npm on a tag
                       │       last  walk me through what it does before I tag anything
-                      │      reply
-                      │             • open question 1: whether to sign the binaries before the first
-                      │               report
+                      │      reply    report
                       │             • open question 2: whether to sign the binaries before the first
                       │               report
                       │             • open question 3: whether to sign the binaries before the first
@@ -67,23 +64,26 @@
                       │             • open question 4: whether to sign the binaries before the first
                       │               report
                       │             • open question 5: whether to sign the binaries before the first
-                      │             lines 19–28 of 44 · ↓ 16 more · PgUp PgDn · ⇥ more room
+                      │               report
+                      │             • open question 6: whether to sign the binaries before the first
+                      │               report
+                      │             lines 21–31 of 44 · ↓ 13 more · PgUp PgDn · ⇥ more room
 
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  type to filter
- ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 4/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the release workflow│○dark mode…│○copilot triage flaky…│▶write onboarding…│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- web-app        2   2  │ ship the release workflow
- api            2   2  │    ○ recently updated · 3h ago · not running
- cli-tool       2   2  │    ▶ unfinished · recap says your move
- docs           ·   1  │    cli-tool · feat/limiter · 31 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
- 🗄️ archived    ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
-                       │      first  write a release workflow that publishes to npm on a tag
-                       │       last  walk me through what it does before I tag anything
-                       │      reply  6. step 6 of the release, which does one thing and says so
+ ⏸ open         2   3  │ 4/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the release workflow│○dark mode…│○copilot triage flaky…│▶write onboarding…│
+ ◆ waiting      1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ship the release workflow
+ web-app        2   2  │    ○ recently updated · 3h ago · not running   cli-tool · feat/limiter · 31 prompts
+ api            2   2  │    ▶ unfinished · recap says your move
+ cli-tool       2   2  │    tokens in 2.1k · out 27.1k · cache w 129k · r 2.1M · 23K file · auto-named
+ docs           ·   1  │      recap  Release workflow written and dry-run on a fork. Signing is undecided; the first tag is yours.
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  write a release workflow that publishes to npm on a tag
+ 🗄️ archived    ·   1  │       last  walk me through what it does before I tag anything
+                       │      reply  4. step 4 of the release, which does one thing and says so
+                       │             5. step 5 of the release, which does one thing and says so
+                       │             6. step 6 of the release, which does one thing and says so
                        │             7. step 7 of the release, which does one thing and says so
                        │             8. step 8 of the release, which does one thing and says so
                        │             9. step 9 of the release, which does one thing and says so
@@ -108,20 +108,20 @@
                        │             git push origin v1.2.0-rc.1
                        │
                        │             Want me to add the signing step?
-                       │             lines 10–34 of 34 · end of reply · PgUp · ⇥ more room
+                       │             lines 8–34 of 34 · end of reply · PgUp · ⇥ more room
 
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │ 4/7 ‹3 ○▶ship the release…│ +3›
- ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
- web-app   │ ship the release workflow
- api       │    ○ recently updated · 3h ago
- cli-tool  │      not running
- docs      │    ▶ unfinished
- ╌╌╌╌╌╌╌╌  │      recap says your move
- 🗄️ archi… │ reply: ↑ 2 lines above
+ ⏸ open    │ 4/7 ‹3 ○▶ship the release…│ +3›
+ ◆ waiting │ ─────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ ship the release workflow
+ web-app   │    ○ recently updated · 3h ago
+ api       │      not running
+ cli-tool  │    ▶ unfinished
+ docs      │      recap says your move
+ ╌╌╌╌╌╌╌╌  │ reply: ↑ 2 lines above
+ 🗄️ archi… │
 
 === 49x12 ===
 window too small (need 50x12)
