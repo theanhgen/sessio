@@ -1,11 +1,11 @@
 === 60x18 ===
  projects  │ type · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 kubernetes▏  filter · no matches
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │   nothing in ⌂ everything matches "kubernetes"
- ╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and firs…
- web-app   │   ^f searches the full text of every session i…
- api       │   ^w drops a word · ^u clears the query
+ ⏸ open    │   nothing in ⌂ everything matches "kubernetes"
+ ◆ waiting │   filtering looks at titles, projects and firs…
+ ╌╌╌╌╌╌╌╌  │   ^f searches the full text of every session i…
+ web-app   │   ^w drops a word · ^u clears the query
+ api       │
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
@@ -20,11 +20,11 @@
 === 80x24 ===
  projects  │ type · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 kubernetes▏  filter · no matches
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │   nothing in ⌂ everything matches "kubernetes"
- ╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the new…
- web-app   │   ^f searches the full text of every session instead
- api       │   ^w drops a word · ^u clears the query
+ ⏸ open    │   nothing in ⌂ everything matches "kubernetes"
+ ◆ waiting │   filtering looks at titles, projects and first prompts of the new…
+ ╌╌╌╌╌╌╌╌  │   ^f searches the full text of every session instead
+ web-app   │   ^w drops a word · ^u clears the query
+ api       │
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │
@@ -45,11 +45,11 @@
 === 104x26 ===
  ↑↓ projects 24h all  │ type · ^f search-in-text · ◆ 1 waiting on you · ? help · esc quit · live
  ⌂ everything  6   7  │ 🔍 kubernetes▏  filter · no matches
- ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │   nothing in ⌂ everything matches "kubernetes"
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the newest 300
- web-app       2   2  │   ^f searches the full text of every session instead
- api           2   2  │   ^w drops a word · ^u clears the query
+ ⏸ open        2   3  │   nothing in ⌂ everything matches "kubernetes"
+ ◆ waiting     1   1  │   filtering looks at titles, projects and first prompts of the newest 300
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   ^f searches the full text of every session instead
+ web-app       2   2  │   ^w drops a word · ^u clears the query
+ api           2   2  │
  cli-tool      2   2  │
  docs          ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
@@ -72,11 +72,11 @@
 === 160x40 ===
  ↑↓ projects  24h all  │ type · ^f search-in-text · ◆ 1 waiting on you · ? help · esc quit · live
  ⌂ everything   6   7  │ 🔍 kubernetes▏  filter · no matches
- ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │   nothing in ⌂ everything matches "kubernetes"
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   filtering looks at titles, projects and first prompts of the newest 300
- web-app        2   2  │   ^f searches the full text of every session instead
- api            2   2  │   ^w drops a word · ^u clears the query
+ ⏸ open         2   3  │   nothing in ⌂ everything matches "kubernetes"
+ ◆ waiting      1   1  │   filtering looks at titles, projects and first prompts of the newest 300
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │   ^f searches the full text of every session instead
+ web-app        2   2  │   ^w drops a word · ^u clears the query
+ api            2   2  │
  cli-tool       2   2  │
  docs           ·   1  │
  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │
@@ -113,11 +113,11 @@
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 kubernetes▏  filter · no matches
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │   nothing in ⌂ everything matches "k…
- ╌╌╌╌╌╌╌╌  │   filtering looks at titles, project…
- web-app   │   ^f searches the full text of every…
- api       │   ^w drops a word · ^u clears the qu…
+ ⏸ open    │   nothing in ⌂ everything matches "k…
+ ◆ waiting │   filtering looks at titles, project…
+ ╌╌╌╌╌╌╌╌  │   ^f searches the full text of every…
+ web-app   │   ^w drops a word · ^u clears the qu…
+ api       │
  cli-tool  │
  docs      │
  ╌╌╌╌╌╌╌╌  │

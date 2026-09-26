@@ -1,10 +1,10 @@
 === 60x18 ===
  projects  │ type · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
-           │ ⌂ everything · 0 sessions · 0 in 24h · …project
            │   no sessions yet
            │   sessio reads Claude Code (~/.claude/projects…
            │   Start claude or copilot in a folder; it show…
+           │
            │
            │
            │
@@ -20,10 +20,10 @@
 === 80x24 ===
  projects  │ type · ^f search-in-text · ? help · esc quit · live
  ⌂ everyt… │ 🔍 ▏  type to filter
-           │ ⌂ everything · 0 sessions · 0 in 24h · every project
            │   no sessions yet
            │   sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~…
            │   Start claude or copilot in a folder; it shows up here within 2s.
+           │
            │
            │
            │
@@ -45,10 +45,10 @@
 === 104x26 ===
  ↑↓ projects 24h all  │ type · ^f search-in-text · ? help · esc quit · live
  ⌂ everything  ·   0  │ 🔍 ▏  type to filter
-                      │ ⌂ everything · 0 sessions · 0 in 24h · every project
                       │   no sessions yet
                       │   sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~/.copilot).
                       │   Start claude or copilot in a folder; it shows up here within 2s.
+                      │
                       │
                       │
                       │
@@ -72,10 +72,10 @@
 === 160x40 ===
  ↑↓ projects  24h all  │ type · ^f search-in-text · ? help · esc quit · live
  ⌂ everything   ·   0  │ 🔍 ▏  type to filter
-                       │ ⌂ everything · 0 sessions · 0 in 24h · every project
                        │   no sessions yet
                        │   sessio reads Claude Code (~/.claude/projects) and Copilot CLI (~/.copilot).
                        │   Start claude or copilot in a folder; it shows up here within 2s.
+                       │
                        │
                        │
                        │
@@ -113,10 +113,10 @@
 === 50x12 ===
  projects  │ type · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
-           │ ⌂ everything · 0 sessions · 0 in 24h
            │   no sessions yet
            │   sessio reads Claude Code (~/.claud…
            │   Start claude or copilot in a folde…
+           │
            │
            │
            │
