@@ -1,36 +1,36 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 6/7 ‹5 ○copilot triage flaky CI job│ +1›
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
- web-app   │ copilot triage flaky CI job
- api       │    ○ recently updated · 23h ago · not running
- cli-tool  │    cli-tool · feat/limiter · 6 prompts
- docs      │    34K file · auto-named
- ╌╌╌╌╌╌╌╌  │ recap: The flake is a timing test racing the
- 🗄️ archi… │ runner's clock.
-           │ first: why does the macOS test job fail one run
+ ⏸ open    │ 6/7 ‹5 ○copilot triage flaky CI job│ +1›
+ ◆ waiting │ ───────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ copilot triage flaky CI job
+ web-app   │    ○ recently updated · 23h ago · not running
+ api       │    cli-tool · feat/limiter · 6 prompts
+ cli-tool  │    34K file · auto-named
+ docs      │ recap: The flake is a timing test racing the
+ ╌╌╌╌╌╌╌╌  │ runner's clock.
+ 🗄️ archi… │ first: why does the macOS test job fail one run
            │ in five?
            │ last: pin the runner image
            │ reply: Pinned macos-14. The timing test is
            │ still fragile.
+           │
  "triage flaky CI job" is a Copilot session: ^r is
  Claude-only · ↵ resumes
 === 80x24 ===
  projects  │ ←→ session · ↵ resume · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 6/7 ‹5 ○copilot triage flaky CI job│▶write onboarding…│
- ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
- web-app   │ copilot triage flaky CI job
- api       │    ○ recently updated · 23h ago · not running
- cli-tool  │    cli-tool · feat/limiter · 6 prompts
- docs      │    34K file · auto-named
- ╌╌╌╌╌╌╌╌  │ recap: The flake is a timing test racing the runner's clock.
- 🗄️ archi… │ first: why does the macOS test job fail one run in five?
-           │ last: pin the runner image
+ ⏸ open    │ 6/7 ‹5 ○copilot triage flaky CI job│▶write onboarding…│
+ ◆ waiting │ ───────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ copilot triage flaky CI job
+ web-app   │    ○ recently updated · 23h ago · not running
+ api       │    cli-tool · feat/limiter · 6 prompts
+ cli-tool  │    34K file · auto-named
+ docs      │ recap: The flake is a timing test racing the runner's clock.
+ ╌╌╌╌╌╌╌╌  │ first: why does the macOS test job fail one run in five?
+ 🗄️ archi… │ last: pin the runner image
            │ reply: Pinned macos-14. The timing test is still fragile.
+           │
            │
            │
            │
@@ -45,17 +45,17 @@
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  type to filter
- ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 6/7 ‹4 ○dark mode…│○copilot triage flaky CI job│▶write onboarding…│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
- web-app       2   2  │ copilot triage flaky CI job
- api           2   2  │    ○ recently updated · 23h ago · not running
- cli-tool      2   2  │    cli-tool · feat/limiter · 6 prompts
- docs          ·   1  │    34K file · auto-named
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  The flake is a timing test racing the runner's clock.
- 🗄️ archived   ·   1  │      first  why does the macOS test job fail one run in five?
-                      │       last  pin the runner image
+ ⏸ open        2   3  │ 6/7 ‹4 ○dark mode…│○copilot triage flaky CI job│▶write onboarding…│
+ ◆ waiting     1   1  │ ────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ copilot triage flaky CI job
+ web-app       2   2  │    ○ recently updated · 23h ago · not running
+ api           2   2  │    cli-tool · feat/limiter · 6 prompts
+ cli-tool      2   2  │    34K file · auto-named
+ docs          ·   1  │      recap  The flake is a timing test racing the runner's clock.
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  why does the macOS test job fail one run in five?
+ 🗄️ archived   ·   1  │       last  pin the runner image
                       │      reply  Pinned macos-14. The timing test is still fragile.
+                      │
                       │
                       │
                       │
@@ -72,17 +72,17 @@
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  type to filter
- ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 6/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the…│○dark mode…│○copilot triage flaky CI job│▶write onboarding…│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- web-app        2   2  │ copilot triage flaky CI job
- api            2   2  │    ○ recently updated · 23h ago · not running
- cli-tool       2   2  │    cli-tool · feat/limiter · 6 prompts
- docs           ·   1  │    34K file · auto-named
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      recap  The flake is a timing test racing the runner's clock.
- 🗄️ archived    ·   1  │      first  why does the macOS test job fail one run in five?
-                       │       last  pin the runner image
-                       │      reply  Pinned macos-14. The timing test is still fragile.
+ ⏸ open         2   3  │ 6/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the…│○dark mode…│○copilot triage flaky CI job│▶write onboarding…│
+ ◆ waiting      1   1  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ copilot triage flaky CI job
+ web-app        2   2  │    ○ recently updated · 23h ago · not running   cli-tool · feat/limiter · 6 prompts
+ api            2   2  │    34K file · auto-named
+ cli-tool       2   2  │      recap  The flake is a timing test racing the runner's clock.
+ docs           ·   1  │      first  why does the macOS test job fail one run in five?
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │       last  pin the runner image
+ 🗄️ archived    ·   1  │      reply  Pinned macos-14. The timing test is still fragile.
+                       │
+                       │
                        │
                        │
                        │
@@ -113,14 +113,14 @@
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │ 6/7 ‹5 ○copilot triage fla…│ +1›
- ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
- web-app   │ copilot triage flaky CI job
- api       │    ○ recently updated · 23h ago
- cli-tool  │      not running
- docs      │ reply: Pinned macos-14. The timing
- ╌╌╌╌╌╌╌╌  │ test is still fragile.
+ ⏸ open    │ 6/7 ‹5 ○copilot triage fla…│ +1›
+ ◆ waiting │ ─────────────────────────────────────
+ ╌╌╌╌╌╌╌╌  │ copilot triage flaky CI job
+ web-app   │    ○ recently updated · 23h ago
+ api       │      not running
+ cli-tool  │ reply: Pinned macos-14. The timing
+ docs      │ test is still fragile.
+ ╌╌╌╌╌╌╌╌  │
  "triage flaky CI job" is a Copilot session: ^r is
  Claude-only · ↵ resumes
 === 49x12 ===

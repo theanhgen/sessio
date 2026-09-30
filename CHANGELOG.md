@@ -13,6 +13,14 @@
   and the README. `docs/brand/` holds the files; `scripts/brand.swift` draws them.
 - **The site's header stays at the top** while you scroll.
 
+### Changed
+
+- **No context row.** The row above the session tabs repeated what the panel's highlight already
+  says (`⌂ everything · 137 sessions · 23 in 24h`); the tabs move up a row and the preview gets it.
+- **The preview's facts in two columns** where the width allows: where the session is beside its
+  state, and the repo's issues beside the file facts. Two rows shorter on a wide window.
+- **The selected project is bold** in the panel.
+
 ### Fixed
 
 - **`▶` replaces `▸` for unfinished.** `▸` is not in common terminal fonts, so it was drawn from
@@ -26,9 +34,7 @@
   `↵ resume`, `^o`, `^r`, `^a`, `⇥`, `^t follow` and `^g` are gone; on a Copilot session `^r reply`
   is. Like `^k`, which was already shown only when it would act.
 - **The scope is named once.** The query row no longer repeats the tab (`filter · ⌂ everything`):
-  it reads `type to filter` when empty and `filter · 4 matches` while filtering, and the context
-  row under it names the tab. A project's folder there is left off rather than cut into its own
-  name (`…h-a-long-name`).
+  it reads `type to filter` when empty and `filter · 4 matches` while filtering.
 - **The file facts row fits 80 columns.** `tokens in … · 29K file · auto-named`: one space after
   `tokens`, the transcript's size labelled, and `auto-named` dropped first when the row is short.
 - **Said once.** A reply on its way reads `⏳ sending "…"` in the preview, and a failed one `✗ reply

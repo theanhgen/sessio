@@ -1,37 +1,37 @@
 === 60x18 ===
  projects  │ ↵ resume · ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · …project
- ◆ waiting │ 5/7 ‹3 ○▶ship the…│○dark mode tokens│ +2›
- ╌╌╌╌╌╌╌╌  │  ↳ reply to "dark mode tokens"  yes — move the…
- web-app   │ ───────────────────────────────────────────────
- api       │ dark mode tokens
- cli-tool  │    ○ recently updated · 15h ago · not running
- docs      │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k ·…
- 🗄️ archi… │ recap: Found the cause and fixed it; the tests
-           │ pass. Nothing left.
+ ⏸ open    │ 5/7 ‹3 ○▶ship the…│○dark mode tokens│ +2›
+ ◆ waiting │  ↳ reply to "dark mode tokens"  yes — move the…
+ ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────
+ web-app   │ dark mode tokens
+ api       │    ○ recently updated · 15h ago · not running
+ cli-tool  │    web-app · main · 6 prompts
+ docs      │    tokens in 2.4k · out 30.0k · cache w 140k ·…
+ ╌╌╌╌╌╌╌╌  │ recap: Found the cause and fixed it; the tests
+ 🗄️ archi… │ pass. Nothing left.
            │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both
            │ platforms.
            │
+           │
 
 === 80x24 ===
  projects  │ ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting │ 5/7 ‹4 ○dark mode tokens│○copilot triage flaky…│ +1›
- ╌╌╌╌╌╌╌╌  │  ↳ reply to "dark mode tokens"  yes — move the remaining colours t…
- web-app   │ ───────────────────────────────────────────────────────────────────
- api       │ dark mode tokens
- cli-tool  │    ○ recently updated · 15h ago · not running
- docs      │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file
- 🗄️ archi… │ recap: Found the cause and fixed it; the tests pass. Nothing left.
-           │ first: look at the failing test
+ ⏸ open    │ 5/7 ‹4 ○dark mode tokens│○copilot triage flaky…│ +1›
+ ◆ waiting │  ↳ reply to "dark mode tokens"  yes — move the remaining colours t…
+ ╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────
+ web-app   │ dark mode tokens
+ api       │    ○ recently updated · 15h ago · not running
+ cli-tool  │    web-app · main · 6 prompts
+ docs      │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file
+ ╌╌╌╌╌╌╌╌  │ recap: Found the cause and fixed it; the tests pass. Nothing left.
+ 🗄️ archi… │ first: look at the failing test
            │ last: go ahead
            │ reply: Fixed. The test now passes on both platforms.
+           │
            │
            │
            │
@@ -45,18 +45,18 @@
 === 104x26 ===
  ↑↓ projects 24h all  │ ←→ session · ↵ resume · ^r reply · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything  6   7  │ 🔍 ▏  type to filter
- ⏸ open        2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting     1   1  │ 5/7 ‹3 ○▶ship the…│○dark mode tokens│○copilot triage flaky…│ +1›
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │  ↳ reply to "dark mode tokens"  yes — move the remaining colours to tokens too,…
- web-app       2   2  │ ────────────────────────────────────────────────────────────────────────────────
- api           2   2  │ dark mode tokens
- cli-tool      2   2  │    ○ recently updated · 15h ago · not running
- docs          ·   1  │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
- 🗄️ archived   ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
-                      │      first  look at the failing test
-                      │       last  go ahead
+ ⏸ open        2   3  │ 5/7 ‹3 ○▶ship the…│○dark mode tokens│○copilot triage flaky…│ +1›
+ ◆ waiting     1   1  │  ↳ reply to "dark mode tokens"  yes — move the remaining colours to tokens too,…
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ────────────────────────────────────────────────────────────────────────────────
+ web-app       2   2  │ dark mode tokens
+ api           2   2  │    ○ recently updated · 15h ago · not running   web-app · main · 6 prompts
+ cli-tool      2   2  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
+ docs          ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  look at the failing test
+ 🗄️ archived   ·   1  │       last  go ahead
                       │      reply  Fixed. The test now passes on both platforms.
+                      │
+                      │
                       │
                       │
                       │
@@ -72,18 +72,18 @@
 === 160x40 ===
  ↑↓ projects  24h all  │ ←→ session · type · ⇥ expand-reply · ↵ resume · ^r reply · ^g issues · ◆ 1 waiting on you · ? help · esc quit
  ⌂ everything   6   7  │ 🔍 ▏  type to filter
- ⏸ open         2   3  │ ⌂ everything · 7 sessions · 6 in 24h · every project
- ◆ waiting      1   1  │ 5/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the…│○dark mode tokens│○copilot triage flaky…│▶write onboarding…│
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │  ↳ reply to "dark mode tokens"  yes — move the remaining colours to tokens too, then check contrast in both themes and write down anyt…
- web-app        2   2  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- api            2   2  │ dark mode tokens
- cli-tool       2   2  │    ○ recently updated · 15h ago · not running
- docs           ·   1  │    web-app · main · 6 prompts
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
- 🗄️ archived    ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
-                       │      first  look at the failing test
-                       │       last  go ahead
+ ⏸ open         2   3  │ 5/7 ◆fix login…│●▶add rate…│◉refactor the…│○▶ship the…│○dark mode tokens│○copilot triage flaky…│▶write onboarding…│
+ ◆ waiting      1   1  │  ↳ reply to "dark mode tokens"  yes — move the remaining colours to tokens too, then check contrast in both themes and write down anyt…
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │ ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ web-app        2   2  │ dark mode tokens
+ api            2   2  │    ○ recently updated · 15h ago · not running   web-app · main · 6 prompts
+ cli-tool       2   2  │    tokens in 2.4k · out 30.0k · cache w 140k · r 2.3M · 29K file · auto-named
+ docs           ·   1  │      recap  Found the cause and fixed it; the tests pass. Nothing left.
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  │      first  look at the failing test
+ 🗄️ archived    ·   1  │       last  go ahead
                        │      reply  Fixed. The test now passes on both platforms.
+                       │
+                       │
                        │
                        │
                        │
@@ -113,15 +113,15 @@
 === 50x12 ===
  projects  │ ◆ 1 waiting on you · ? help
  ⌂ everyt… │ 🔍 ▏  type to filter
- ⏸ open    │ ⌂ everything · 7 sessions · 6 in 24h
- ◆ waiting │ 5/7 ‹4 ○dark mode tokens│ +2›
- ╌╌╌╌╌╌╌╌  │  ↳ reply to "dark mode tokens"  yes…
- web-app   │ ─────────────────────────────────────
- api       │ dark mode tokens
- cli-tool  │    ○ recently updated · 15h ago
- docs      │      not running
- ╌╌╌╌╌╌╌╌  │ reply: Fixed. The test now passes on
- 🗄️ archi… │ both platforms.
+ ⏸ open    │ 5/7 ‹4 ○dark mode tokens│ +2›
+ ◆ waiting │  ↳ reply to "dark mode tokens"  yes…
+ ╌╌╌╌╌╌╌╌  │ ─────────────────────────────────────
+ web-app   │ dark mode tokens
+ api       │    ○ recently updated · 15h ago
+ cli-tool  │      not running
+ docs      │ reply: Fixed. The test now passes on
+ ╌╌╌╌╌╌╌╌  │ both platforms.
+ 🗄️ archi… │
 
 === 49x12 ===
 window too small (need 50x12)

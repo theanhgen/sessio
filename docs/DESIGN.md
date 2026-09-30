@@ -220,10 +220,9 @@ Invariants:
   |---|---|---|
   | Key bar | body row 0 (`KEYBAR_ROW`) | 1 |
   | Query | body row 1 (`QUERY_ROW`) | 1 |
-  | Project context | body row 2 (`CONTEXT_ROW`): the selected tab's whole name, `N sessions · M in 24h`, then its folder (`~`-shortened, cut from the left, left off when the cut would reach the folder's own name) or, for a collection, what it collects. Name first, counts next, place last. The one row that names the scope. | 1 |
-  | Session strip | body row 3 (`STRIP_ROW`), never wraps, leads with the position `3/18` | 1 |
+  | Session strip | body row 2 (`STRIP_ROW`), never wraps, leads with the position `3/18` | 1 |
   | Reply composer | under the strip while `^r` is open | 0 or 1 |
-  | Preview | from row `CHROME = 4` (5 with the composer) to the feedback region | the rest |
+  | Preview | from row `CHROME = 3` (4 with the composer) to the feedback region | the rest |
   | Feedback | the bottom row, the full terminal width, under the panel too | 1, or 2 while a message needs it; blank when idle |
   | Project panel | left column, from row 0 down to the feedback region | all but feedback |
 
@@ -274,7 +273,7 @@ Invariants:
 
   `↑↓` is not in the bar: the panel's own label carries it. While the `^g` list is up the bar is
   replaced by that list's keys.
-- **Preview hierarchy**, one column, top to bottom by what you act on:
+- **Preview hierarchy**, top to bottom by what you act on:
 
   | Rows | Content | Shed in a short window |
   |---|---|---|
@@ -286,6 +285,10 @@ Invariants:
   | recap | Claude's recap (or the compact summary), italic, at most `RECAP_MAX = 6` rows, ending ` …` when cut | rows past `RECAP_MIN = 2` 6th, the rest last |
   | first, last | the conversation's two ends, 2 rows each; hidden by `⇥` | first 2nd, last 4th |
   | reply | Claude's latest reply, whole, in a scrolling window over the rest of the box | never |
+
+  Where the width allows, the facts sit in two columns: location beside the state's first row,
+  `⚑` issues beside the file facts, both starting at one column. A pair that does not fit stays
+  stacked, and a state that wraps keeps its rows to itself.
 
   Blocks are shed until the reply keeps `REPLY_MIN = 4` rows (three lines and its indicator);
   the recap's first rows outlast that and the reply goes down to one line and the indicator first.
@@ -316,7 +319,7 @@ Invariants:
 
 The query row and an empty list share one `QueryState`, so they cannot disagree. The row is
 `🔍 <query>▏  <mode> · <found>`; the mode is dim, the count takes the role in the table. A filter
-covers the selected tab, which the context row under it names, so the query row does not repeat
+covers the selected tab, which the panel's highlight names, so the query row does not repeat
 it; text search, which reaches past the tab, says `all sessions` (or the tab it is counting in). Typing filters the `CAP = 300` newest sessions in the selected tab by title, project and
 first prompt; `^f` reads every transcript on disk (Claude and Copilot), past the cap, and loads
 what it finds.

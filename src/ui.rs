@@ -45,14 +45,12 @@ const REFRESH: Duration = Duration::from_secs(2);
 /// a frame is a keypress or the 2s tick — was gone before anyone could read it.
 const FLASH: Duration = Duration::from_secs(5);
 /// The dashboard's fixed regions, top to bottom, in the column right of the project panel: the
-/// key bar, the query, the selected project's context line and the session strip. Each is exactly
-/// one row, so the preview under them starts on the same row whatever is selected, typed or
+/// key bar, the query and the session strip. Each is exactly one row, so the preview under them starts on the same row whatever is selected, typed or
 /// flashed. The session strip, like a browser's, scrolls rather than wraps: it never takes a
 /// second row.
 const KEYBAR_ROW: usize = 0;
 const QUERY_ROW: usize = 1;
-const CONTEXT_ROW: usize = 2;
-const STRIP_ROW: usize = 3;
+const STRIP_ROW: usize = 2;
 /// Rows above the preview (plus one while the reply composer is open).
 const CHROME: usize = STRIP_ROW + 1;
 /// The feedback region: the bottom row(s), the whole terminal wide, under the panel and the
@@ -1647,8 +1645,7 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     let side = sidebar(app, cols);
     let cols = cols.saturating_sub(side + SIDE_GAP);
 
-    // The chrome is a fixed height: key bar, query, project context and the one-row session
-    // strip. Nothing here is derived from what the highlighted session contains, so the preview
+    // The chrome is a fixed height: key bar, query and the one-row session strip. Nothing here is derived from what the highlighted session contains, so the preview
     // under it never moves as you walk the projects or the tabs.
     let chrome = CHROME + usize::from(app.draft.is_some());
     let preview_box = height.saturating_sub(chrome);
@@ -1676,7 +1673,6 @@ fn frame_lines(app: &mut App, cols: usize, rows: usize) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = vec![Line::default(); CHROME];
     lines[KEYBAR_ROW] = header(app, cols);
     lines[QUERY_ROW] = query_line(app, &state);
-    lines[CONTEXT_ROW] = context_line(app, sel, cols);
     lines[STRIP_ROW] = if view.is_empty() {
         let (said, _) = empty_state(app, &state);
         let (mark, style) = match state {
@@ -2091,7 +2087,7 @@ fn query_line(app: &App, state: &QueryState) -> Line<'static> {
     ];
     let tab = sanitize(app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str));
     let plural = |n: usize| if n == 1 { "" } else { "es" };
-    // A filter covers the selected tab, which the context row under this one already names, so
+    // A filter covers the selected tab, which the panel's highlight already names, so
     // it is not said again here. Empty, the row says what typing does.
     let (scope, found): (String, Option<(String, Style)>) = match state {
         QueryState::NoSessions | QueryState::Browse => ("type to filter".into(), None),
@@ -2187,84 +2183,6 @@ fn empty_state(app: &App, state: &QueryState) -> (String, Vec<String>) {
             ],
         ),
     }
-}
-
-/// The selected project's context line, above the session strip: its whole name (the panel may
-/// have cut it to ten columns), how many sessions it holds, and where they live — or, for a
-/// collection, what it collects. The name wins the width, then the counts, then the place, which
-/// is cut from the left so the folder's own name survives.
-fn context_line(app: &App, sel: Option<usize>, cols: usize) -> Line<'static> {
-    let tab = app.tabs.get(app.p_idx).map_or(ALL_TAB, String::as_str);
-    let name = sanitize(tab);
-    let name_w = UnicodeWidthStr::width(name.as_str());
-    let mut spans = vec![Span::styled(name, Style::default().add_modifier(Modifier::BOLD))];
-
-    let (day, all) = app.tab_counts(tab, model::now_ms());
-    let counts = format!(
-        " · {all} session{} · {day} in 24h",
-        if all == 1 { "" } else { "s" }
-    );
-    let counts_w = UnicodeWidthStr::width(counts.as_str());
-    if name_w + counts_w > cols {
-        return Line::from(spans);
-    }
-    spans.push(Span::styled(counts, dim()));
-
-    let place = match tab {
-        ALL_TAB => "every project".to_string(),
-        OPEN_TAB => "unfinished, in every project".to_string(),
-        WAITING_TAB => "waiting on you, in every project".to_string(),
-        ARCHIVED_TAB => "hidden with ^a · ^a brings one back".to_string(),
-        project => {
-            // The folder of the highlighted session when it is this project's, else the first.
-            let cwd = sel
-                .map(|i| &app.items[i])
-                .filter(|it| it.project == project)
-                .or_else(|| app.items.iter().find(|it| app.in_tab(tab, it)))
-                .and_then(|it| it.cwd.as_deref())
-                .unwrap_or("");
-            home_short(&sanitize(cwd))
-        }
-    };
-    let room = cols.saturating_sub(name_w + counts_w + SEP_W);
-    // A folder cut into its own last name reads as the project's name cut from the front, and
-    // repeats what leads the row: only a cut that keeps `…/<folder>` whole is worth showing.
-    let fits = UnicodeWidthStr::width(place.as_str()) <= room
-        || tab_group(tab) != 1
-        || UnicodeWidthStr::width(place.rsplit('/').next().unwrap_or("")) + 2 <= room;
-    // A place cut to a handful of columns says nothing; leave it off instead.
-    if !place.is_empty() && room >= 8 && fits {
-        spans.push(Span::styled(format!("{SEP}{}", fit_left(&place, room)), dim()));
-    }
-    Line::from(spans)
-}
-
-/// A path with the home folder written `~`.
-fn home_short(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() && path.starts_with(&h) => format!("~{}", &path[h.len()..]),
-        _ => path.to_string(),
-    }
-}
-
-/// The last `w` display columns of `s`, led by `…` when anything was cut: for paths, whose end
-/// is the part that names them.
-fn fit_left(s: &str, w: usize) -> String {
-    if UnicodeWidthStr::width(s) <= w {
-        return s.to_string();
-    }
-    let mut kept: Vec<char> = Vec::new();
-    let mut used = 1; // the ellipsis
-    for c in s.chars().rev() {
-        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + cw > w {
-            break;
-        }
-        kept.push(c);
-        used += cw;
-    }
-    let tail: String = kept.into_iter().rev().collect();
-    format!("…{tail}")
 }
 
 /// The reply composer: one line, under the tabs and above the session it answers — so the
@@ -2559,7 +2477,9 @@ fn preview(
     // The state summary, always the rows right under the title: whose move it is, whether a
     // process is attached and where, and why it is unfinished. It wraps between its parts rather
     // than being cut, so a narrow window keeps the pid and tty that lead to the running window.
-    lines.extend(state_lines(&state_segments(app, it, model::now_ms()), w, STATE_INDENT));
+    let state = state_lines(&state_segments(app, it, model::now_ms()), w, STATE_INDENT);
+    let state_row = (state.len() == 1).then_some(lines.len());
+    lines.extend(state);
     if it.open {
         lines.extend(state_lines(&unfinished_segments(it), w, STATE_INDENT));
     }
@@ -2736,6 +2656,7 @@ fn preview(
             l.spans.push(Span::styled(" …", dim()));
         }
     }
+    two_columns(&mut lines, state_row, &mut parts, w);
     lines.extend(parts.into_iter().flat_map(|p| p.lines));
 
     let left = rows.saturating_sub(lines.len());
@@ -2777,6 +2698,50 @@ fn preview(
         }
     }
     (lines, view)
+}
+
+/// The facts under the title in two columns where the width allows: the state and the file's
+/// totals on the left, where the session is and its repo's issues on the right, one column start
+/// for both rows. A pair that would not fit stays stacked, so a narrow window reads as before.
+fn two_columns(lines: &mut [Line<'static>], state_row: Option<usize>, parts: &mut Vec<Part>, w: usize) {
+    const GAP: usize = 3;
+    let width = |l: &Line| l.spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum::<usize>();
+    let only = |parts: &[Part], id: &str| {
+        parts.iter().position(|p| p.id == id).filter(|&n| parts[n].lines.len() == 1)
+    };
+    let location = only(parts, "location");
+    let about = only(parts, "about");
+    let issues = only(parts, "issues");
+    let pairs = [
+        state_row.zip(location).map(|(l, r)| (width(&lines[l]), width(&parts[r].lines[0]))),
+        about.zip(issues).map(|(l, r)| (width(&parts[l].lines[0]), width(&parts[r].lines[0]))),
+    ];
+    // The column starts past the wider left side of the pairs that fit at all, so a tokens row
+    // too long for its pair does not push the other pair's right side off the edge too.
+    let alone = |&(l, r): &(usize, usize)| l + GAP + r - STATE_INDENT <= w;
+    let col = pairs.iter().flatten().filter(|p| alone(p)).map(|&(l, _)| l).max().unwrap_or(0) + GAP;
+    let fits = |p: Option<(usize, usize)>| p.is_some_and(|(l, r)| l + GAP <= col && col + r - STATE_INDENT <= w);
+    let beside = |left: &mut Line<'static>, right: &Line<'static>| {
+        let pad = col - width(left);
+        left.spans.push(Span::raw(" ".repeat(pad)));
+        left.spans.extend(right.spans.iter().skip_while(|s| s.content.trim().is_empty()).cloned());
+    };
+    // Right-hand parts leave the stack once they sit beside something; highest index first so
+    // the other's index still holds.
+    let mut gone = Vec::new();
+    if let (true, Some(l), Some(r)) = (fits(pairs[0]), state_row, location) {
+        beside(&mut lines[l], &parts[r].lines[0]);
+        gone.push(r);
+    }
+    if let (true, Some(l), Some(r)) = (fits(pairs[1]), about, issues) {
+        let right = parts[r].lines[0].clone();
+        beside(&mut parts[l].lines[0], &right);
+        gone.push(r);
+    }
+    gone.sort_unstable();
+    for n in gone.into_iter().rev() {
+        parts.remove(n);
+    }
 }
 
 /// Where the reply's window is and what moves it, on the row under it: `↓ 40 more lines · PgDn`
@@ -3492,7 +3457,7 @@ mod tests {
         let mut app = fixture(&real_tabs());
         let idle = query_row(&mut app, 136, 26);
         assert!(idle.contains("type to filter"), "{idle:?}");
-        // The context row under it names the tab; this row does not repeat it.
+        // The panel's highlight names the tab; this row does not repeat it.
         assert!(!idle.split(SEARCH_ICON).nth(1).unwrap().contains(ALL_TAB), "{idle:?}");
 
         app.q = "session".into();
@@ -3505,7 +3470,7 @@ mod tests {
         let fz = query_row(&mut app, 136, 26);
         assert!(fz.contains("fuzzy match") && fz.contains("none exact"), "{fz:?}");
 
-        // The scope is the tab's, named once, on the context row.
+        // The scope is the tab's, named once, by the panel's highlight.
         app.q.clear();
         app.p_idx = app.tabs.iter().position(|t| t == "sessio").unwrap();
         assert!(!query_row(&mut app, 136, 26).split(SEARCH_ICON).nth(1).unwrap().contains("sessio"));
@@ -4508,8 +4473,8 @@ mod tests {
     }
 
     /// Normal, waiting, error and empty frames share one hierarchy: the key bar on row 0, the
-    /// query on row 1, the project context on row 2, the session strip on row 3, the preview under
-    /// it and feedback on the last row. A state changes what a row says, never which row says it.
+    /// query on row 1, the session strip on row 2, the preview under it and feedback on the last
+    /// row. A state changes what a row says, never which row says it.
     #[test]
     fn every_state_keeps_the_same_rows() {
         let text = |l: &Line| l.spans.iter().map(|s| s.content.to_string()).collect::<String>();
@@ -4519,7 +4484,6 @@ mod tests {
             let row = |r: usize| text(&f[r]);
             assert!(row(KEYBAR_ROW).contains("? help"), "{what}: key bar: {:?}", row(KEYBAR_ROW));
             assert!(row(QUERY_ROW).contains(SEARCH_ICON), "{what}: query row");
-            assert!(row(CONTEXT_ROW).contains("everything"), "{what}: context: {:?}", row(CONTEXT_ROW));
             let strip = row(STRIP_ROW);
             assert!(strip.contains('│') || strip.contains("no sessions here"), "{what}: {strip:?}");
         };
@@ -4708,8 +4672,6 @@ mod tests {
                     let proj = styled(panel_selected());
                     let head: String = sanitize(&app.tabs[p]).chars().take(4).collect();
                     assert!(proj.contains(&head), "{cols}x{rows} p{p}: project {head} hidden: {proj:?}");
-                    let ctx = lines[CONTEXT_ROW].spans.iter().map(|s| s.content.to_string()).collect::<String>();
-                    assert!(ctx.contains(&sanitize(&app.tabs[p])), "{cols}x{rows}: context names it: {ctx:?}");
                     if n > 0 {
                         let title = app.items[app.view()[cur]].display_name().to_string();
                         let tab = styled(tab_selected());
@@ -4824,13 +4786,6 @@ mod tests {
                 }
             }
         }
-        // The context line cuts the path from the left, so its end — the folder — survives.
-        app.p_idx = 1;
-        app.cur = 0;
-        let ctx = context_line(&app, app.selected(), 100);
-        let t: String = ctx.spans.iter().map(|s| s.content.to_string()).collect();
-        assert!(t.contains('…') && t.ends_with("日本語/🎉"), "{t:?}");
-        assert!(UnicodeWidthStr::width(t.as_str()) <= 100, "{t:?}");
     }
 
     #[test]
@@ -5220,7 +5175,9 @@ mod tests {
             let rows = body_rows(&mut app, 160, 40);
             assert!(rows[CHROME].contains("────"), "{what}: the preview's rule: {rows:?}");
             assert!(rows[CHROME + 1].contains(app.items[0].display_name()), "{what}: title row");
-            assert_eq!(rows[CHROME + 2].trim(), state, "{what}: the state row");
+            // The state leads its row; where the session is may sit beside it.
+            let row = rows[CHROME + 2].trim();
+            assert!(row == state || row.starts_with(&format!("{state}   ")), "{what}: the state row: {row:?}");
             match unfinished {
                 Some(u) => assert_eq!(rows[CHROME + 3].trim(), u, "{what}: the unfinished row"),
                 None => assert!(!rows.join("\n").contains("▶ unfinished"), "{what}: {rows:?}"),
@@ -5549,7 +5506,6 @@ mod tests {
         let order = [
             at(app.items[0].display_name()),
             at("not running"),
-            at("lifelab · main · 5 prompts"),
             at("tokens in 10"),
             at("recap  Goal"),
             at("first  first prompt"),
@@ -5557,8 +5513,10 @@ mod tests {
             at("reply  row 1"),
         ];
         assert!(order.windows(2).all(|p| p[0] < p[1]), "{order:?}\n{}", rows.join("\n"));
-        // File size and naming sit with the token totals, below where the session is.
+        // File size and naming sit with the token totals; where the session is sits beside the
+        // state, in a second column.
         assert!(rows[at("tokens")].contains("1K file · unnamed"), "{rows:?}");
+        assert_eq!(at("lifelab · main · 5 prompts"), at("not running"), "{rows:?}");
     }
 
     #[test]

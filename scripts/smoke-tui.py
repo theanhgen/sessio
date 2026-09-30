@@ -332,7 +332,7 @@ def layout_is_stable(cols=110, rows=40, steps=8):
 
 CASES = [
     (80, 24, [DOWN, DOWN, UP, RIGHT, LEFT], "navigate", False,
-     ["⌂ everything", "web-app"]),
+     ["⌂ everyt", "web-app"]),
     (104, 26, [], "a running session waiting on you is announced", False,
      ["◆ waiting", "waiting on you"]),
     (80, 24, [b"?", b"x"], "help overlay opens and any key closes", False,
