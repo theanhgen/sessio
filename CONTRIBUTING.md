@@ -24,7 +24,7 @@ cargo run -- ls --json    # any command
 | `skills/sessio/` | The agent skill shipped in the npm package. |
 | `docs/` | The site (`index.html`, served by GitHub Pages), `DESIGN.md`, `brand/`, `fonts/`. `docs/demo/` is built, never committed. |
 | `scripts/` | `smoke-tui.py` (pty smoke test), `build-demo.sh`, `check-demo.sh`, `install-demo-tools.sh` and `site-check.cjs` (the site's demo), `stage-npm-packages.sh` (release), `oracle.sh` (legacy diff), `brand.swift` (draws the icon and logo), `backup-sessions.sh` and its LaunchAgent (optional, for users). |
-| `.github/workflows/` | `ci.yml` (every PR and push to main), `pages.yml` (deploys the site from main), `release.yml` (publishes to npm on a `v*` tag). |
+| `.github/workflows/` | `ci.yml` (every PR and push to main), `pages.yml` (deploys the site from main), `tag-release.yml` (tags a version bump on main and starts the release), `release.yml` (publishes to npm). |
 
 ## Build and test
 
@@ -83,17 +83,19 @@ the fallback when the wasm is blocked — and saves light and dark screenshots o
 
 ## Releasing
 
-npm is published by `release.yml`, and only when a `v*` tag is pushed. A merge to `main` updates
-the site, not npm.
+Merging a version bump is the release. `tag-release.yml` sees the new version in `Cargo.toml` on
+`main`, tags that commit `v<version>` and starts `release.yml`, which builds every target and
+publishes the platform packages, then the `sessio` launcher that pins them. A merge that leaves
+the version alone updates the site, not npm.
+
+The bump itself, as one pull request titled `release: vX.Y.Z`:
 
 1. Set the version in `Cargo.toml` and in `package.json` (the package and its five
-   `optionalDependencies`), run `cargo build` so `Cargo.lock` follows, and turn the changelog's
-   `## Unreleased` into `## X.Y.Z - YYYY-MM-DD`.
-2. Merge that as `release: vX.Y.Z`.
-3. Tag the merge commit and push the tag: `git tag -a vX.Y.Z -m "sessio X.Y.Z" && git push origin vX.Y.Z`.
+   `optionalDependencies`); the two must match or nothing is tagged.
+2. Run `cargo build` so `Cargo.lock` follows.
+3. Turn the changelog's `## Unreleased` into `## X.Y.Z - YYYY-MM-DD`.
 
-The workflow builds every target, publishes the platform packages, then the `sessio` launcher that
-pins them.
+Pushing a `v*` tag by hand still works.
 
 ## Conventions
 

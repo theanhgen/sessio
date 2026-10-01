@@ -1,0 +1,49 @@
+name: tag release
+
+# release.yml publishes to npm when a `v*` tag exists, and 14 commits once sat on main unreleased
+# because nobody pushed one. This tags the version bump itself: when the version in Cargo.toml
+# on main has no tag yet, it creates `v<version>` and starts release.yml on it.
+#
+# release.yml is started explicitly because a tag pushed with GITHUB_TOKEN does not trigger
+# other workflows; a workflow_dispatch does.
+
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the tag
+  actions: write # start release.yml
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag the version and start the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          npm_version=$(node -p "require('./package.json').version")
+          [ -n "$version" ] || { echo "no version in Cargo.toml" >&2; exit 1; }
+          if [ "$version" != "$npm_version" ]; then
+            echo "Cargo.toml is $version but package.json is $npm_version" >&2
+            exit 1
+          fi
+          tag="v$version"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists, nothing to release"
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" >/dev/null
+          echo "tagged $GITHUB_SHA as $tag"
+          gh workflow run release.yml --ref "$tag" -f dry_run=false
+          echo "started release.yml on $tag" >> "$GITHUB_STEP_SUMMARY"
