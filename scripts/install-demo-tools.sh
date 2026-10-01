@@ -4,7 +4,7 @@
 #
 # Both come as prebuilt release tarballs, checked against their published sha256, so this costs
 # seconds rather than the minutes `cargo install` would. Used by ci.yml and pages.yml; locally,
-# follow the README instead.
+# follow CONTRIBUTING.md instead.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
