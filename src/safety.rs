@@ -1,4 +1,4 @@
-//! Transcript content is untrusted display data. Port of lib/safety.mjs.
+//! Transcript content is untrusted display data. Port of legacy/lib/safety.mjs.
 //!
 //! This is a security control, not formatting: transcripts contain text an attacker can
 //! influence, and raw escape sequences reaching the terminal enable OSC-52 clipboard writes

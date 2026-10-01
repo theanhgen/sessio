@@ -9,8 +9,8 @@ import readline from 'node:readline';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn, execFile } from 'node:child_process';
-import { sanitizeTerminalText } from '../lib/safety.mjs';
-import { cacheKey, pruneCache, selectTranscriptRows } from '../lib/session-store.mjs';
+import { sanitizeTerminalText } from './lib/safety.mjs';
+import { cacheKey, pruneCache, selectTranscriptRows } from './lib/session-store.mjs';
 
 const ROOT = path.join(os.homedir(), '.claude', 'projects');
 const CAP = 300; // scan the 300 most-recent sessions; plenty for getting back into recent work

@@ -136,7 +136,7 @@ pub(crate) fn mtime_ms(meta: &fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-/// Port of `selectTranscriptRows` (lib/session-store.mjs:7): the newest `cap` rows, plus any
+/// Port of `selectTranscriptRows` (legacy/lib/session-store.mjs:7): the newest `cap` rows, plus any
 /// content-search matches from beyond the cap, re-sorted newest-first.
 pub fn select(rows: &[Row], cap: usize, extra: &[PathBuf]) -> Vec<Row> {
     let mut selected: Vec<Row> = rows.iter().take(cap).cloned().collect();

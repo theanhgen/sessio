@@ -31,9 +31,27 @@ This puts a `sessions` command on your PATH (and `sessio` as an alias). Run it:
 sessions
 ```
 
+### From source
+
+```sh
+cargo install --git https://github.com/theanhgen/sessio --locked
+```
+
+This builds the native binary as `sessio`; no Node needed. Add `alias sessions=sessio` to keep the
+command name the rest of this page uses.
+
 ### Optional: full-text search
 
 `^f` searches inside every transcript body via [ripgrep](https://github.com/BurntSushi/ripgrep). Without `rg` installed, everything else works, typing still filters, and `^f` says `^f needs ripgrep · brew install ripgrep` instead of searching. Install it with `brew install ripgrep` / `apt install ripgrep`.
+
+## Requirements
+
+- **Node.js ≥ 16** — only to install from npm. sessio itself is a native binary with no runtime
+  dependencies; `cargo install` and the prebuilt archives don't need node at all.
+- **Claude Code** or **GitHub Copilot CLI**, with `claude` or `copilot` on your PATH (used to resume)
+- **ripgrep** (optional) for `^f` full-text search
+- **terminal-notifier** (optional, macOS) so a click on a waiting notification opens that session's window
+- macOS or Linux
 
 ## What it does
 
@@ -49,7 +67,7 @@ sessions
 - **`◆` tells you when a session starts waiting on you** — while the dashboard is open, a running session that flips to `waiting` (a permission prompt, a question) posts a macOS notification titled `sessio`, naming the session and what it is waiting for, and shows the same line in the feedback row at the bottom of the window. One wait is one notification however long it lasts; several flipping in the same refresh are one notification that counts them. Sessions already waiting when sessio starts are not announced. With [terminal-notifier](https://github.com/julienXX/terminal-notifier) installed (`brew install terminal-notifier`) the notification carries sessio's icon, and **clicking it brings that session's Ghostty window forward**, the same switch `↵` makes; without it the notification comes from AppleScript and a click only opens Script Editor. Off the Mac it rings the terminal bell instead. `SESSIO_NOTIFY=0` turns it off.
 - **Feedback row** — what a key did (resumed, refused, failed, `↵ again` to confirm) appears on the bottom row, the full width of the window, instead of pushing hints off the key bar; a long message wraps onto a second row. Every message about a session names it (`"fix login redirect…" is running (pid 4242 · ttys009 · busy) — …`), so it still makes sense after you have moved on, and a result that arrives later — a reply, a `^k` — names the session it is about. Green means it happened; in progress is marked `⏳`, refused is yellow, failed is red with `✗`.
 - **Small windows** — the dashboard lays out from 50x12 up. Below that it says `window too small (need 50x12)` and keeps only the highlighted project and session, its state (with the pid and tty of a running one), any feedback, and the keys, which work as usual.
-- **Preview** — for the highlighted session: title, then its state in words on the row under it — `◆ waiting on you · input needed · pid 4242 · ttys009`, `◉ running · busy · pid · tty` (or `idle`, or `stale · idle 3d`), `● active · 2m ago · not running`, or `updated 3d ago · not running` — and `▶ unfinished · <reason>` under that when it is open. A fresh transcript and an attached process are told apart: recently written is not running. On a narrow window the state wraps rather than losing the pid and tty. Then where it is (project, git branch, prompt count), then what the file is (token totals — input, output, cache write, cache read, counted once per API response; no prices — the transcript's size, and whether it was named), then Claude's **recap** (the goal / state / whose-move paragraph it writes when you leave a session; the compact summary is shown when there is no recap), the first and last prompt you typed, and Claude's latest reply rendered as markdown (fenced code, tables, CJK). The reply is never cut off for good: when it is taller than the preview, its last row says how much is left (`↓ 40 more lines · PgDn scrolls`, then `lines 20–38 of 88 · ↓ 50 more`), and **`PgUp` / `PgDn`** scroll it a page at a time. Only the reply moves; another session starts at the top, and the 2s refresh keeps your place. `⇥` hides the first/last prompts to give the reply more room. On a narrow window the labels lead their text (`recap: …`, `reply: …`) instead of taking a 12-column gutter, and a short window drops the file facts, then the prompts, before it squeezes the recap or the reply. Until the transcript is read the preview says `reading transcript…`; `no recap yet` and `no reply yet` say what is missing. A table too wide for the window is set as one `header: cell` line per row rather than cut. A session whose recap says the next move is yours is marked as open.
+- **Preview** — for the highlighted session: title, then its state in words on the row under it — `◆ waiting on you · input needed · pid 4242 · ttys009`, `◉ running · busy · pid · tty` (or `idle`, or `stale · idle 3d`), `● active · 2m ago · not running`, or `updated 3d ago · not running` — and `▶ unfinished · <reason>` under that when it is open. A fresh transcript and an attached process are told apart: recently written is not running. On a narrow window the state wraps rather than losing the pid and tty. Where it is (project, git branch, prompt count) sits beside the state when the window is wide enough, and on its own row when it isn't. Then what the file is (token totals — input, output, cache write, cache read, counted once per API response; no prices — the transcript's size, and whether it was named), with the repo's open issues beside it on a wide window, then Claude's **recap** (the goal / state / whose-move paragraph it writes when you leave a session; the compact summary is shown when there is no recap), the first and last prompt you typed, and Claude's latest reply rendered as markdown (fenced code, tables, CJK). The reply is never cut off for good: when it is taller than the preview, its last row says how much is left (`↓ 40 more lines · PgDn scrolls`, then `lines 20–38 of 88 · ↓ 50 more`), and **`PgUp` / `PgDn`** scroll it a page at a time. Only the reply moves; another session starts at the top, and the 2s refresh keeps your place. `⇥` hides the first/last prompts to give the reply more room. On a narrow window the labels lead their text (`recap: …`, `reply: …`) instead of taking a 12-column gutter, and a short window drops the file facts, then the prompts, before it squeezes the recap or the reply. Until the transcript is read the preview says `reading transcript…`; `no recap yet` and `no reply yet` say what is missing. A table too wide for the window is set as one `header: cell` line per row rather than cut. A session whose recap says the next move is yours is marked as open.
 - **`↵` resume** — runs `claude --resume <id>` in that session's original working directory, replacing sessio in this window. If the session is **already running** (`◉`), sessio stops rather than pointing a second `claude` at the same transcript: it names the session, its pid, tty and what it is doing (`idle` / `busy` / `waiting` / `shell`) so you can find the terminal yourself, and opening it a second time takes an explicit second `↵` — the very next key: anything else, or the message running out, withdraws it. **`^o`** opens it in a new window instead (below), behind the same guard.
   <br>**Under Ghostty 1.3+ (macOS), `↵` on a running session switches to it**: Ghostty's AppleScript dictionary reports each terminal's tty, so sessio focuses the exact terminal — its tab and split included — instead of guessing from window titles. **By default, in any other terminal (Terminal, iTerm2, tmux, …) sessio does not move you**: it tells you the pid and tty and leaves finding it to you.
   <br>When the tty switch is unavailable or finds nothing, sessio can also try to *raise* a Ghostty window whose title matches, but that is **off by default** and gated behind `SESSIO_FOCUS=1` (the message then says it *raised* a window, not that you are there), because it cannot be made to land: measured on Ghostty, `AXRaise` puts the target at z-position 2 and never 1, since position 1 is the key window and that is sessio's own. Adding `set frontmost to true` makes macOS promote whatever it considers the app's main window instead, so each press reshuffles the stack and a different unrelated window surfaces.
@@ -161,78 +179,6 @@ This is intentionally explicit: normal launches never contact npm or modify
 your installation. In a git checkout, it prints the `git pull` command for you
 to run rather than changing the checkout itself.
 
-## Requirements
-
-- **Node.js ≥ 16** — only to install from npm. sessio itself is a native binary with no runtime
-  dependencies; `cargo install` and the prebuilt archives don't need node at all.
-- **Claude Code** or **GitHub Copilot CLI**, with `claude` or `copilot` on your PATH (used to resume)
-- **ripgrep** (optional) for `^f` full-text search
-- **terminal-notifier** (optional, macOS) so a click on a waiting notification opens that session's window
-- macOS or Linux
-
-## Keep your `sessions` muscle memory
-
-If you already invoke the tool some other way, just alias:
-
-```sh
-alias sessions='sessio'   # or point it at the global install
-```
-
-## The website demo is the real thing
-
-[theanhgen.github.io/sessio](https://theanhgen.github.io/sessio/) runs sessio itself, compiled to
-WebAssembly, against eight fixture sessions — the page calls the same `frame_lines()` the terminal
-does. It is not a screenshot and not a JavaScript recreation, which is deliberate: the previous
-site hand-wrote its terminal mock in HTML and it drifted until it documented keys that no longer
-existed.
-
-The Pages deploy builds it from the commit it deploys, so the site cannot fall behind a layout
-change, and CI builds it on every pull request. `docs/demo/` is not committed. To preview the site
-locally, build it yourself:
-
-```sh
-cargo install wasm-bindgen-cli --version "$(grep -A1 'name = "wasm-bindgen"' Cargo.lock | grep version | head -1 | cut -d'"' -f2)"
-rustup target add wasm32-unknown-unknown
-./scripts/build-demo.sh      # → docs/demo/
-```
-
-CI also runs `scripts/check-demo.sh` after the build: it fails if `docs/demo/` was committed or
-if the module does not export every function the page calls. For a release, or a change to the
-site, `node scripts/site-check.cjs` (needs Playwright) checks the page in a headless browser —
-the demo's layout at desktop and phone width, no sideways scroll, entering and leaving the demo,
-the fallback when the wasm is blocked — and saves light and dark screenshots of each.
-
-## Development
-
-```sh
-cargo clippy --all-targets -- -D warnings
-cargo test                                   # unit, golden-frame, parity and CLI tests
-npm test                                     # the npm launcher
-cargo build --release && npm run smoke       # drive the TUI through a pty
-```
-
-None of it reads your sessions or spends a token. The CLI tests and the pty smoke test
-(`scripts/smoke-tui.py`) run against a throwaway `HOME` of synthetic transcripts, with stand-ins
-for `claude`, `copilot`, `gh` and the browser that fail the run if anything calls them. CI runs
-all four on Linux and macOS.
-
-- **Golden frames.** `tests/frames/<scene>.txt` holds the dashboard as text for every key state —
-  normal, waiting, running, unfinished, archived, no sessions, each filter and search state, a
-  scrolled reply, the composer, a reply sending and failed, help, `^t`, `^g`, a Copilot session,
-  CJK and emoji, forty projects, a refresh while reading, several messages at once — at 60x18,
-  80x24, 104x26 and 160x40, the 50x12 minimum and below it. A layout change fails
-  `ui::frames`; when the change is intended, regenerate them and review the diff:
-
-  ```sh
-  SESSIO_BLESS=1 cargo test frames
-  git diff tests/frames
-  ```
-- **Demo parity.** `ui::parity` presses the same keys in the website demo's handler and the
-  terminal's and requires the same frame after each: navigation, help, the composer, `PgUp`/`PgDn`,
-  filtering and search, archive. What only a terminal can do is checked to say `browser demo: …`.
-- **Shipped guidance.** `ui::guidance` fails when a key in the `?` overlay is missing from the key
-  table above, `sessions --help`, the website or `docs/DESIGN.md`.
-
 ## How it works
 
 `sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl` (or under `$CLAUDE_CONFIG_DIR` if you've relocated it), parsing each session's title, prompts, compact summary, and last reply. Only the 300 most-recent sessions are read while browsing; full-text search loads every matching session, including matches older than that cap.
@@ -255,6 +201,12 @@ launchctl load ~/Library/LaunchAgents/com.sessio.backup.plist
 ```
 
 Edit the paths in both files first if your setup differs. On Linux, run the script from `cron` instead.
+
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the repo map, how to build and test, how the golden
+frames and the website demo work, and how a release is cut. The dashboard's layout rules are in
+[`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## License
 
