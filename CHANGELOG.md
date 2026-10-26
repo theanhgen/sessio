@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### New
+
+- **`sessions layout save --auto` keeps the layout current without you.** It is the save for a
+  Claude Code hook (`SessionStart` and `Stop`): it never starts Ghostty, never switches tabs on
+  your screen (a background tab keeps the splits read last time), and right after a reboot it
+  won't replace a bigger layout saved before Ghostty started, so `restore` still has it. Every
+  save moves the file it replaces to `layout.prev.json`. Until now a layout existed only if you
+  remembered to run `save` before the reboot.
+
 ### Changed
 
 - **The site leads with the list itself.** Under the headline, five of the demo's sessions are
