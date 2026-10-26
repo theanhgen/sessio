@@ -353,7 +353,8 @@ running `●` in `--running` green, the `s` of sessio and a title bar in `--on-s
 two quieter rows (`○` marks and bars barely lighter than the `--surface-raised` tile). One icon
 serves light and dark: it is a dark tile either way, like the demo's terminal window.
 
-- **Type:** Fraunces SemiBold, for the `s` and the name, and nowhere else. The site loads it from
+- **Type:** Fraunces SemiBold, for the `s` and the name, and on the site for its headline and section
+  heads; nowhere else. The site loads it from
   Google Fonts for the header; the icon and logo files carry it as outlines.
 - **Spacing:** the `s` is placed by its ink, not its advance: dot, 5 units, `s`, 5 units, bar, the
   group centred in the row and the letter's body centred on the row's middle line (100-unit tile).
@@ -369,18 +370,34 @@ large text, at least 24px regular or 18.66px bold, and to glyphs and other non-t
 
 ### Website (`docs/index.html`)
 
-Type: the headline and the logo are Fraunces SemiBold; the headline's promise is drawn as the
-dashboard's selected row (plum, led by the running dot). Body text is the system sans; code and
-labels the system monospace. Everything smaller than body text takes one of three sizes,
+Type: the headline, the section heads and the logo are Fraunces SemiBold; the headline's promise is
+drawn as the dashboard's selected row (plum, led by the running dot). Body text is the system sans;
+code and labels the system monospace; the hero ledger and the demo are Fira Code, so the status
+marks are drawn at one size. Everything smaller than body text takes one of three sizes,
 `--fs-s` 12px, `--fs-m` 13.5px, `--fs-l` 15px. Buttons animate colour only and press to 97%.
 
 The page follows `prefers-color-scheme`. Terminal windows (`.term`) stay dark in both schemes: the
 demo draws the palette a dark terminal shows, and `.term` re-declares the dark roles for
 everything inside it.
 
-The page runs in this order: the task, install (copying is the primary action, and a refused copy
-selects the command and says so), the demo, find / understand / continue, the CLI and agent skill,
-keys, requirements. The demo is entered with **Try the demo** (or by tabbing to it) and left with
+The page runs in this order: the task, the ledger, install (copying is the primary action, and a
+refused copy selects the command and says so), the demo, find / understand / continue, the CLI and
+agent skill, keys, the changelog, requirements.
+
+The **ledger** under the headline lists five of the demo's own fixture sessions the way the
+dashboard does (mark, age, project, title, state), with the selected one lit in `--selection` like
+the headline. Its marks and states are the fixtures' (`demo::build`), so the hero never shows
+something the demo contradicts; change them together. It is a list, not a `<table>`: the key table
+must stay the page's first table (`ui::guidance`). Below 560px it drops the age and project.
+
+The demo window sits on a **stage**: a dark field, permanently dark like the window, lit from
+behind with `--glow`. The glow and the page's top glow are the site's two decorative uses of colour
+(the terminal has none), both in the selection hue at under 10% opacity. The stage never transforms
+the window: `measure()` fits the frame to the window's real width. The **changelog** is a dated
+list, newest first, one line per release linking to its notes.
+
+How it works is three columns of text under one rule, numbered 1-3 in Fraunces: the numbers are
+the order you need them in. The demo is entered with **Try the demo** (or by tabbing to it) and left with
 `esc`, **Exit demo** or `Tab`; while it has focus the whole window (title bar included) wears an accent ring and says `keys go to the
 demo`. It lays the frame out for its container — 104x26 on a desktop, down to 60x18 — and never
 shrinks the text below 12px; narrower than 60 columns it scrolls sideways inside its window, never
