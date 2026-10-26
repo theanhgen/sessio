@@ -183,7 +183,9 @@ sessions layout restore            # reopen them and resume every session in its
   run it from needs Accessibility permission (System Settings › Privacy & Security ›
   Accessibility); without it a save keeps the panes and sessions, and restore lays each tab out
   as an even grid. Saving a window whose background tabs are split shows each of those tabs for a
-  moment.
+  moment. `save --auto` is for a hook on `SessionStart` and `Stop`, so there is always a layout to
+  restore: it switches no tabs, never starts Ghostty, and after a reboot keeps a bigger layout
+  saved before Ghostty started. Each save keeps the one it replaces as `layout.prev.json`.
 - Exit status: `0` done, `1` couldn't do it, `2` bad command line.
 
 ## Agent skill

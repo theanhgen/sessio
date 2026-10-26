@@ -101,6 +101,35 @@ pub fn default_file() -> PathBuf {
     crate::store::state_dir().join("layout.json")
 }
 
+/// Where a save moves the layout it replaces: `layout.json` → `layout.prev.json`.
+pub fn prev_file(file: &Path) -> PathBuf {
+    file.with_extension("prev.json")
+}
+
+pub fn session_count(l: &Layout) -> usize {
+    l.windows.iter().flat_map(|w| &w.tabs).flat_map(|t| &t.panes).filter(|p| p.session.is_some()).count()
+}
+
+/// The split tree an earlier save read for a tab with exactly these panes. `save --auto` keeps a
+/// background tab's arrangement this way instead of switching to it on the user's screen.
+pub fn known_tree(prev: Option<&Layout>, panes: &[Pane]) -> Option<Node> {
+    prev?.windows.iter().flat_map(|w| &w.tabs).find(|t| t.panes == panes).and_then(|t| t.tree.clone())
+}
+
+/// Elapsed time as `ps -o etime=` prints it, `[[dd-]hh:]mm:ss`, in seconds.
+pub fn parse_etime(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let (days, rest) = match s.split_once('-') {
+        Some((d, r)) => (d.parse::<u64>().ok()?, r),
+        None => (0, s),
+    };
+    let mut secs = 0;
+    for part in rest.split(':') {
+        secs = secs * 60 + part.parse::<u64>().ok()?;
+    }
+    Some(days * 86_400 + secs)
+}
+
 pub fn load(file: &Path) -> Result<Layout, String> {
     let body = std::fs::read_to_string(file).map_err(|e| format!("can't read {}: {e}", file.display()))?;
     let l: Layout =
@@ -457,7 +486,7 @@ pub fn sessions_by_tty(live: &crate::live::LiveMap, argv_of: &dyn Fn(i32) -> Opt
 pub use mac::{restore, save};
 
 #[cfg(not(target_os = "macos"))]
-pub fn save(_file: &Path) -> Result<String, String> {
+pub fn save(_file: &Path, _auto: bool) -> Result<String, String> {
     Err("saving a layout needs Ghostty on macOS".into())
 }
 
@@ -553,13 +582,28 @@ end run"#,
         hits.into_iter().next()
     }
 
-    pub fn save(file: &Path) -> Result<String, String> {
+    /// When Ghostty's process started, from its elapsed time.
+    fn started(pid: i32) -> Option<std::time::SystemTime> {
+        let out = Command::new("ps").args(["-o", "etime=", "-p", &pid.to_string()]).stdin(Stdio::null()).output().ok()?;
+        let secs = parse_etime(&String::from_utf8_lossy(&out.stdout))?;
+        std::time::SystemTime::now().checked_sub(Duration::from_secs(secs))
+    }
+
+    /// `auto` is the unattended save a hook runs: it never starts Ghostty (any AppleScript to it
+    /// would), never switches tabs on the user's screen, and won't let a fresh Ghostty — just
+    /// after a reboot, before `restore` — replace the saved layout with fewer sessions.
+    pub fn save(file: &Path, auto: bool) -> Result<String, String> {
+        let pid = ghostty_pid();
+        if auto && pid.is_none() {
+            return Ok("Ghostty is not running; nothing saved".into());
+        }
+        let prev = load(file).ok();
         let script = parse_dump(&osa(DUMP_SCRIPT, &[])?);
         if script.is_empty() {
             return Err("Ghostty has no windows open".into());
         }
         let by_tty = sessions_by_tty(&crate::live::scan(), &argv_of);
-        let ax = ghostty_pid().and_then(Ax::new);
+        let ax = pid.and_then(Ax::new);
         let ax_windows: Vec<ax::Element> = ax.as_ref().map(|a| a.windows()).unwrap_or_default();
         let snaps: Vec<El> = ax_windows.iter().map(|w| w.read()).collect();
         let seen: Vec<Seen> = snaps
@@ -593,7 +637,9 @@ end run"#,
                 let mut tree = None;
                 if terms.len() > 1 {
                     split_tabs += 1;
-                    if let (Some(el), Some(ax)) = (el, &ax) {
+                    if auto && ti != sw.selected {
+                        tree = known_tree(prev.as_ref(), &panes);
+                    } else if let (Some(el), Some(ax)) = (el, &ax) {
                         // Only the selected tab is drawn: show the others for a moment.
                         let other = ti != sw.selected;
                         let view = if other {
@@ -628,6 +674,20 @@ end run"#,
             saved_at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
             windows,
         };
+        if let (true, Some(prev), Some(started)) = (auto, &prev, pid.and_then(started)) {
+            let older = std::fs::metadata(file).and_then(|m| m.modified()).is_ok_and(|t| t < started);
+            if older && session_count(&layout) < session_count(prev) {
+                return Ok(format!(
+                    "kept the layout saved before Ghostty started ({} sessions, {} open now); \
+                     `sessions layout restore` brings it back, `sessions layout save` replaces it",
+                    session_count(prev),
+                    session_count(&layout)
+                ));
+            }
+        }
+        if prev.is_some() {
+            let _ = std::fs::copy(file, prev_file(file));
+        }
         if !crate::store::save_private_json(file, &layout) {
             return Err(format!("couldn't write {}", file.display()));
         }
@@ -639,7 +699,7 @@ end run"#,
             panes.iter().filter(|p| p.session.is_some()).count(),
             file.display()
         );
-        if ax.is_none() {
+        if ax.is_none() && !auto {
             msg.push_str(
                 "\nno Accessibility permission for this terminal, so splits will come back as an even grid \
                  and windows at Ghostty's default size. Allow it in System Settings › Privacy & Security › \
@@ -1053,6 +1113,34 @@ mod tests {
 
     fn el(role: &str, desc: &str, rect: Rect, kids: Vec<El>) -> El {
         El { role: role.into(), desc: desc.into(), rect, kids }
+    }
+
+    #[test]
+    fn ps_elapsed_time_reads_as_seconds() {
+        assert_eq!(parse_etime("  05:07\n"), Some(307));
+        assert_eq!(parse_etime("02:05:07"), Some(7507));
+        assert_eq!(parse_etime("3-02:05:07"), Some(3 * 86_400 + 7507));
+        assert_eq!(parse_etime(""), None);
+    }
+
+    #[test]
+    fn an_unattended_save_keeps_the_tree_of_a_tab_with_the_same_panes() {
+        let p = |s: &str| Pane { cwd: format!("/x/{s}"), session: Some(s.into()), flags: vec![] };
+        let tree = Node::Split { dir: Dir::Down, ratio: 0.3, a: Box::new(Node::Leaf(0)), b: Box::new(Node::Leaf(1)) };
+        let prev = Layout {
+            version: 1,
+            saved_at: String::new(),
+            windows: vec![Window {
+                frame: None,
+                selected_tab: 0,
+                tabs: vec![Tab { panes: vec![p("a")], tree: None }, Tab { panes: vec![p("b"), p("c")], tree: Some(tree.clone()) }],
+            }],
+        };
+        assert_eq!(known_tree(Some(&prev), &[p("b"), p("c")]), Some(tree));
+        assert_eq!(known_tree(Some(&prev), &[p("c"), p("b")]), None);
+        assert_eq!(known_tree(None, &[p("b"), p("c")]), None);
+        assert_eq!(session_count(&prev), 3);
+        assert_eq!(prev_file(Path::new("/s/layout.json")), PathBuf::from("/s/layout.prev.json"));
     }
 
     /// A pane as Ghostty draws it: a group around a scroll area.

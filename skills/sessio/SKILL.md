@@ -92,7 +92,8 @@ prefix fails and lists the candidates.
   screen and starts a `claude` for every saved session that is not running, so run it only when
   the user asks for it; a running one gets a shell instead. `save` is safe to run when asked:
   it only writes `~/.claude/.sessio/layout.json` (it does briefly switch to background tabs
-  that have splits).
+  that have splits). A hook may keep it current with `layout save --auto`; the file it replaced
+  is `layout.prev.json`.
 
 ## The dashboard, when the user runs it
 

@@ -47,6 +47,8 @@ USAGE:
                                     (SIGTERM; refuses busy, waiting or recent ones)
   sessions layout save [file]       remember Ghostty's windows, tabs and splits, and
                                     the Claude session in each pane (macOS)
+           [--auto]                   unattended, for a hook: no tab switching, never
+                                      starts Ghostty, keeps a bigger pre-reboot layout
   sessions layout restore [file]    reopen them and resume every session in its place;
                                     one already running gets a shell instead
   sessions layout show [file]       what a restore would open [--json]
@@ -160,6 +162,7 @@ struct Opts {
     text: bool,
     force: bool,
     print: bool,
+    auto: bool,
     help: bool,
 }
 
@@ -174,7 +177,7 @@ fn flags_for(cmd: &str) -> Vec<&'static str> {
         "find" => [LIST_FLAGS, &["--text"]].concat(),
         "show" => vec!["--json"],
         "kill" => vec!["--json"],
-        "layout" => vec!["--json"],
+        "layout" => vec!["--json", "--auto"],
         "resume" => vec!["--force", "--print"],
         _ => vec![],
     }
@@ -236,6 +239,7 @@ fn parse(cmd: &str, raw: &[String]) -> Result<Opts, Fail> {
             "--text" => o.text = true,
             "--force" => o.force = true,
             "--print" => o.print = true,
+            "--auto" => o.auto = true,
             _ => unreachable!("every allowed flag is handled"),
         }
     }
@@ -552,8 +556,11 @@ fn layout_cmd(o: &Opts) -> Result<(), Fail> {
     if o.json && sub != "show" {
         return Err(usage_err("--json goes with `layout show`"));
     }
+    if o.auto && sub != "save" {
+        return Err(usage_err("--auto goes with `layout save`"));
+    }
     match sub {
-        "save" => out(&format!("{}\n", layout::save(&file).map_err(err)?)),
+        "save" => out(&format!("{}\n", layout::save(&file, o.auto).map_err(err)?)),
         "restore" => out(&format!("{}\n", layout::restore(&file).map_err(err)?)),
         "show" => {
             let l = layout::load(&file).map_err(err)?;
