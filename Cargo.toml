@@ -6,6 +6,23 @@ rust-version = "1.82"
 description = "Interactive terminal browser to find and resume past coding-agent sessions (Claude Code, GitHub Copilot CLI)."
 license = "MIT"
 repository = "https://github.com/theanhgen/sessio"
+homepage = "https://theanhgen.github.io/sessio/"
+readme = "README.md"
+keywords = ["claude", "claude-code", "copilot", "sessions", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+# What crates.io gets: the program and what it compiles in (the notification icon, and the
+# guidance tests' copies of the README, site and design notes). The npm launcher, the site, the
+# legacy implementation and the release scripts stay in the repo.
+include = [
+    "/src/**",
+    "/tests/**",
+    "/docs/brand/icon-256.png",
+    "/docs/index.html",
+    "/docs/DESIGN.md",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+]
 
 [[bin]]
 name = "sessio"

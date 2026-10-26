@@ -31,14 +31,29 @@ This puts a `sessions` command on your PATH (and `sessio` as an alias). Run it:
 sessions
 ```
 
-### From source
+### Homebrew
 
 ```sh
-cargo install --git https://github.com/theanhgen/sessio --locked
+brew install theanhgen/tap/sessio
+```
+
+macOS and Linux, Intel and Arm. Installs `sessions` and `sessio`; `brew upgrade` updates it.
+
+### Cargo
+
+```sh
+cargo install sessio --locked
 ```
 
 This builds the native binary as `sessio`; no Node needed. Add `alias sessions=sessio` to keep the
-command name the rest of this page uses.
+command name the rest of this page uses. `cargo install --git https://github.com/theanhgen/sessio
+--locked` builds `main` instead of the latest release.
+
+### Binaries
+
+Every [release](https://github.com/theanhgen/sessio/releases) has a `.tar.gz` per platform
+(`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`) with its SHA-256 beside it.
 
 ### Optional: full-text search
 
@@ -189,7 +204,8 @@ sessions --update
 ```
 
 This is intentionally explicit: normal launches never contact npm or modify
-your installation. In a git checkout, it prints the `git pull` command for you
+your installation. Installed with Homebrew or Cargo, update with `brew upgrade sessio` or
+`cargo install sessio --locked`. In a git checkout, it prints the `git pull` command for you
 to run rather than changing the checkout itself.
 
 ## How it works

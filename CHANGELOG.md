@@ -12,6 +12,8 @@
   rather than a second `claude` on the same transcript. `layout show` prints what a restore would
   open. Without Accessibility permission a save keeps the panes and sessions, and restore lays a
   tab's panes out as an even grid.
+- **More ways to install:** `brew install theanhgen/tap/sessio` (macOS and Linux),
+  `cargo install sessio`, and a `.tar.gz` per platform on every GitHub release.
 
 ## 1.3.0 - 2026-10-01
 
