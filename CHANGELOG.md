@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The site leads with the list itself.** Under the headline, five of the demo's sessions are
+  listed the way the dashboard lists them, the selected one lit in plum; the demo window sits on a
+  dark stage; section heads take the headline's serif; how it works is three plain columns; a
+  changelog section lists the releases; the install line names Homebrew and Cargo too.
+
 ## 1.4.0 - 2026-10-26
 
 ### New
