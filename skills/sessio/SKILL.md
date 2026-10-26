@@ -86,6 +86,14 @@ prefix fails and lists the candidates.
   so run it only on a session the user named for ending; `ended: false` means the process was
   signalled and was still there after 3s. A Copilot session is refused ("kill is Claude-only").
 
+- **Layout (macOS, Ghostty):** `sessions layout save` records the user's Ghostty windows, tabs,
+  splits and the Claude session in each pane; `sessions layout show` prints what is saved, and
+  marks sessions that are running now. `sessions layout restore` opens windows on the user's
+  screen and starts a `claude` for every saved session that is not running, so run it only when
+  the user asks for it; a running one gets a shell instead. `save` is safe to run when asked:
+  it only writes `~/.claude/.sessio/layout.json` (it does briefly switch to background tabs
+  that have splits).
+
 ## The dashboard, when the user runs it
 
 You never run a bare `sessions` yourself, but the user may ask about what it shows. While it is

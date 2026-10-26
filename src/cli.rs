@@ -17,7 +17,8 @@ use sessio::discover::Source;
 use sessio::{discover, parse, rank, resume, search, ui};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-pub const COMMANDS: &[&str] = &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "kill", "help"];
+pub const COMMANDS: &[&str] =
+    &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "kill", "layout", "help"];
 
 /// What `ls` and `find` print when not told otherwise. `--limit 0` lifts it.
 const DEFAULT_LIMIT: usize = 20;
@@ -44,6 +45,11 @@ USAGE:
   sessions unarchive <id>...
   sessions kill <id> [--json]       end a running session idle for more than 48h
                                     (SIGTERM; refuses busy, waiting or recent ones)
+  sessions layout save [file]       remember Ghostty's windows, tabs and splits, and
+                                    the Claude session in each pane (macOS)
+  sessions layout restore [file]    reopen them and resume every session in its place;
+                                    one already running gets a shell instead
+  sessions layout show [file]       what a restore would open [--json]
   sessions --update                 update instructions for this install
   sessions --dump-json              print the computed session list (oracle harness)
   sessions --version
@@ -133,6 +139,7 @@ fn dispatch(cmd: &str, o: &Opts) -> Result<(), Fail> {
         "archive" => archive(o, true),
         "unarchive" => archive(o, false),
         "kill" => kill_cmd(o),
+        "layout" => layout_cmd(o),
         _ => unreachable!("run() only dispatches known commands"),
     }
 }
@@ -167,6 +174,7 @@ fn flags_for(cmd: &str) -> Vec<&'static str> {
         "find" => [LIST_FLAGS, &["--text"]].concat(),
         "show" => vec!["--json"],
         "kill" => vec!["--json"],
+        "layout" => vec!["--json"],
         "resume" => vec!["--force", "--print"],
         _ => vec![],
     }
@@ -530,6 +538,48 @@ fn resume_cmd(o: &Opts) -> Result<(), Fail> {
         "couldn't launch {} ({e}). Run it yourself:\n  {manual}",
         resume::program(it.source)
     )))
+}
+
+/// `layout save|restore|show [file]`. The file defaults to `<claude-home>/.sessio/layout.json`.
+fn layout_cmd(o: &Opts) -> Result<(), Fail> {
+    use sessio::layout;
+    let (sub, file) = match o.args.as_slice() {
+        [sub] => (sub.as_str(), layout::default_file()),
+        [sub, file] => (sub.as_str(), PathBuf::from(file)),
+        [] => return Err(usage_err("layout needs save, restore or show")),
+        _ => return Err(usage_err("layout takes a subcommand and at most one file")),
+    };
+    if o.json && sub != "show" {
+        return Err(usage_err("--json goes with `layout show`"));
+    }
+    match sub {
+        "save" => out(&format!("{}\n", layout::save(&file).map_err(err)?)),
+        "restore" => out(&format!("{}\n", layout::restore(&file).map_err(err)?)),
+        "show" => {
+            let l = layout::load(&file).map_err(err)?;
+            if o.json {
+                out(&format!("{}\n", serde_json::to_string_pretty(&l).expect("plain data")));
+                return Ok(());
+            }
+            let live = sessio::live::scan();
+            let running = |id: &str| live.contains_key(id);
+            let mut s = format!("saved {}\n", l.saved_at);
+            for (wi, w) in l.windows.iter().enumerate() {
+                s.push_str(&format!("window {}\n", wi + 1));
+                for (ti, t) in w.tabs.iter().enumerate() {
+                    let mark = if ti == w.selected_tab && w.tabs.len() > 1 { " (selected)" } else { "" };
+                    if w.tabs.len() > 1 {
+                        s.push_str(&format!("  tab {}{mark}\n", ti + 1));
+                    }
+                    let indent = if w.tabs.len() > 1 { "    " } else { "  " };
+                    layout::describe(&layout::tree_for(t), &t.panes, &running, indent, &mut s);
+                }
+            }
+            out(&s);
+        }
+        other => return Err(usage_err(format!("layout: unknown subcommand '{other}' (save, restore, show)"))),
+    }
+    Ok(())
 }
 
 /// One turn through `claude -p --resume`, as `^r` sends it, with the answer on stdout.

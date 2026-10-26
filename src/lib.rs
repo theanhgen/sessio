@@ -10,6 +10,8 @@ pub mod discover;
 pub mod git;
 pub mod issues;
 pub mod kill;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod layout;
 pub mod live;
 pub mod md;
 pub mod model;

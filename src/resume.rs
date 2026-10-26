@@ -41,7 +41,7 @@ pub fn program(source: Source) -> &'static str {
 /// has not always been honoured, and resuming in the wrong folder cannot find the session. The
 /// script is a constant: the folder, the program and its arguments all travel as positional
 /// parameters, never spliced into it.
-fn window_command(shell: &str, cwd: &Path, argv: &[String]) -> Vec<String> {
+pub(crate) fn window_command(shell: &str, cwd: &Path, argv: &[String]) -> Vec<String> {
     let mut v = vec![
         shell.to_string(),
         "-l".into(),
@@ -357,8 +357,8 @@ pub fn manual_start_command(cwd: &Path) -> String {
 }
 
 /// One shell word per argument, for the places that take a command line rather than an argv.
-#[cfg(any(target_os = "macos", test))]
-fn shell_join(args: &[String]) -> String {
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn shell_join(args: &[String]) -> String {
     args.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ")
 }
 
