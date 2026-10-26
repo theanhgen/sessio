@@ -104,7 +104,9 @@
     -webkit-box-decoration-break:clone;box-decoration-break:clone}
   h1 .nw{white-space:nowrap}
   h1 .u .dot{display:inline-block;width:.3em;height:.3em;border-radius:50%;background:#4ec96a;
-    margin:0 .2em 0 .02em;vertical-align:.14em}
+    margin:0 .2em 0 .02em;vertical-align:.14em;animation:blink 1.6s ease-in-out infinite}
+  @keyframes blink{50%{opacity:.25}}
+  @media (prefers-reduced-motion: reduce){h1 .u .dot{animation:none}}
   .tagline{font-size:clamp(17px,2.6vw,20px);color:var(--dim);margin:18px 0 0;max-width:680px}
 
   /* The ledger: the demo's own sessions, listed the way the dashboard lists them, the selected
