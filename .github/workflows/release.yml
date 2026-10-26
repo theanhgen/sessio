@@ -187,3 +187,176 @@ jobs:
         run: |
           echo "Dry run — staged but did not publish:" >> "$GITHUB_STEP_SUMMARY"
           ls -1 staged >> "$GITHUB_STEP_SUMMARY"
+
+  # The same five binaries as plain downloads: a `.tar.gz` per target with its checksum, on the
+  # tag's GitHub release. The Homebrew formula installs from these.
+  github-release:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          mkdir dist
+          for dir in artifacts/*/; do
+            target=$(basename "$dir")
+            name="sessio-$version-$target.tar.gz"
+            stage=$(mktemp -d)
+            # upload-artifact does not keep the executable bit.
+            install -m 755 "$dir/sessio" "$stage/sessio"
+            cp README.md LICENSE "$stage/"
+            tar -czf "dist/$name" -C "$stage" sessio README.md LICENSE
+            (cd dist && sha256sum "$name" > "$name.sha256")
+          done
+          ls -l dist
+          cat dist/*.sha256
+
+      - name: Publish
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          [[ "$tag" == v* ]] || { echo "not a tag ref: $GITHUB_REF" >&2; exit 1; }
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* --verify-tag --title "$tag" --notes-file <(
+              awk -v v="${tag#v}" '$0 ~ "^## "v" " {on=1; next} on && /^## / {exit} on' CHANGELOG.md
+            )
+          fi
+
+  # Writes theanhgen/homebrew-tap's Formula/sessio.rb for this release, so `brew upgrade` picks it
+  # up. The whole formula is generated here rather than patched, so it cannot drift from the
+  # targets this workflow builds.
+  tap:
+    needs: github-release
+    if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Update theanhgen/homebrew-tap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#v}"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.sha256' --dir sums
+          sha() {
+            local s
+            s=$(cut -d' ' -f1 "sums/sessio-$version-$1.tar.gz.sha256")
+            [[ "$s" =~ ^[0-9a-f]{64}$ ]] || { echo "bad checksum for $1: $s" >&2; exit 1; }
+            echo "$s"
+          }
+          url() { echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sessio-$version-$1.tar.gz"; }
+          # Read up front: a failure inside the heredoc's $(…) would not stop the script.
+          mac_arm=$(sha aarch64-apple-darwin)
+          mac_intel=$(sha x86_64-apple-darwin)
+          linux_arm=$(sha aarch64-unknown-linux-gnu)
+          linux_intel=$(sha x86_64-unknown-linux-musl)
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap
+          chmod 600 ~/.ssh/tap
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:theanhgen/homebrew-tap.git tap
+
+          # Linux x86_64 gets the static musl build: it runs on any distro Homebrew does.
+          cat > tap/Formula/sessio.rb <<RUBY
+          class Sessio < Formula
+            desc "Find the coding-agent session you left, and pick it back up"
+            homepage "https://theanhgen.github.io/sessio/"
+            version "$version"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "$(url aarch64-apple-darwin)"
+                sha256 "$mac_arm"
+              end
+              on_intel do
+                url "$(url x86_64-apple-darwin)"
+                sha256 "$mac_intel"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "$(url aarch64-unknown-linux-gnu)"
+                sha256 "$linux_arm"
+              end
+              on_intel do
+                url "$(url x86_64-unknown-linux-musl)"
+                sha256 "$linux_intel"
+              end
+            end
+
+            def install
+              bin.install "sessio"
+              # The command the README and --help use; npm installs it under both names too.
+              bin.install_symlink "sessio" => "sessions"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/sessio --version")
+            end
+          end
+          RUBY
+          ruby -c tap/Formula/sessio.rb
+
+          cd tap
+          git add Formula/sessio.rb
+          if git diff --cached --quiet; then echo "formula already at $version"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "sessio $version"
+          git push -q
+          echo "Formula/sessio.rb → $version" >> "$GITHUB_STEP_SUMMARY"
+
+  # `cargo install sessio`. The build jobs already tested this source; `cargo publish` builds the
+  # packaged crate once more on its own, which is what proves `include` in Cargo.toml left nothing
+  # out.
+  crates:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Package
+        run: cargo package --locked
+
+      - name: Publish
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not set; not published to crates.io"
+            exit 0
+          fi
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if curl -sf -A "sessio-release (github.com/theanhgen/sessio)" "https://crates.io/api/v1/crates/sessio/$version" >/dev/null; then
+            echo "sessio $version is already on crates.io"
+            exit 0
+          fi
+          cargo publish --locked

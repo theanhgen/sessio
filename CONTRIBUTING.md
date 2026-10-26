@@ -85,8 +85,13 @@ the fallback when the wasm is blocked — and saves light and dark screenshots o
 
 Merging a version bump is the release. `tag-release.yml` sees the new version in `Cargo.toml` on
 `main`, tags that commit `v<version>` and starts `release.yml`, which builds every target and
-publishes the platform packages, then the `sessio` launcher that pins them. A merge that leaves
-the version alone updates the site, not npm.
+then publishes it everywhere: the npm platform packages and the `sessio` launcher that pins them,
+a GitHub release with a `.tar.gz` and checksum per target, `Formula/sessio.rb` in
+[theanhgen/homebrew-tap](https://github.com/theanhgen/homebrew-tap) (generated from those
+checksums; pushed with the `TAP_DEPLOY_KEY` deploy key), and the crate on crates.io
+(`CARGO_REGISTRY_TOKEN`; without it that step warns and skips). A merge that leaves the version
+alone updates the site, not the packages. `gh workflow run release.yml --ref <branch>` with the
+default `dry_run` builds and packages every channel without publishing.
 
 The bump itself, as one pull request titled `release: vX.Y.Z`:
 
