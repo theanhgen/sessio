@@ -112,8 +112,33 @@ pub fn session_count(l: &Layout) -> usize {
 
 /// The split tree an earlier save read for a tab with exactly these panes. `save --auto` keeps a
 /// background tab's arrangement this way instead of switching to it on the user's screen.
+/// Only an unambiguous match counts: two tabs of plain shells in the same folders can be split
+/// differently, and picking the first would give one the other's arrangement.
 pub fn known_tree(prev: Option<&Layout>, panes: &[Pane]) -> Option<Node> {
-    prev?.windows.iter().flat_map(|w| &w.tabs).find(|t| t.panes == panes).and_then(|t| t.tree.clone())
+    let mut hits = prev?.windows.iter().flat_map(|w| &w.tabs).filter(|t| t.panes == panes);
+    match (hits.next(), hits.next()) {
+        (Some(t), None) => t.tree.clone(),
+        _ => None,
+    }
+}
+
+/// Whether a save should copy the layout it replaces (`current`) to `layout.prev.json`.
+/// A manual save always does. An unattended one never lets a smaller layout push a bigger one out
+/// of the backup, so while sessions close one by one (Ghostty quitting, windows being closed)
+/// the backup keeps the biggest layout of the run.
+pub fn rotate_prev(auto: bool, current: &Layout, backup: Option<&Layout>) -> bool {
+    !auto || backup.is_none_or(|b| session_count(current) >= session_count(b))
+}
+
+/// How long after Ghostty starts an unattended save still treats a smaller layout as "not yet
+/// restored" and keeps the saved one. Past it the user has clearly moved on, and saving resumes
+/// (the bigger layout stays in the backup).
+pub const REBOOT_GRACE_SECS: u64 = 30 * 60;
+
+/// Whether an unattended save keeps the saved layout instead of writing `new_count` sessions: the
+/// file predates this Ghostty, Ghostty started within the grace period, and the new one is smaller.
+pub fn keep_pre_reboot(file_predates_ghostty: bool, ghostty_uptime_secs: u64, saved_count: usize, new_count: usize) -> bool {
+    file_predates_ghostty && ghostty_uptime_secs < REBOOT_GRACE_SECS && new_count < saved_count
 }
 
 /// Elapsed time as `ps -o etime=` prints it, `[[dd-]hh:]mm:ss`, in seconds.
@@ -222,7 +247,8 @@ pub struct ScriptWindow {
 
 /// Fields are split by ASCII 31 and records by ASCII 30: window titles are whatever the program in
 /// them sets — Claude Code puts its session title there — so no printable separator is safe.
-pub const DUMP_SCRIPT: &str = r#"set us to (ASCII character 31)
+pub const DUMP_SCRIPT: &str = r#"if application "Ghostty" is not running then return ""
+set us to (ASCII character 31)
 set rs to (ASCII character 30)
 tell application "Ghostty"
   set out to ""
@@ -582,17 +608,64 @@ end run"#,
         hits.into_iter().next()
     }
 
-    /// When Ghostty's process started, from its elapsed time.
-    fn started(pid: i32) -> Option<std::time::SystemTime> {
+    /// How long Ghostty's process has been running, from `ps`.
+    fn uptime(pid: i32) -> Option<u64> {
         let out = Command::new("ps").args(["-o", "etime=", "-p", &pid.to_string()]).stdin(Stdio::null()).output().ok()?;
-        let secs = parse_etime(&String::from_utf8_lossy(&out.stdout))?;
-        std::time::SystemTime::now().checked_sub(Duration::from_secs(secs))
+        parse_etime(&String::from_utf8_lossy(&out.stdout))
     }
 
-    /// `auto` is the unattended save a hook runs: it never starts Ghostty (any AppleScript to it
-    /// would), never switches tabs on the user's screen, and won't let a fresh Ghostty — just
-    /// after a reboot, before `restore` — replace the saved layout with fewer sessions.
+    /// One save at a time: several sessions reach `Stop` together, and each hook starts a save.
+    /// `layout.lock` is created exclusively; a lock older than two minutes is a crashed save.
+    struct Lock(PathBuf);
+    impl Lock {
+        fn take(file: &Path, wait: bool) -> Option<Lock> {
+            let path = file.with_extension("lock");
+            let _ = std::fs::create_dir_all(path.parent()?);
+            for _ in 0..if wait { 100 } else { 1 } {
+                match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(_) => return Some(Lock(path)),
+                    Err(_) => {
+                        let stale = std::fs::metadata(&path)
+                            .and_then(|m| m.modified())
+                            .is_ok_and(|t| t.elapsed().is_ok_and(|e| e > Duration::from_secs(120)));
+                        if stale {
+                            let _ = std::fs::remove_file(&path);
+                            continue;
+                        }
+                        if wait {
+                            sleep(Duration::from_millis(100));
+                        }
+                    }
+                }
+            }
+            None
+        }
+    }
+    impl Drop for Lock {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
     pub fn save(file: &Path, auto: bool) -> Result<String, String> {
+        let Some(_lock) = Lock::take(file, !auto) else {
+            return if auto { Ok("another save is running; nothing saved".into()) } else { Err("another save is running".into()) };
+        };
+        // A save that queued behind another one has nothing to add.
+        let just_saved = std::fs::metadata(file)
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|e| e < Duration::from_secs(30)));
+        if auto && just_saved {
+            return Ok("saved moments ago; nothing to add".into());
+        }
+        capture(file, auto)
+    }
+
+    /// `auto` is the unattended save a hook runs: it never starts Ghostty, never switches tabs on
+    /// the user's screen, gives up rather than write a layout it could not read whole (Ghostty
+    /// quitting under it, no Accessibility), and won't let a fresh Ghostty — just after a reboot,
+    /// before `restore` — replace the saved layout with fewer sessions.
+    fn capture(file: &Path, auto: bool) -> Result<String, String> {
         let pid = ghostty_pid();
         if auto && pid.is_none() {
             return Ok("Ghostty is not running; nothing saved".into());
@@ -600,10 +673,15 @@ end run"#,
         let prev = load(file).ok();
         let script = parse_dump(&osa(DUMP_SCRIPT, &[])?);
         if script.is_empty() {
-            return Err("Ghostty has no windows open".into());
+            return if auto { Ok("Ghostty has no windows open; nothing saved".into()) } else { Err("Ghostty has no windows open".into()) };
         }
         let by_tty = sessions_by_tty(&crate::live::scan(), &argv_of);
         let ax = pid.and_then(Ax::new);
+        if auto && ax.is_none() && prev.is_some() {
+            // Without Accessibility every split and window frame would be lost; keep the last
+            // layout that has them.
+            return Ok("no Accessibility permission; kept the saved layout".into());
+        }
         let ax_windows: Vec<ax::Element> = ax.as_ref().map(|a| a.windows()).unwrap_or_default();
         let snaps: Vec<El> = ax_windows.iter().map(|w| w.read()).collect();
         let seen: Vec<Seen> = snaps
@@ -674,19 +752,35 @@ end run"#,
             saved_at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
             windows,
         };
-        if let (true, Some(prev), Some(started)) = (auto, &prev, pid.and_then(started)) {
-            let older = std::fs::metadata(file).and_then(|m| m.modified()).is_ok_and(|t| t < started);
-            if older && session_count(&layout) < session_count(prev) {
-                return Ok(format!(
-                    "kept the layout saved before Ghostty started ({} sessions, {} open now); \
-                     `sessions layout restore` brings it back, `sessions layout save` replaces it",
-                    session_count(prev),
-                    session_count(&layout)
-                ));
+        if auto {
+            // Ghostty must be the same process from start to finish: one that quit (or restarted)
+            // while this ran leaves a dump whose sessions have gone, which would save as a
+            // shrunken layout.
+            let (Some(pid), Some(up)) = (pid, pid.and_then(uptime)) else {
+                return Ok("Ghostty went away during the save; nothing saved".into());
+            };
+            if ghostty_pid() != Some(pid) {
+                return Ok("Ghostty went away during the save; nothing saved".into());
+            }
+            if let Some(prev) = &prev {
+                let predates = std::fs::metadata(file)
+                    .and_then(|m| m.modified())
+                    .is_ok_and(|t| t.elapsed().is_ok_and(|e| e.as_secs() > up));
+                if keep_pre_reboot(predates, up, session_count(prev), session_count(&layout)) {
+                    return Ok(format!(
+                        "kept the layout saved before Ghostty started ({} sessions, {} open now); \
+                         `sessions layout restore` brings it back, `sessions layout save` replaces it",
+                        session_count(prev),
+                        session_count(&layout)
+                    ));
+                }
             }
         }
-        if prev.is_some() {
-            let _ = std::fs::copy(file, prev_file(file));
+        if let Some(current) = &prev {
+            let backup = load(&prev_file(file)).ok();
+            if rotate_prev(auto, current, backup.as_ref()) && !crate::store::save_private_json(&prev_file(file), current) {
+                return Err(format!("couldn't write {}", prev_file(file).display()));
+            }
         }
         if !crate::store::save_private_json(file, &layout) {
             return Err(format!("couldn't write {}", file.display()));
@@ -1141,6 +1235,46 @@ mod tests {
         assert_eq!(known_tree(None, &[p("b"), p("c")]), None);
         assert_eq!(session_count(&prev), 3);
         assert_eq!(prev_file(Path::new("/s/layout.json")), PathBuf::from("/s/layout.prev.json"));
+    }
+
+    #[test]
+    fn a_tree_is_reused_only_when_one_tab_has_those_panes() {
+        // Two split tabs of plain shells in the same folders: which tree is which can't be told.
+        let shell = |d: &str| Pane { cwd: format!("/x/{d}"), session: None, flags: vec![] };
+        let two = vec![shell("a"), shell("a")];
+        let down = Node::Split { dir: Dir::Down, ratio: 0.5, a: Box::new(Node::Leaf(0)), b: Box::new(Node::Leaf(1)) };
+        let right = Node::Split { dir: Dir::Right, ratio: 0.5, a: Box::new(Node::Leaf(0)), b: Box::new(Node::Leaf(1)) };
+        let l = |tabs: Vec<Tab>| Layout { version: 1, saved_at: String::new(), windows: vec![Window { frame: None, selected_tab: 0, tabs }] };
+        let both = l(vec![Tab { panes: two.clone(), tree: Some(down.clone()) }, Tab { panes: two.clone(), tree: Some(right) }]);
+        assert_eq!(known_tree(Some(&both), &two), None);
+        let one = l(vec![Tab { panes: two.clone(), tree: Some(down.clone()) }]);
+        assert_eq!(known_tree(Some(&one), &two), Some(down));
+    }
+
+    #[test]
+    fn an_unattended_save_never_lets_a_smaller_layout_push_a_bigger_one_out_of_the_backup() {
+        let with = |n: usize| Layout {
+            version: 1,
+            saved_at: String::new(),
+            windows: vec![Window {
+                frame: None,
+                selected_tab: 0,
+                tabs: (0..n).map(|i| Tab { panes: vec![Pane { cwd: "/x".into(), session: Some(format!("s{i}")), flags: vec![] }], tree: None }).collect(),
+            }],
+        };
+        // Ghostty quitting: 9 → 6 → 2 sessions. The backup keeps 9 through both shrinking saves.
+        assert!(rotate_prev(true, &with(9), Some(&with(7))), "a bigger layout replaces the backup");
+        assert!(!rotate_prev(true, &with(6), Some(&with(9))), "a smaller one does not");
+        assert!(rotate_prev(true, &with(6), None), "with no backup yet, anything is one");
+        assert!(rotate_prev(false, &with(1), Some(&with(9))), "a save you run yourself always rotates");
+    }
+
+    #[test]
+    fn after_a_reboot_the_saved_layout_is_kept_only_while_it_could_still_be_restored() {
+        assert!(keep_pre_reboot(true, 60, 12, 1), "minutes after Ghostty started, before restore");
+        assert!(!keep_pre_reboot(true, REBOOT_GRACE_SECS + 1, 12, 1), "half an hour on, the user moved on");
+        assert!(!keep_pre_reboot(false, 60, 12, 1), "saved by this Ghostty: an ordinary save");
+        assert!(!keep_pre_reboot(true, 60, 12, 12), "not smaller: nothing to protect");
     }
 
     /// A pane as Ghostty draws it: a group around a scroll area.
