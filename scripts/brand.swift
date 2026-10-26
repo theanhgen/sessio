@@ -10,7 +10,8 @@
 //
 //   swift scripts/brand.swift            # needs network once, for the font
 //
-// Everything it writes is committed; run it again only to change a mark. docs/DESIGN.md
+// Everything it writes is committed. Run it again to change a mark, and for every release: the
+// postmark carries the newest CHANGELOG date. docs/DESIGN.md
 // ("Brand") has the geometry and the reasons for it.
 import AppKit
 import CoreText

@@ -14,7 +14,7 @@ cargo run -- ls --json    # any command
 
 | Path | What it is |
 |---|---|
-| `src/` | The program. `main.rs` and `cli.rs` are the entry point and the commands; `ui.rs` draws the dashboard and handles keys; `discover.rs`, `parse.rs`, `copilot.rs` and `model.rs` read transcripts into the session list; `rank.rs` filters and ranks it; `cta.rs` and `git.rs` decide what is unfinished; `live.rs` finds running sessions; `resume.rs`, `kill.rs`, `notify.rs`, `issues.rs` and `search.rs` are the actions; `store.rs` is the archive list; `md.rs` renders replies; `safety.rs` strips control characters from transcript text; `theme.rs` holds the colours; `lib.rs` is the library entry the wasm demo uses. |
+| `src/` | The program. `main.rs` and `cli.rs` are the entry point and the commands; `ui.rs` draws the dashboard and handles keys; `discover.rs`, `parse.rs`, `copilot.rs` and `model.rs` read transcripts into the session list; `rank.rs` filters and ranks it; `cta.rs` and `git.rs` decide what is unfinished; `live.rs` finds running sessions; `resume.rs`, `kill.rs`, `notify.rs`, `issues.rs` and `search.rs` are the actions; `layout.rs` saves and restores Ghostty layouts; `store.rs` is the archive list; `md.rs` renders replies; `safety.rs` strips control characters from transcript text; `theme.rs` holds the colours; `lib.rs` is the library entry the wasm demo uses. |
 | `src/ui/` | Test modules: golden frames, demo parity, shipped guidance. |
 | `tests/cli.rs` | The commands, run against a throwaway `HOME`. |
 | `tests/frames/` | Golden frames: the dashboard as text, one file per scene and size. |
@@ -24,7 +24,7 @@ cargo run -- ls --json    # any command
 | `skills/sessio/` | The agent skill shipped in the npm package. |
 | `docs/` | The site (`index.html`, served by GitHub Pages), `DESIGN.md`, `brand/`, `fonts/`. `docs/demo/` is built, never committed. |
 | `scripts/` | `smoke-tui.py` (pty smoke test), `build-demo.sh`, `check-demo.sh`, `install-demo-tools.sh` and `site-check.cjs` (the site's demo), `stage-npm-packages.sh` (release), `oracle.sh` (legacy diff), `brand.swift` (draws the icon and logo), `backup-sessions.sh` and its LaunchAgent (optional, for users). |
-| `.github/workflows/` | `ci.yml` (every PR and push to main), `pages.yml` (deploys the site from main), `tag-release.yml` (tags a version bump on main and starts the release), `release.yml` (publishes to npm). |
+| `.github/workflows/` | `ci.yml` (every PR and push to main), `pages.yml` (deploys the site from main), `tag-release.yml` (tags a version bump on main and starts the release), `release.yml` (publishes to npm, GitHub Releases, the Homebrew tap and, with a token, crates.io). |
 
 ## Build and test
 
@@ -38,7 +38,7 @@ cargo build --release && npm run smoke       # drive the TUI through a pty
 None of it reads your sessions or spends a token. The CLI tests and the pty smoke test
 (`scripts/smoke-tui.py`) run against a throwaway `HOME` of synthetic transcripts, with stand-ins
 for `claude`, `copilot`, `gh` and the browser that fail the run if anything calls them. CI runs
-all four on Linux and macOS.
+clippy, `cargo test` and the smoke test on Linux and macOS, and the launcher tests on Linux.
 
 - **Golden frames.** `tests/frames/<scene>.txt` holds the dashboard as text for every key state —
   normal, waiting, running, unfinished, archived, no sessions, each filter and search state, a
@@ -89,14 +89,15 @@ then publishes it everywhere: the npm platform packages and the `sessio` launche
 a GitHub release with a `.tar.gz` and checksum per target, `Formula/sessio.rb` in
 [theanhgen/homebrew-tap](https://github.com/theanhgen/homebrew-tap) (generated from those
 checksums; pushed with the `TAP_DEPLOY_KEY` deploy key), and the crate on crates.io
-(`CARGO_REGISTRY_TOKEN`; without it that step warns and skips). A merge that leaves the version
+(`CARGO_REGISTRY_TOKEN`; without it that step warns and skips, which is every release so far:
+the secret is not set, so the README documents `cargo install --git`). A merge that leaves the version
 alone updates the site, not the packages. `gh workflow run release.yml --ref <branch>` with the
 default `dry_run` builds and packages every channel without publishing.
 
 The bump itself, as one pull request titled `release: vX.Y.Z`:
 
-1. Set the version in `Cargo.toml` and in `package.json` (the package and its five
-   `optionalDependencies`); the two must match or nothing is tagged.
+1. Set the version in `Cargo.toml` and in `package.json`; the two must match or nothing is
+   tagged. The five `optionalDependencies` pins are rewritten to the same version at publish.
 2. Run `cargo build` so `Cargo.lock` follows.
 3. Turn the changelog's `## Unreleased` into `## X.Y.Z - YYYY-MM-DD`.
 4. Run `swift scripts/brand.swift` so the postmark (`docs/brand/postmark*.svg`, `social.png`)

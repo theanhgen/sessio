@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A layout saved to a file ending in `.lock` is no longer deleted.** The save's lock was the
+  file's name with its extension swapped for `.lock`, so `sessions layout save snapshot.lock`
+  wrote the layout and then removed it as its own lock. The lock is now the full name plus
+  `.lock` (`layout.json.lock`).
+- **An autosave after a crashed save no longer gives up.** A lock left by a crashed save was
+  removed, but `save --auto` then stopped without trying again, so the next save was lost too.
+- **`--update` on a Homebrew or Cargo install names every way to update**, `brew upgrade sessio`
+  included, instead of only npm.
+
+### Changed
+
+- **Docs say what 1.5.0 does.** The README gains the hook to keep the layout saved, how to bring
+  back `layout.prev.json`, every file sessio writes, Ghostty, Accessibility and gh as optional
+  requirements, and a note that an open dashboard keeps running the old version (and its old
+  notification icon) until you restart it. sessio is not on crates.io yet, so the Cargo install
+  is `cargo install --git https://github.com/theanhgen/sessio --locked`. The site lists
+  `sessions layout`, the agent skill covers the backup and `show --json`'s `tokens`, and
+  `docs/DESIGN.md` gets a motion rule.
+- **The site's running dot in the headline blinks**, like a running session's; it stays still
+  under reduced motion.
+
 ## 1.5.0 - 2026-10-27
 
 ### New
@@ -7,9 +32,10 @@
 - **`sessions layout save --auto` keeps the layout current without you.** It is the save for a
   Claude Code hook (`SessionStart` and `Stop`): it never starts Ghostty, never switches tabs on
   your screen (a background tab keeps the splits read last time), and right after a reboot it
-  won't replace a bigger layout saved before Ghostty started, so `restore` still has it. Every
-  save moves the file it replaces to `layout.prev.json`. Until now a layout existed only if you
-  remembered to run `save` before the reboot.
+  won't replace a bigger layout saved before Ghostty started, so `restore` still has it. A save
+  copies the file it replaces to `layout.prev.json` (an autosave only when that is at least as big
+  as the backup). Until now a layout existed only if you remembered to run `save` before the
+  reboot.
 
 ### Changed
 
@@ -37,7 +63,9 @@
   open. Without Accessibility permission a save keeps the panes and sessions, and restore lays a
   tab's panes out as an even grid.
 - **More ways to install:** `brew install theanhgen/tap/sessio` (macOS and Linux),
-  `cargo install sessio`, and a `.tar.gz` per platform on every GitHub release.
+  `cargo install sessio`, and a `.tar.gz` per platform on every GitHub release. (The crates.io
+  publish has never run, so Cargo installs from git: `cargo install --git
+  https://github.com/theanhgen/sessio --locked`.)
 
 ## 1.3.0 - 2026-10-01
 

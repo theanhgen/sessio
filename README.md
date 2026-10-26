@@ -11,9 +11,11 @@
 
 🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
 
-`sessio` is a fast, self-contained TUI that reads your local Claude Code and Copilot CLI transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Every one of those is also a plain command (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `kill`) with `--json` for scripts and agents, and an [agent skill](#agent-skill) ships with it.
+`sessio` is a fast, self-contained TUI that reads your local Claude Code and Copilot CLI transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Most of those are also plain commands (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `unarchive`, `kill`) with `--json` for scripts and agents, `sessions layout` saves and restores your Ghostty windows with the session in each pane, and an [agent skill](#agent-skill) ships with it.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
+
+Every key at a glance (the dashboard's own key bar shows only the ones that can act right now):
 
 ```
 ↑↓ project · ←→ session · type to filter · ^f search-in-text · ^a archive · ⇥ expand-reply · PgUp/PgDn scroll-reply · ^r reply · ^t follow · ^g issues · ^k end-stale · ↵ resume · ^o new-window · ^n new-session · ? help · esc quit · live
@@ -42,12 +44,12 @@ macOS and Linux, Intel and Arm. Installs `sessions` and `sessio`; `brew upgrade`
 ### Cargo
 
 ```sh
-cargo install sessio --locked
+cargo install --git https://github.com/theanhgen/sessio --locked
 ```
 
 This builds the native binary as `sessio`; no Node needed. Add `alias sessions=sessio` to keep the
-command name the rest of this page uses. `cargo install --git https://github.com/theanhgen/sessio
---locked` builds `main` instead of the latest release.
+command name the rest of this page uses. It builds `main`; add `--tag v1.5.0` (any release tag)
+for a release. sessio is not on crates.io yet, so `cargo install sessio` does not work.
 
 ### Binaries
 
@@ -62,10 +64,15 @@ Every [release](https://github.com/theanhgen/sessio/releases) has a `.tar.gz` pe
 ## Requirements
 
 - **Node.js ≥ 16** — only to install from npm. sessio itself is a native binary with no runtime
-  dependencies; `cargo install` and the prebuilt archives don't need node at all.
+  dependencies; Homebrew, `cargo install` and the prebuilt archives don't need node at all.
 - **Claude Code** or **GitHub Copilot CLI**, with `claude` or `copilot` on your PATH (used to resume)
 - **ripgrep** (optional) for `^f` full-text search
 - **terminal-notifier** (optional, macOS) so a click on a waiting notification opens that session's window
+- **Ghostty 1.3+** (optional, macOS) for `↵` switching to a running session, `^o` and `^n` in a new
+  window, and `sessions layout`
+- **Accessibility permission** (optional, macOS) for the terminal you run `sessions layout` from, so
+  it can read and restore split sizes and window frames
+- **gh** (optional) for `^g` GitHub issues
 - macOS or Linux
 
 ## What it does
@@ -93,7 +100,7 @@ Every [release](https://github.com/theanhgen/sessio/releases) has a `.tar.gz` pe
 - **`^g` GitHub issues** — the preview counts the open issues of the highlighted session's repo (`⚑ 12 open issues · owner/repo`); `^g` swaps the preview for the list, `↑↓` walks it, `↵` opens one in the browser, `esc` or `^g` goes back. Fetched through `gh` in the background and cached for five minutes, so the dashboard never waits on the network; a folder without a GitHub `origin` shows nothing.
 - **`^n` new session** — starts a fresh `claude` in the highlighted session's folder: a new window under Ghostty (it says why and stays put if it can't), this window everywhere else.
 - **`?` help** — the keys, then a status legend grouped by what each mark is evidence of: a process attached (`◆ waiting`, `◉ running`, `stale`), the transcript's age (`●` `○`), unfinished work (`▶` and its reasons), another agent (`copilot`). Any key closes it.
-- **Explicit updates** — `sessions --update` checks npm and updates a writable global install. Launching sessio never mutates your global install or a git checkout.
+- **Explicit updates** — for an npm install, `sessions --update` checks npm and updates a writable global install; a Homebrew or Cargo binary prints how to update it instead. Launching sessio never mutates your global install or a git checkout.
 
 ## Sources
 
@@ -137,8 +144,8 @@ Without a `~/.copilot` folder nothing changes. Both kinds count toward the same 
 
 ## Commands
 
-Everything the dashboard does is also a command, for scripts, `fzf` and agents. A bare `sessions`
-still opens the dashboard.
+Most of what the dashboard does is also a command, for scripts, `fzf` and agents (`^t` follow, `^g`
+issues, `^o` and `^n` are dashboard-only). A bare `sessions` still opens the dashboard.
 
 ```sh
 sessions ls                        # recent sessions, newest first (20; -n 0 for all)
@@ -153,6 +160,7 @@ sessions archive 1b6324f5          # hide it; `unarchive` undoes it
 sessions kill 1b6324f5             # end its claude, if it has sat idle for more than 48h
 sessions layout save               # remember Ghostty's windows, splits and their sessions
 sessions layout restore            # reopen them and resume every session in its place
+sessions layout show               # what a restore would open
 ```
 
 - **Ids** are any prefix only one session has; `ls` prints eight characters.
@@ -162,6 +170,7 @@ sessions layout restore            # reopen them and resume every session in its
   shows: why a session is open, the process running it and what it is doing, whether it is
   archived, and the transcript's path. `show --json` adds `tokens`
   (`{input, output, cache_write, cache_read}`, or `null` when the transcript has no usage data).
+  `kill --json` and `layout show --json` take it too (below).
 - **Marks** in `ls`: `◆` waiting on you, `◉` running, `▶` unfinished.
 - **Uncommitted changes count on the first look.** The dashboard checks git in the background and
   fills the flag in on a later refresh. A command has no later refresh, so it waits for those
@@ -173,8 +182,8 @@ sessions layout restore            # reopen them and resume every session in its
   stdin. `kill` follows `^k`'s rules without the second press — running it is the consent — and
   exits `1` with the reason when a session is not running, was active within 48 hours, or is
   `busy` or `waiting`; `--json` prints the pid, idle days and whether the process went.
-- **`layout`** (macOS, Ghostty 1.3+) saves to `~/.claude/.sessio/layout.json`, or to a file you
-  name after the subcommand. `save` records each window's position and size, its tabs, every
+- **`layout`** (macOS, Ghostty 1.3+) saves to `~/.claude/.sessio/layout.json` (under
+  `$CLAUDE_CONFIG_DIR` if set), or to a file you name after the subcommand. `save` records each window's position and size, its tabs, every
   split's direction and size, and which Claude session runs in each pane with the flags it was
   started with (`--dangerously-skip-permissions` comes back too). `restore` rebuilds that and
   resumes each session in its pane; one that is still running gets a shell in its folder instead
@@ -183,10 +192,35 @@ sessions layout restore            # reopen them and resume every session in its
   run it from needs Accessibility permission (System Settings › Privacy & Security ›
   Accessibility); without it a save keeps the panes and sessions, and restore lays each tab out
   as an even grid. Saving a window whose background tabs are split shows each of those tabs for a
-  moment. `save --auto` is for a hook on `SessionStart` and `Stop`, so there is always a layout to
-  restore: it switches no tabs, never starts Ghostty, and after a reboot keeps a bigger layout
-  saved before Ghostty started. Each save keeps the one it replaces as `layout.prev.json`.
+  moment. A save copies the layout it replaces to `layout.prev.json`; bring that one back with
+  `sessions layout restore ~/.claude/.sessio/layout.prev.json`. One save runs at a time
+  (`layout.json.lock`).
+- **`layout save --auto`** is the save for a hook (below), so there is always a layout to restore.
+  It switches no tabs (a background tab keeps the splits read last time), never starts Ghostty,
+  skips a save within 30 seconds of the last one, and without Accessibility permission keeps the
+  saved layout rather than lose its splits. Within 30 minutes of Ghostty starting it won't replace
+  a bigger layout saved before Ghostty started, so after a reboot `restore` still has it. It only
+  copies the replaced layout to `layout.prev.json` when that is at least as big as the backup, so
+  while Ghostty quits window by window the backup keeps the biggest layout. It exits `0` even when
+  it saved nothing, and says why.
 - Exit status: `0` done, `1` couldn't do it, `2` bad command line.
+
+### Keep the layout saved
+
+Add this to `~/.claude/settings.json` to save the layout whenever a Claude session starts or
+finishes a turn. It runs in the background and prints nothing, because a `SessionStart` hook's
+output goes into Claude's context. Installed with Cargo, the command is `sessio`.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "sessions layout save --auto >/dev/null 2>&1 &" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sessions layout save --auto >/dev/null 2>&1 &" }] }]
+  }
+}
+```
+
+After a reboot, open Ghostty and run `sessions layout restore`.
 
 ## Agent skill
 
@@ -199,6 +233,9 @@ the npm package; link it into Claude Code with:
 ln -s "$(npm root -g)/sessio/skills/sessio" ~/.claude/skills/sessio
 ```
 
+Homebrew, Cargo and the release archives don't include it; link it from a clone of this repo
+instead.
+
 ## Update
 
 ```sh
@@ -206,15 +243,18 @@ sessions --update
 ```
 
 This is intentionally explicit: normal launches never contact npm or modify
-your installation. Installed with Homebrew or Cargo, update with `brew upgrade sessio` or
-`cargo install sessio --locked`. In a git checkout, it prints the `git pull` command for you
-to run rather than changing the checkout itself.
+your installation. `--update` updates npm installs; installed with Homebrew, run `brew upgrade
+sessio`, and with Cargo, run the `cargo install --git …` line again. In a git
+checkout, it prints the `git pull` command for you to run rather than changing the checkout itself.
+
+A dashboard that is already open keeps running the old version (notifications included) until you
+quit it and start `sessions` again.
 
 ## How it works
 
-`sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl` (or under `$CLAUDE_CONFIG_DIR` if you've relocated it), parsing each session's title, prompts, compact summary, and last reply. Only the 300 most-recent sessions are read while browsing; full-text search loads every matching session, including matches older than that cap.
+`sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl` (or under `$CLAUDE_CONFIG_DIR` if you've relocated it), parsing each session's title, prompts, compact summary, and last reply, and Copilot CLI's `events.jsonl` files. Which sessions are running comes from the registry Claude Code keeps in `~/.claude/sessions`, checked against `ps`. Only the 300 most-recent sessions are read while browsing; full-text search loads every matching session, including matches older than that cap.
 
-A full cold scan of those 300 takes about 40ms, so there is no metadata cache to go stale — every refresh re-reads from disk. The only state sessio keeps is your archive list, in `~/.claude/.sessio/archived.json`, written owner-only.
+A full cold scan of those 300 takes about 40ms, so there is no metadata cache to go stale — every refresh re-reads from disk. The state sessio keeps, all written owner-only in `~/.claude/.sessio/`: your archive list (`archived.json`) and, if you use `sessions layout`, `layout.json`, `layout.prev.json` and a short-lived `layout.json.lock`. On macOS the notification icon is cached as `~/Library/Caches/sessio/icon-<version>.png`.
 
 > ⚠️ **The `.jsonl` transcript format is undocumented and internal to Claude Code.** It may change without notice. `sessio` parses defensively and degrades gracefully, but a format change on Anthropic's side can break fields until this tool is updated. This project is not affiliated with or endorsed by Anthropic.
 

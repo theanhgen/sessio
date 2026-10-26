@@ -62,7 +62,7 @@ const check = (ok, label) => { console.log((ok ? '  ok   ' : '  FAIL ') + label)
       check(view === 'desktop' ? size.includes('104×26') : /\b60×18\b/.test(size), `the demo lays out for the width (${size})`);
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(sideways <= 0, `the page does not scroll sideways (${sideways}px over)`);
-      await page.screenshot({ path: path.join(out, `${view}-${scheme}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(out, `${view}-${scheme}.png`), fullPage: true, animations: 'disabled' });
 
       if (scheme === 'dark') {
         await page.click('#demo-toggle');
@@ -75,7 +75,7 @@ const check = (ok, label) => { console.log((ok ? '  ok   ' : '  FAIL ') + label)
         check((await page.textContent('#screen')) !== before, 'keys reach the renderer');
         await page.keyboard.press('?');
         check((await page.textContent('#screen')).includes('keys and marks'), '? opens the help overlay');
-        await page.screenshot({ path: path.join(out, `${view}-demo-help.png`) });
+        await page.screenshot({ path: path.join(out, `${view}-demo-help.png`), animations: 'disabled' });
         await page.keyboard.press('x');
         check(!(await page.textContent('#screen')).includes('keys and marks'), 'any key closes it');
         await page.keyboard.press('Escape');
@@ -97,7 +97,7 @@ const check = (ok, label) => { console.log((ok ? '  ok   ' : '  FAIL ') + label)
   await page.waitForFunction(() => document.getElementById('demo-state').textContent.includes('unavailable'), null, { timeout: 15000 });
   check((await page.textContent('#screen')).includes("couldn't load"), 'the screen says the demo could not load');
   check(await page.isVisible('#install-cmd'), 'the install command is still there');
-  await page.screenshot({ path: path.join(out, 'desktop-wasm-blocked.png') });
+  await page.screenshot({ path: path.join(out, 'desktop-wasm-blocked.png'), animations: 'disabled' });
 
   await browser.close();
   server.close();
