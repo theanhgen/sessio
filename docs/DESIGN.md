@@ -24,9 +24,9 @@ fails on any `Color::`, `.fg(` or `.bg(` outside `src/theme.rs`.
 
 | Role | Means | Terminal (`src/theme.rs`) | Website variable | Dark | Light |
 |---|---|---|---|---|---|
-| Surface | The background. Never painted. | terminal default (`Color::Reset`, not set) | `--surface` (also `--surface-raised`, `--surface-sunken` for cards, kbd, the terminal bar) | `#0b0d10` | `#fbfbfc` |
-| Primary text | Body text, info feedback | `TEXT` = terminal default fg | `--text` | `#e6e9ee` | `#16181c` |
-| Secondary / dim | Hints, metadata, rules, unselected rows | `DIM` = ANSI bright black (`DarkGray`) | `--dim` (and `--faint`, a site-only tertiary step) | `#8a93a0` | `#4a525e` |
+| Surface | The background. Never painted. | terminal default (`Color::Reset`, not set) | `--surface` (also `--surface-raised`, `--surface-sunken` for cards, kbd, the terminal bar) | `#0c0b10` | `#fbfafc` |
+| Primary text | Body text, info feedback | `TEXT` = terminal default fg | `--text` | `#ece8f2` | `#18151d` |
+| Secondary / dim | Hints, metadata, rules, unselected rows | `DIM` = ANSI bright black (`DarkGray`) | `--dim` (and `--faint`, a site-only tertiary step) | `#978ea5` | `#4f4759` |
 | Accent | The thing you are looking at: session title, key names, a hint that is switched on | `ACCENT` = ANSI cyan | `--accent` | `#a882d5` | `#6d3fa3` |
 | Selection | The focused session tab (plum) and the selected project (neutral) | `TAB_SEL` = 54, `PANEL_SEL` = 238, text `ON_SEL` = 255 | `--selection`, `--on-selection` | `#6b4a8f` / `#f4effa` | `#6b4a8f` / `#ffffff` |
 | Code | Inline and fenced code in markdown | `CODE` = ANSI cyan | `--code` | `#5fd7d7` | `#0b6e75` |
@@ -348,20 +348,35 @@ what it finds.
 
 ## Brand
 
-The icon is the dashboard in miniature: the selected session row in `--selection` plum, its
-running `●` in `--running` green, the `s` of sessio and a title bar in `--on-selection`, between
-two quieter rows (`○` marks and bars barely lighter than the `--surface-raised` tile). One icon
-serves light and dark: it is a dark tile either way, like the demo's terminal window.
+Every mark is the dashboard's selected session row: a plum bar (`--selection`) holding the
+session's running dot (`--running` green). There is one shape, used five ways, and each has one
+job. `scripts/brand.swift` draws all of them from one description into `docs/brand/`; change a
+mark there, never by hand. The letters are Fraunces SemiBold (the postmark's rim is Menlo),
+turned into outlines, so no file needs the fonts.
 
-- **Type:** Fraunces SemiBold, for the `s` and the name, and on the site for its headline and section
-  heads; nowhere else. The site loads it from
-  Google Fonts for the header; the icon and logo files carry it as outlines.
-- **Spacing:** the `s` is placed by its ink, not its advance: dot, 5 units, `s`, 5 units, bar, the
-  group centred in the row and the letter's body centred on the row's middle line (100-unit tile).
-- **Files:** `docs/brand/` — `icon.svg`, `icon-{32,64,180,256,512,1024}.png`,
-  `logo-{dark,light}.svg` (icon and name, for dark and light backgrounds), `social.png`
-  (1200x630 link preview). `scripts/brand.swift` draws all of them from one description; change
-  the mark there, never by hand. The binary embeds `icon-256.png` for notifications.
+- **Bar** (`bar.svg`, 5:2): the row, with a circle bitten out of its left end and the green dot in
+  the bite. It is the unit the rest are cut from, and the horizontal mark where space is short.
+  The bite-only form (no green) works in one ink.
+- **Band**: the bar run edge to edge across the top of a surface, its bitten end at the left, a
+  green rule under it. It is always the full width and never a box. The site draws it in CSS
+  above the nav; `social.png` has it across its top.
+- **Capsule** (`icon.svg`, the app icon): the bar stood on end, the dot in a bite at its top, the
+  `s` below in `--on-selection`. At 32px and under (`icon-small.svg`, `icon-32.png`) it drops the
+  `s` and keeps a bigger dot, since a letter that size only blurs. The logo uses the outline form,
+  the capsule's edge in plum with the `s` in the text colour, which reads on dark and light with
+  no tile. `icon-180.png` and `icon-1024.png` sit on an opaque `#0c0b10` square because Apple's
+  touch icons must be opaque. The binary embeds `icon-256.png` for notifications.
+- **Wordmark** (`wordmark-{dark,light}.svg`): "sessio" with a dotless i and the running dot as its
+  tittle. The logo (`logo-{dark,light}.svg`) is the outline capsule beside it. On the site, `s●` in
+  running text is the inline form.
+- **Postmark** (`postmark.svg` in plum, `postmark-dark.svg` in a light plum): `SESSIO ·
+  ~/.CLAUDE/PROJECTS` round the rim, the date of the newest release in `CHANGELOG.md` inside, the
+  dot under it. It dates things (the changelog, the social card) and is never the logo.
+  `brand.swift` reads the date, so run it as part of a release.
+
+The plum and the green are the identity and stay the same in both schemes. The site's neutrals
+lean towards the plum (a violet-grey rather than a blue one), so the page belongs to the row.
+The terminal's colours are the user's theme's and are not part of this (principle 1).
 
 ## Contrast
 
@@ -392,7 +407,8 @@ must stay the page's first table (`ui::guidance`). Below 560px it drops the age 
 
 The demo window sits on a **stage**: a dark field, permanently dark like the window, lit from
 behind with `--glow`. The glow and the page's top glow are the site's two decorative uses of colour
-(the terminal has none), both in the selection hue at under 10% opacity. The stage never transforms
+(the terminal has none), both in the selection hue at under 10% opacity. The **band** above the
+nav is the brand, not decoration: the selected row and its running dot, at full strength. The stage never transforms
 the window: `measure()` fits the frame to the window's real width. The **changelog** is a dated
 list, newest first, one line per release linking to its notes.
 
@@ -411,20 +427,21 @@ links) stays at the top while the page scrolls; on a phone its links scroll side
 
 | Variable | Dark | on surface | on raised | on sunken | Light | on surface | on raised | on sunken |
 |---|---|---|---|---|---|---|---|---|
-| `--text` | `#e6e9ee` | 15.99 | 15.04 | 14.20 | `#16181c` | 17.19 | 15.87 | 14.76 |
-| `--dim` | `#8a93a0` | 6.27 | 5.90 | 5.56 | `#4a525e` | 7.63 | 7.05 | 6.56 |
-| `--faint` | `#7a8390` | 5.07 | 4.77 | 4.51 | `#5b636f` | 5.87 | 5.42 | 5.04 |
-| `--accent` | `#a882d5` | 6.32 | 5.94 | 5.61 | `#6d3fa3` | 7.03 | 6.49 | 6.03 |
-| `--code` | `#5fd7d7` | 11.29 | 10.63 | 10.03 | `#0b6e75` | 5.80 | 5.35 | 4.98 |
-| `--attention` | `#e0b341` | 9.91 | 9.32 | 8.80 | `#8a6100` | 5.36 | 4.95 | 4.60 |
-| `--running` | `#4ec96a` | 9.16 | 8.62 | 8.14 | `#1b6e31` | 6.11 | 5.64 | 5.25 |
-| `--recent` | `#e88a2b` | 7.51 | 7.06 | 6.67 | `#a4520c` | 5.36 | 4.95 | 4.60 |
-| `--voice` | `#af87ff` | 7.16 | 6.74 | 6.36 | `#6d3fa3` | 7.03 | 6.49 | 6.03 |
-| `--success` | `#4ec96a` | 9.16 | 8.62 | 8.14 | `#1b6e31` | 6.11 | 5.64 | 5.25 |
-| `--error` | `#f07178` | 6.80 | 6.40 | 6.04 | `#b3261e` | 6.32 | 5.84 | 5.43 |
+| `--text` | `#ece8f2` | 16.24 | 15.37 | 14.63 | `#18151d` | 17.34 | 16.09 | 14.66 |
+| `--dim` | `#978ea5` | 6.28 | 5.95 | 5.66 | `#4f4759` | 8.49 | 7.87 | 7.18 |
+| `--faint` | `#877e95` | 5.09 | 4.82 | 4.58 | `#605869` | 6.52 | 6.05 | 5.51 |
+| `--accent` | `#a882d5` | 6.37 | 6.03 | 5.74 | `#6d3fa3` | 6.98 | 6.48 | 5.90 |
+| `--code` | `#5fd7d7` | 11.38 | 10.77 | 10.26 | `#0b6e75` | 5.76 | 5.35 | 4.87 |
+| `--attention` | `#e0b341` | 9.99 | 9.45 | 9.00 | `#8a6100` | 5.32 | 4.94 | 4.50 |
+| `--running` | `#4ec96a` | 9.23 | 8.74 | 8.32 | `#1b6e31` | 6.08 | 5.64 | 5.14 |
+| `--recent` | `#e88a2b` | 7.56 | 7.16 | 6.82 | `#a4520c` | 5.32 | 4.94 | 4.50 |
+| `--voice` | `#af87ff` | 7.22 | 6.84 | 6.51 | `#4b3a9e` | 8.42 | 7.81 | 7.12 |
+| `--success` | `#4ec96a` | 9.23 | 8.74 | 8.32 | `#1b6e31` | 6.08 | 5.64 | 5.14 |
+| `--error` | `#f07178` | 6.85 | 6.49 | 6.17 | `#b3261e` | 6.28 | 5.83 | 5.31 |
 
-Buttons: `--on-selection` on `--selection` is 6.19 (dark) and 7.00 (light); the primary button's
-hover (`--surface` on `--accent`) is 6.32 and 7.03. Every pair passes AA.
+Buttons: `--on-selection` on `--selection` is 6.19 (dark) and 7.00 (light); the primary
+button's hover darkens the plum (`--selection` 86% with black), which raises it to
+7.51 and 8.49. Every pair passes AA.
 
 `--faint` replaced the old `--dimmer` (`#5c6470`), which was 3.25:1 on the page and 3.06:1 on
 cards: below AA for the kicker, section headings, table headings, footer and demo note it set.
@@ -432,18 +449,18 @@ cards: below AA for the kicker, section headings, table headings, footer and dem
 ### Terminal
 
 The ANSI roles depend on the user's theme; the values below are the xterm defaults the website
-demo draws (bright variants), on a black terminal, a white one, and the demo's `#121519`.
+demo draws (bright variants), on a black terminal, a white one, and the demo's `#14121a`.
 
 | Role | xterm value | on black | on white | on demo |
 |---|---|---|---|---|
-| `DIM` | `#808080` | 5.32 | 3.95 | 4.64 |
-| `ACCENT`, `CODE` | `#00ffff` | 16.75 | 1.25 | 14.60 |
-| `ATTENTION` | `#ffff00` | 19.56 | 1.07 | 17.05 |
-| `RUNNING`, `SUCCESS` | `#00ff00` | 15.30 | 1.37 | 13.34 |
-| `ERROR` | `#ff0000` | 5.25 | 4.00 | 4.58 |
-| `RECENT` (202) | `#ff5f00` | 6.89 | 3.05 | 6.01 |
-| `VOICE` (98) | `#875fd7` | 4.65 | 4.52 | 4.05 (the demo draws `#af87ff`: 6.74) |
-| `AGENT_TAG` (68) | `#5f87d7` | 5.93 | 3.54 | 5.17 |
+| `DIM` | `#808080` | 5.32 | 3.95 | 4.70 |
+| `ACCENT`, `CODE` | `#00ffff` | 16.75 | 1.25 | 14.81 |
+| `ATTENTION` | `#ffff00` | 19.56 | 1.07 | 17.29 |
+| `RUNNING`, `SUCCESS` | `#00ff00` | 15.30 | 1.37 | 13.53 |
+| `ERROR` | `#ff0000` | 5.25 | 4.00 | 4.64 |
+| `RECENT` (202) | `#ff5f00` | 6.89 | 3.05 | 6.09 |
+| `VOICE` (98) | `#875fd7` | 4.65 | 4.52 | 4.11 (the demo draws `#af87ff`: 6.84) |
+| `AGENT_TAG` (68) | `#5f87d7` | 5.93 | 3.54 | 5.25 |
 
 The "on white" column for the ANSI roles is the raw xterm value and does not describe a real light
 theme, which remaps them (a light theme's yellow is dark). That is a manual check. The fixed roles

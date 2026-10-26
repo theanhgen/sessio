@@ -13,6 +13,12 @@
 
 ### Changed
 
+- **A new identity, built from the selected row.** The mark is the dashboard's selected session:
+  a plum bar with the running dot in a bite at its end. Stood on end it is the new icon (the
+  capsule, the dot over the `s`); run across the page it is the band at the top of the site and
+  the social card; the wordmark carries the dot as the tittle of its i; a postmark dates the
+  newest release. The notification icon, favicons, README logo and link preview are all redrawn
+  by `scripts/brand.swift`. The site's greys lean towards the plum.
 - **The site leads with the list itself.** Under the headline, five of the demo's sessions are
   listed the way the dashboard lists them, the selected one lit in plum; the demo window sits on a
   dark stage; section heads take the headline's serif; how it works is three plain columns; a

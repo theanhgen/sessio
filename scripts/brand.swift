@@ -1,12 +1,16 @@
-// Draw sessio's icon, logo and social card into docs/brand/, from one description of the icon.
+// Draw sessio's marks into docs/brand/, from one description of the selected row.
 //
-// The icon is the dashboard in miniature: the selected session row (plum) with its running dot
-// and the `s` of sessio, between two quieter rows. The letters are Fraunces SemiBold, turned into
-// outlines here, so the SVGs and PNGs look the same on a machine without the font.
+// Every mark is the dashboard's selected session row: a plum bar with the session's running dot in
+// it. The **bar** is that row with a circle bitten out of its left end and the green dot in the
+// bite. Stood on end it is the **capsule**, the app icon and logo, with the `s` under the dot.
+// The **wordmark** is "sessio" with the running dot as the tittle of its i. Run across the full
+// width of a page the bar is the **band** (the site draws that in CSS). The **postmark** dates
+// things and is never the logo. The letters are Fraunces SemiBold (and Menlo for the postmark's
+// rim), turned into outlines here, so the files look the same on a machine without the fonts.
 //
 //   swift scripts/brand.swift            # needs network once, for the font
 //
-// Everything it writes is committed; run it again only to change the mark. docs/DESIGN.md
+// Everything it writes is committed; run it again only to change a mark. docs/DESIGN.md
 // ("Brand") has the geometry and the reasons for it.
 import AppKit
 import CoreText
@@ -16,7 +20,11 @@ let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingL
 let out = root.appendingPathComponent("docs/brand")
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
-// ---------- the font ----------
+// The palette the marks use: the identity colours and the site's darkest neutral.
+let plum = "#6b4a8f", green = "#4ec96a", onPlum = "#f4effa", ground = "#0c0b10"
+let inkDark = "#ece8f2", inkLight = "#18151d", dimDark = "#978ea5", amber = "#e0b341"
+
+// ---------- the fonts ----------
 
 let fontURL = FileManager.default.temporaryDirectory.appendingPathComponent("sessio-Fraunces-600.ttf")
 if !FileManager.default.fileExists(atPath: fontURL.path) {
@@ -26,34 +34,47 @@ if !FileManager.default.fileExists(atPath: fontURL.path) {
 }
 let desc = (CTFontManagerCreateFontDescriptorsFromURL(fontURL as CFURL) as! [CTFontDescriptor])[0]
 func fraunces(_ size: CGFloat) -> CTFont { CTFontCreateWithFontDescriptor(desc, size, nil) }
+func menlo(_ size: CGFloat) -> CTFont { CTFontCreateWithName("Menlo-Regular" as CFString, size, nil) }
 
-/// `text` as one path, origin at the left end of its baseline, y down (SVG's way round).
-func textPath(_ text: String, size: CGFloat) -> (path: CGPath, width: CGFloat, ink: CGRect) {
-    let font = fraunces(size)
+/// `text` as one path, origin at the left end of its baseline, y down (SVG's way round), with
+/// each glyph's own ink box so a caller can place something over one letter.
+func textPath(_ text: String, font: CTFont) -> (path: CGPath, width: CGFloat, ink: CGRect, glyphs: [CGRect]) {
     let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.init(kCTFontAttributeName as String): font]))
     let path = CGMutablePath()
+    var boxes: [CGRect] = []
     for run in CTLineGetGlyphRuns(line) as! [CTRun] {
         let n = CTRunGetGlyphCount(run)
         var glyphs = [CGGlyph](repeating: 0, count: n), pos = [CGPoint](repeating: .zero, count: n)
         CTRunGetGlyphs(run, CFRange(), &glyphs); CTRunGetPositions(run, CFRange(), &pos)
         for i in 0..<n {
-            guard let g = CTFontCreatePathForGlyph(font, glyphs[i], nil) else { continue }
-            path.addPath(g, transform: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: pos[i].x, ty: 0))
+            guard let g = CTFontCreatePathForGlyph(font, glyphs[i], nil) else { boxes.append(.null); continue }
+            let t = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: pos[i].x, ty: 0)
+            path.addPath(g, transform: t)
+            boxes.append(g.boundingBoxOfPath.applying(t))
         }
     }
-    return (path, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)), path.boundingBoxOfPath)
+    return (path, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)), path.boundingBoxOfPath, boxes)
 }
+func textPath(_ text: String, size: CGFloat) -> (path: CGPath, width: CGFloat, ink: CGRect, glyphs: [CGRect]) {
+    textPath(text, font: fraunces(size))
+}
+
+func moved(_ p: CGPath, _ x: CGFloat, _ y: CGFloat) -> CGPath {
+    var t = CGAffineTransform(translationX: x, y: y)
+    return p.copy(using: &t)!
+}
+
+let num = { (v: CGFloat) in String(format: "%.2f", v).replacingOccurrences(of: ".00", with: "") }
 
 func svgPath(_ p: CGPath) -> String {
     var d = ""
-    let f = { (v: CGFloat) in String(format: "%.2f", v).replacingOccurrences(of: ".00", with: "") }
     p.applyWithBlock { e in
         let pt = e.pointee.points
         switch e.pointee.type {
-        case .moveToPoint: d += "M\(f(pt[0].x)) \(f(pt[0].y))"
-        case .addLineToPoint: d += "L\(f(pt[0].x)) \(f(pt[0].y))"
-        case .addQuadCurveToPoint: d += "Q\(f(pt[0].x)) \(f(pt[0].y)) \(f(pt[1].x)) \(f(pt[1].y))"
-        case .addCurveToPoint: d += "C\(f(pt[0].x)) \(f(pt[0].y)) \(f(pt[1].x)) \(f(pt[1].y)) \(f(pt[2].x)) \(f(pt[2].y))"
+        case .moveToPoint: d += "M\(num(pt[0].x)) \(num(pt[0].y))"
+        case .addLineToPoint: d += "L\(num(pt[0].x)) \(num(pt[0].y))"
+        case .addQuadCurveToPoint: d += "Q\(num(pt[0].x)) \(num(pt[0].y)) \(num(pt[1].x)) \(num(pt[1].y))"
+        case .addCurveToPoint: d += "C\(num(pt[0].x)) \(num(pt[0].y)) \(num(pt[1].x)) \(num(pt[1].y)) \(num(pt[2].x)) \(num(pt[2].y))"
         case .closeSubpath: d += "Z"
         @unknown default: break
         }
@@ -61,147 +82,226 @@ func svgPath(_ p: CGPath) -> String {
     return d
 }
 
-// ---------- the icon, on a 100-unit square ----------
-
-enum Shape {
-    case rect(CGRect, r: CGFloat, fill: String, opacity: CGFloat = 1)
-    case ring(CGPoint, r: CGFloat, stroke: String, width: CGFloat)
-    case dot(CGPoint, r: CGFloat, fill: String)
-    case path(CGPath, fill: String)
-}
-
-// The `s`: 48 units of Fraunces SemiBold, placed by its ink, not its advance, so the gaps either
-// side of it are what they look like: dot, 5, s, 5, bar, the group centred in the row, and the
-// letter's body centred on the row's middle line.
-let s = textPath("s", size: 48)
-let gap: CGFloat = 5, dotR: CGFloat = 7.5, barW: CGFloat = 18
-let group = dotR * 2 + gap + s.ink.width + gap + barW
-let left = 50 - group / 2
-let dotX = left + dotR
-let sLeft = left + dotR * 2 + gap
-func moved(_ p: CGPath, _ x: CGFloat, _ y: CGFloat) -> CGPath {
-    var t = CGAffineTransform(translationX: x, y: y)
-    return p.copy(using: &t)!
-}
-let sPlaced = moved(s.path, sLeft - s.ink.minX, 50 - s.ink.midY)
-let barX = sLeft + s.ink.width + gap
-
-let icon: [Shape] = [
-    .rect(CGRect(x: 2, y: 2, width: 96, height: 96), r: 22, fill: "#121519"),
-    .ring(CGPoint(x: dotX, y: 17), r: 4, stroke: "#3a414a", width: 2.5),
-    .rect(CGRect(x: sLeft, y: 12, width: 42, height: 10), r: 5, fill: "#1f242b"),
-    .rect(CGRect(x: 8, y: 28, width: 84, height: 44), r: 12, fill: "#6b4a8f"),
-    .dot(CGPoint(x: dotX, y: 50), r: dotR, fill: "#4ec96a"),
-    .path(sPlaced, fill: "#f4effa"),
-    .rect(CGRect(x: barX, y: 45, width: barW, height: 10), r: 5, fill: "#f4effa", opacity: 0.55),
-    .ring(CGPoint(x: dotX, y: 83), r: 4, stroke: "#3a414a", width: 2.5),
-    .rect(CGRect(x: sLeft, y: 78, width: 30, height: 10), r: 5, fill: "#1f242b"),
-]
-// The tile's hairline, drawn last so it sits over the rows' edges.
-let tileEdge = (rect: CGRect(x: 2, y: 2, width: 96, height: 96), r: CGFloat(22), stroke: "#242a31", width: CGFloat(1.5))
-
-func iconSVG(_ shapes: [Shape], at t: CGAffineTransform = .identity) -> String {
-    var g = ""
-    let f = { (v: CGFloat) in String(format: "%.2f", v).replacingOccurrences(of: ".00", with: "") }
-    for sh in shapes {
-        switch sh {
-        case let .rect(r, rad, fill, op):
-            let o = op < 1 ? " fill-opacity=\"\(f(op))\"" : ""
-            g += "<rect x=\"\(f(r.minX))\" y=\"\(f(r.minY))\" width=\"\(f(r.width))\" height=\"\(f(r.height))\" rx=\"\(f(rad))\" fill=\"\(fill)\"\(o)/>"
-        case let .ring(c, r, stroke, w):
-            g += "<circle cx=\"\(f(c.x))\" cy=\"\(f(c.y))\" r=\"\(f(r))\" fill=\"none\" stroke=\"\(stroke)\" stroke-width=\"\(f(w))\"/>"
-        case let .dot(c, r, fill):
-            g += "<circle cx=\"\(f(c.x))\" cy=\"\(f(c.y))\" r=\"\(f(r))\" fill=\"\(fill)\"/>"
-        case let .path(p, fill):
-            g += "<path d=\"\(svgPath(p))\" fill=\"\(fill)\"/>"
-        }
-    }
-    let e = tileEdge
-    g += "<rect x=\"\(f(e.rect.minX))\" y=\"\(f(e.rect.minY))\" width=\"\(f(e.rect.width))\" height=\"\(f(e.rect.height))\" rx=\"\(f(e.r))\" fill=\"none\" stroke=\"\(e.stroke)\" stroke-width=\"\(f(e.width))\"/>"
-    return g
-}
-
 func color(_ hex: String, _ alpha: CGFloat = 1) -> CGColor {
     let v = Int(hex.dropFirst(), radix: 16)!
     return CGColor(srgbRed: CGFloat(v >> 16 & 255) / 255, green: CGFloat(v >> 8 & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: alpha)
 }
 
-/// Draw the icon into `cx` in a `size`-point square whose top-left is `origin` (y down).
-func drawIcon(_ cx: CGContext, origin: CGPoint, size: CGFloat) {
+// ---------- shapes: each mark is a list of these, drawn the same way into SVG and into PNG ----------
+
+enum Shape {
+    /// A filled path; `evenOdd` lets a bite be a second subpath cut out of the first.
+    case fill(CGPath, String, evenOdd: Bool = false)
+    case stroke(CGPath, String, width: CGFloat)
+}
+
+func capsule(_ r: CGRect) -> CGPath {
+    let rad = min(r.width, r.height) / 2
+    return CGPath(roundedRect: r, cornerWidth: rad, cornerHeight: rad, transform: nil)
+}
+func circle(_ c: CGPoint, _ r: CGFloat) -> CGPath {
+    CGPath(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r), transform: nil)
+}
+/// `shape` with a circle bitten out of it, the running dot set inside the bite.
+func bitten(_ shape: CGPath, at c: CGPoint, bite: CGFloat, dot: CGFloat?, fill: String) -> [Shape] {
+    let p = CGMutablePath(); p.addPath(shape); p.addPath(circle(c, bite))
+    var s: [Shape] = [.fill(p, fill, evenOdd: true)]
+    if let dot { s.append(.fill(circle(c, dot), green)) }
+    return s
+}
+
+func svg(_ shapes: [Shape]) -> String {
+    shapes.map {
+        switch $0 {
+        case let .fill(p, c, eo): return "<path d=\"\(svgPath(p))\" fill=\"\(c)\"\(eo ? " fill-rule=\"evenodd\"" : "")/>"
+        case let .stroke(p, c, w): return "<path d=\"\(svgPath(p))\" fill=\"none\" stroke=\"\(c)\" stroke-width=\"\(num(w))\"/>"
+        }
+    }.joined()
+}
+
+func draw(_ cx: CGContext, _ shapes: [Shape], origin: CGPoint = .zero, scale: CGFloat = 1) {
     cx.saveGState()
-    cx.translateBy(x: origin.x, y: origin.y)
-    cx.scaleBy(x: size / 100, y: size / 100)
-    for sh in icon {
-        switch sh {
-        case let .rect(r, rad, fill, op):
-            cx.setFillColor(color(fill, op)); cx.addPath(CGPath(roundedRect: r, cornerWidth: rad, cornerHeight: rad, transform: nil)); cx.fillPath()
-        case let .ring(c, r, stroke, w):
-            cx.setStrokeColor(color(stroke)); cx.setLineWidth(w); cx.strokeEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-        case let .dot(c, r, fill):
-            cx.setFillColor(color(fill)); cx.fillEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-        case let .path(p, fill):
-            cx.setFillColor(color(fill)); cx.addPath(p); cx.fillPath()
+    cx.translateBy(x: origin.x, y: origin.y); cx.scaleBy(x: scale, y: scale)
+    for s in shapes {
+        switch s {
+        case let .fill(p, c, eo): cx.setFillColor(color(c)); cx.addPath(p); cx.fillPath(using: eo ? .evenOdd : .winding)
+        case let .stroke(p, c, w): cx.setStrokeColor(color(c)); cx.setLineWidth(w); cx.addPath(p); cx.strokePath()
         }
     }
-    let e = tileEdge
-    cx.setStrokeColor(color(e.stroke)); cx.setLineWidth(e.width)
-    cx.addPath(CGPath(roundedRect: e.rect, cornerWidth: e.r, cornerHeight: e.r, transform: nil)); cx.strokePath()
     cx.restoreGState()
 }
 
-/// A `w`×`h` PNG drawn by `draw` in a y-down context.
-func png(_ name: String, _ w: Int, _ h: Int, _ draw: (CGContext) -> Void) throws {
-    let cx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    cx.translateBy(x: 0, y: CGFloat(h)); cx.scaleBy(x: 1, y: -1)
-    cx.setShouldAntialias(true); cx.interpolationQuality = .high
-    draw(cx)
-    let rep = NSBitmapImageRep(cgImage: cx.makeImage()!)
-    try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent(name))
+// ---------- the marks ----------
+
+/// The `s`, placed by its ink: its body centred on `c`, `height` units of ink tall.
+func sAt(_ c: CGPoint, height: CGFloat) -> CGPath {
+    let probe = textPath("s", size: 100)
+    let s = textPath("s", size: 100 * height / probe.ink.height)
+    return moved(s.path, c.x - s.ink.midX, c.y - s.ink.midY)
+}
+
+// The capsule, on a 100-unit square: the row stood on end, the dot in a bite at its top, the `s`
+// below it. The bite is a ring of ground around the dot, as the row draws the dot.
+let capRect = CGRect(x: 22, y: 4, width: 56, height: 92)
+let capDot = CGPoint(x: 50, y: 31)
+func capsuleMark(withS: Bool) -> [Shape] {
+    var s = bitten(capsule(capRect), at: capDot, bite: 14, dot: 9.5, fill: plum)
+    if withS { s.append(.fill(sAt(CGPoint(x: 50, y: 65), height: 34), onPlum)) }
+    return s
+}
+// Small sizes (16, 32): no letter to blur, a bigger dot.
+let capsuleSmall = bitten(capsule(capRect), at: CGPoint(x: 50, y: 34), bite: 18, dot: 12.5, fill: plum)
+// The outline capsule for the logo: the row's edge drawn, the dot and the `s` in plum ink, so it
+// reads on dark and on light without a tile.
+func capsuleOutline(ink: String) -> [Shape] {
+    [.stroke(capsule(capRect.insetBy(dx: 3.5, dy: 3.5)), plum, width: 7),
+     .fill(circle(capDot, 9.5), green),
+     .fill(sAt(CGPoint(x: 50, y: 66), height: 29), ink)]
+}
+
+// The bar, on a 100×40 field: one row, one bite, one dot.
+let barShapes = bitten(capsule(CGRect(x: 0, y: 0, width: 100, height: 40)), at: CGPoint(x: 20, y: 20), bite: 11, dot: 7.5, fill: plum)
+
+// The wordmark: "sessio" with a dotless i, the running dot set where its tittle was.
+let wordSize: CGFloat = 60
+let word = textPath("sess\u{0131}o", size: wordSize)
+let dotted = textPath("i", size: wordSize).ink, dotless = textPath("\u{0131}", size: wordSize).ink
+// The tittle's own box: the part of the i's ink above the dotless i's.
+let tittleH = dotless.minY - dotted.minY
+let tittleR = tittleH * 0.5
+let iBox = word.glyphs[4]
+let tittle = CGPoint(x: iBox.midX, y: iBox.minY - tittleH * 0.62)
+func wordmark(ink: String, dx: CGFloat = 0, dy: CGFloat = 0) -> [Shape] {
+    [.fill(moved(word.path, dx, dy), ink),
+     .fill(circle(CGPoint(x: tittle.x + dx, y: tittle.y + dy), tittleR * 1.12), green)]
+}
+// Ink extents of the wordmark, tittle included, for placing it.
+let wordTop = min(word.ink.minY, tittle.y - tittleR * 1.12), wordBottom = word.ink.maxY
+
+// ---------- the postmark ----------
+
+/// A postmark centred on `c`, radius `r`: two rings, the rim text set glyph by glyph round the
+/// circle in Menlo, the date in Fraunces in the middle and the running dot under it.
+func postmark(_ c: CGPoint, r: CGFloat, ink: String, date: (String, String)) -> [Shape] {
+    var s: [Shape] = [.stroke(circle(c, r), ink, width: r * 0.04), .stroke(circle(c, r * 0.62), ink, width: r * 0.04)]
+    let rim = "SESSIO · ~/.CLAUDE/PROJECTS · ", font = menlo(r * 0.155)
+    let rimR = r * 0.81
+    let step = 2 * CGFloat.pi / CGFloat(rim.count)
+    for (i, ch) in rim.enumerated() where ch != " " {
+        let g = textPath(String(ch), font: font)
+        let a = -CGFloat.pi / 2 + CGFloat(i) * step
+        var t = CGAffineTransform(translationX: c.x + rimR * cos(a), y: c.y + rimR * sin(a))
+            .rotated(by: a + .pi / 2).translatedBy(x: -g.ink.midX, y: -g.ink.midY)
+        s.append(.fill(g.path.copy(using: &t)!, ink))
+    }
+    let d1 = textPath(date.0, size: r * 0.27), d2 = textPath(date.1, font: menlo(r * 0.15))
+    s.append(.fill(moved(d1.path, c.x - d1.ink.midX, c.y - r * 0.05), ink))
+    s.append(.fill(moved(d2.path, c.x - d2.ink.midX, c.y + r * 0.22), ink))
+    s.append(.fill(circle(CGPoint(x: c.x, y: c.y + r * 0.42), r * 0.065), green))
+    return s
 }
 
 // ---------- write ----------
 
-let svgHead = { (w: CGFloat, h: CGFloat, label: String) in
-    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 \(Int(w)) \(Int(h))\" width=\"\(Int(w))\" height=\"\(Int(h))\" role=\"img\" aria-label=\"\(label)\">"
+func png(_ name: String, _ w: Int, _ h: Int, _ body: (CGContext) -> Void) throws {
+    let cx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    cx.translateBy(x: 0, y: CGFloat(h)); cx.scaleBy(x: 1, y: -1)
+    cx.setShouldAntialias(true); cx.interpolationQuality = .high
+    body(cx)
+    let rep = NSBitmapImageRep(cgImage: cx.makeImage()!)
+    try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent(name))
 }
-try (svgHead(100, 100, "sessio") + iconSVG(icon) + "</svg>\n").write(to: out.appendingPathComponent("icon.svg"), atomically: true, encoding: .utf8)
-
-for size in [1024, 512, 256, 180, 64, 32] {
-    try png("icon-\(size).png", size, size) { drawIcon($0, origin: .zero, size: CGFloat(size)) }
+func writeSVG(_ name: String, w: CGFloat, h: CGFloat, label: String, _ body: String) throws {
+    let head = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 \(num(w)) \(num(h))\" width=\"\(num(w))\" height=\"\(num(h))\" role=\"img\" aria-label=\"\(label)\">"
+    try (head + body + "</svg>\n").write(to: out.appendingPathComponent(name), atomically: true, encoding: .utf8)
 }
 
-// The logo: the icon, then "sessio" in Fraunces SemiBold, its x-height centred on the icon.
-let word = textPath("sessio", size: 60)
-let xh = CTFontGetXHeight(fraunces(60))
-func logoSVG(text: String) -> String {
-    let iconSize: CGFloat = 72, gapW: CGFloat = 18
-    let w = iconSize + gapW + word.width + 4, h = iconSize
-    return svgHead(w.rounded(.up), h, "sessio")
-        + "<g transform=\"scale(\(iconSize / 100))\">" + iconSVG(icon) + "</g>"
-        + "<path d=\"\(svgPath(moved(word.path, iconSize + gapW, h / 2 + xh / 2)))\" fill=\"\(text)\"/></svg>\n"
+// The icon: the capsule on a transparent square (favicons, the notification image).
+try writeSVG("icon.svg", w: 100, h: 100, label: "sessio", svg(capsuleMark(withS: true)))
+try writeSVG("icon-small.svg", w: 100, h: 100, label: "sessio", svg(capsuleSmall))
+for size in [512, 256, 64] {
+    try png("icon-\(size).png", size, size) { draw($0, capsuleMark(withS: true), scale: CGFloat(size) / 100) }
 }
-try logoSVG(text: "#e6e9ee").write(to: out.appendingPathComponent("logo-dark.svg"), atomically: true, encoding: .utf8)
-try logoSVG(text: "#16181c").write(to: out.appendingPathComponent("logo-light.svg"), atomically: true, encoding: .utf8)
+try png("icon-32.png", 32, 32) { draw($0, capsuleSmall, scale: 0.32) }
+// Apple's touch icon and the 1024 app icon must be opaque: the capsule on the darkest ground,
+// which the platform rounds itself.
+for size in [1024, 180] {
+    try png("icon-\(size).png", size, size) { cx in
+        cx.setFillColor(color(ground)); cx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        let k = CGFloat(size) * 0.78 / 100
+        draw(cx, capsuleMark(withS: true), origin: CGPoint(x: CGFloat(size) * 0.11, y: CGFloat(size) * 0.11), scale: k)
+    }
+}
 
-// The social card link previews show: the logo large on the site's surface, and the line under it.
+try writeSVG("bar.svg", w: 100, h: 40, label: "sessio", svg(barShapes))
+
+// The wordmark alone, and the logo: the outline capsule beside the wordmark, the capsule as tall
+// as the wordmark's ink from tittle to baseline plus a little, the word on the capsule's middle.
+let wmW = word.width + 2, wmH = wordBottom - wordTop + 4
+try writeSVG("wordmark-dark.svg", w: wmW, h: wmH, label: "sessio", svg(wordmark(ink: inkDark, dx: 1, dy: 2 - wordTop)))
+try writeSVG("wordmark-light.svg", w: wmW, h: wmH, label: "sessio", svg(wordmark(ink: inkLight, dx: 1, dy: 2 - wordTop)))
+func logo(ink: String) -> (String, CGFloat, CGFloat) {
+    let capH: CGFloat = 76, k = capH / 92, capW = 56 * k, gap: CGFloat = 16
+    let h = capH + 4
+    let mid = h / 2
+    var g = "<g transform=\"translate(\(num(-22 * k + 2)) \(num(-4 * k + 2))) scale(\(num(k)))\">" + svg(capsuleOutline(ink: ink)) + "</g>"
+    let dy = mid - (wordTop + wordBottom) / 2
+    g += svg(wordmark(ink: ink, dx: capW + 2 + gap, dy: dy))
+    return (g, capW + 2 + gap + word.width + 4, h)
+}
+for (name, ink) in [("logo-dark.svg", inkDark), ("logo-light.svg", inkLight)] {
+    let (g, w, h) = logo(ink: ink)
+    try writeSVG(name, w: w, h: h, label: "sessio", g)
+}
+
+// The postmark carries the date of the newest dated release in CHANGELOG.md, so run this as part
+// of a release, after the version's heading has its date. Plum ink for light pages, a light plum
+// for dark ones.
+let today = { () -> (String, String) in
+    let log = (try? String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)) ?? ""
+    let iso = DateFormatter(); iso.locale = Locale(identifier: "en_US_POSIX"); iso.dateFormat = "yyyy-MM-dd"
+    var when = Date()
+    // The first release heading that carries a date: `## Unreleased` has none.
+    for line in log.split(separator: "\n") where line.hasPrefix("## ") {
+        if let r = line.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression), let d = iso.date(from: String(line[r])) {
+            when = d
+            break
+        }
+    }
+    let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "dd MMM"; let a = f.string(from: when).uppercased()
+    f.dateFormat = "yyyy"; return (a, f.string(from: when))
+}()
+try writeSVG("postmark.svg", w: 120, h: 120, label: "sessio, \(today.0) \(today.1)", svg(postmark(CGPoint(x: 60, y: 60), r: 56, ink: plum, date: today)))
+try writeSVG("postmark-dark.svg", w: 120, h: 120, label: "sessio, \(today.0) \(today.1)", svg(postmark(CGPoint(x: 60, y: 60), r: 56, ink: "#c9b6e4", date: today)))
+
+// The social card: the band across the top, the wordmark, the promise, the postmark, and the
+// selected row the promise is about.
 try png("social.png", 1200, 630) { cx in
-    cx.setFillColor(color("#0b0d10")); cx.fill(CGRect(x: 0, y: 0, width: 1200, height: 630))
-    let big = textPath("sessio", size: 150), bigXh = CTFontGetXHeight(fraunces(150))
-    let iconSize: CGFloat = 180, gapW: CGFloat = 44
-    let total = iconSize + gapW + big.width
-    let x0 = (1200 - total) / 2, midY: CGFloat = 270
-    drawIcon(cx, origin: CGPoint(x: x0, y: midY - iconSize / 2), size: iconSize)
-    cx.setFillColor(color("#e6e9ee"))
-    var t = CGAffineTransform(translationX: x0 + iconSize + gapW, y: midY + bigXh / 2)
-    cx.addPath(big.path.copy(using: &t)!); cx.fillPath()
-    let tag = NSAttributedString(string: "Find the coding-agent session you left", attributes: [
-        .font: NSFont.systemFont(ofSize: 40, weight: .regular), .foregroundColor: NSColor(cgColor: color("#8a93a0"))!,
-    ])
-    let line = CTLineCreateWithAttributedString(tag)
-    let tw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-    cx.saveGState(); cx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-    cx.textPosition = CGPoint(x: (1200 - tw) / 2, y: 470); CTLineDraw(line, cx); cx.restoreGState()
+    cx.setFillColor(color(ground)); cx.fill(CGRect(x: 0, y: 0, width: 1200, height: 630))
+    // the band: plum to the right edge, its left end bitten with the dot in it; the green rule
+    let band = CGMutablePath(); band.addRect(CGRect(x: 0, y: 0, width: 1200, height: 44))
+    band.addPath(circle(CGPoint(x: 64, y: 22), 15))
+    draw(cx, [.fill(band, plum, evenOdd: true), .fill(circle(CGPoint(x: 64, y: 22), 10), green),
+              .fill(CGPath(rect: CGRect(x: 0, y: 44, width: 1200, height: 8), transform: nil), green)])
+    // the wordmark, then the promise in two lines
+    let k: CGFloat = 1.25
+    draw(cx, wordmark(ink: inkDark), origin: CGPoint(x: 80, y: 150 - wordTop * k), scale: k)
+    for (i, line) in ["Find the session you left,", "and pick it back up."].enumerated() {
+        let t = textPath(line, size: 64)
+        draw(cx, [.fill(t.path, inkDark)], origin: CGPoint(x: 80, y: 330 + CGFloat(i) * 78))
+    }
+    draw(cx, postmark(CGPoint(x: 1000, y: 290), r: 120, ink: "#c9b6e4", date: today))
+    // the selected row
+    let row = CGRect(x: 80, y: 490, width: 1040, height: 72)
+    draw(cx, [.fill(CGPath(roundedRect: row, cornerWidth: 12, cornerHeight: 12, transform: nil), plum)])
+    let mark = textPath("\u{25C6}", font: menlo(30)), title = textPath("fix login redirect loop", font: menlo(30))
+    let hint = textPath("\u{21B5} resume", font: menlo(30))
+    let base = row.midY + 10
+    draw(cx, [.fill(mark.path, amber)], origin: CGPoint(x: row.minX + 26, y: base))
+    draw(cx, [.fill(title.path, onPlum)], origin: CGPoint(x: row.minX + 72, y: base))
+    draw(cx, [.fill(hint.path, onPlum)], origin: CGPoint(x: row.maxX - 26 - hint.width, y: base))
 }
 
 print("wrote \(out.path)")

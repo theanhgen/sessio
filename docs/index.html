@@ -12,7 +12,7 @@
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="brand/icon.svg" type="image/svg+xml">
+<link rel="icon" href="brand/icon-small.svg" type="image/svg+xml">
 <link rel="icon" href="brand/icon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="brand/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -27,8 +27,8 @@
   /* Colour roles: the same names src/theme.rs uses, defined in docs/DESIGN.md with their contrast
      ratios. Everything coloured on this page is carrying a role, not decorating. */
   :root, .term, .stage{
-    --surface:#0b0d10; --surface-raised:#121519; --surface-sunken:#171b21; --rule:#242a31;
-    --text:#e6e9ee; --dim:#8a93a0; --faint:#7a8390;
+    --surface:#0c0b10; --surface-raised:#14121a; --surface-sunken:#1a1721; --rule:#2a2533;
+    --text:#ece8f2; --dim:#978ea5; --faint:#877e95;
     --accent:#a882d5; --selection:#6b4a8f; --on-selection:#f4effa;
     --code:#5fd7d7; --attention:#e0b341; --running:#4ec96a; --recent:#e88a2b; --voice:#af87ff;
     --success:#4ec96a; --error:#f07178;
@@ -46,8 +46,8 @@
      shows, and `.term` re-declares the dark roles above for everything inside it. */
   @media (prefers-color-scheme: light){
     :root{
-      --surface:#fbfbfc; --surface-raised:#f1f2f4; --surface-sunken:#e8eaee; --rule:#d5d9de;
-      --text:#16181c; --dim:#4a525e; --faint:#5b636f;
+      --surface:#fbfafc; --surface-raised:#f3f1f6; --surface-sunken:#eae6ef; --rule:#dbd5e3;
+      --text:#18151d; --dim:#4f4759; --faint:#605869;
       --accent:#6d3fa3; --selection:#6b4a8f; --on-selection:#ffffff;
       --code:#0b6e75; --attention:#8a6100; --running:#1b6e31; --recent:#a4520c; --voice:#4b3a9e;
       --success:#1b6e31; --error:#b3261e;
@@ -78,9 +78,17 @@
     position:sticky;top:0;z-index:10;background:var(--surface);
     box-shadow:0 0 0 100vmax var(--surface),0 1px 0 100vmax var(--rule);clip-path:inset(0 -100vmax -1px)}
   [id]{scroll-margin-top:84px}
-  .brand{display:inline-flex;align-items:center;gap:10px;font-family:"Fraunces",Georgia,serif;font-weight:600;
-    font-size:24px;line-height:1;letter-spacing:-.005em;color:var(--text);text-decoration:none}
-  .brand img{width:32px;height:32px;display:block}
+  /* The logo: the outline capsule and the wordmark (the running dot as the i's tittle), drawn by
+     scripts/brand.swift; the light file on light pages. */
+  .brand{display:inline-flex;align-items:center;text-decoration:none;line-height:0}
+  .brand img{height:34px;width:auto;display:block}
+
+  /* The band: the selected row run across the whole page, its left end bitten with the running
+     dot in the bite, a green rule under it. It scrolls away; the nav below it stays. Plum and
+     green here are the identity, the same in both schemes. */
+  .band{display:flex;height:26px;background:#6b4a8f}
+  .band svg{flex:none;height:26px;width:auto;display:block}
+  .band-rule{height:5px;background:#4ec96a}
   .nav-links{display:flex;gap:6px 18px;font-size:var(--fs-m);flex-wrap:wrap}
   .nav-links a{color:var(--dim);text-decoration:none}
   .nav-links a:hover{color:var(--text);text-decoration:underline}
@@ -139,7 +147,7 @@
     font-family:var(--sans);text-decoration:none;line-height:1.3}
   .btn:hover{border-color:var(--faint);text-decoration:none}
   .btn.primary{background:var(--selection);color:var(--on-selection);border-color:var(--selection);font-weight:600}
-  .btn.primary:hover{background:color-mix(in srgb,var(--selection) 86%,#fff);border-color:color-mix(in srgb,var(--selection) 86%,#fff)}
+  .btn.primary:hover{background:color-mix(in srgb,var(--selection) 86%,#000);border-color:color-mix(in srgb,var(--selection) 86%,#000)}
   .btn:active:not([disabled]),.demo-row button:active:not([disabled]){transform:scale(.97)}
   .btn[disabled]{opacity:.55;cursor:not-allowed}
   .cta{display:flex;gap:12px 18px;align-items:center;flex-wrap:wrap;margin-top:18px;font-size:var(--fs-l);color:var(--dim)}
@@ -232,6 +240,11 @@
     border-radius:10px;padding:16px 18px;color:var(--dim);font-size:var(--fs-l)}
   .note b{color:var(--text)}
 
+  /* The postmark dates the newest release; it is never the logo. */
+  .changelog-head{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:760px}
+  .postmark{width:96px;height:96px;display:block;transform:rotate(-8deg)}
+  @media (prefers-reduced-motion: reduce){.postmark{transform:none}}
+
   /* Releases as a dated list, newest first: one line each, the date in a fixed column. */
   .releases{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:var(--fs-m);font-variant-numeric:tabular-nums;max-width:760px}
   .releases li{display:grid;grid-template-columns:11ch minmax(0,1fr);gap:16px;padding:6px 0;border-bottom:1px solid var(--rule);color:var(--dim)}
@@ -270,9 +283,11 @@
 </style>
 </head>
 <body>
+<div class="band" aria-hidden="true"><svg viewBox="0 0 56 26" width="56" height="26"><circle cx="28" cy="13" r="9.5" style="fill:var(--surface)"/><circle cx="28" cy="13" r="6" fill="#4ec96a"/></svg></div>
+<div class="band-rule" aria-hidden="true"></div>
 <div class="wrap">
   <nav aria-label="Site">
-    <a class="brand" href="#top"><img src="brand/icon.svg" alt="" width="32" height="32">sessio</a>
+    <a class="brand" href="#top"><picture><source media="(prefers-color-scheme: light)" srcset="brand/logo-light.svg"><img src="brand/logo-dark.svg" alt="sessio" height="34"></picture></a>
     <div class="nav-links">
       <a href="#demo">Demo</a>
       <a href="#workflow">How it works</a>
@@ -477,7 +492,10 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
 
   <section id="changelog" aria-labelledby="changelog-h">
     <p class="eyebrow">Releases</p>
-    <h2 id="changelog-h">Changelog</h2>
+    <div class="changelog-head">
+      <h2 id="changelog-h">Changelog</h2>
+      <picture><source media="(prefers-color-scheme: light)" srcset="brand/postmark.svg"><img class="postmark" src="brand/postmark-dark.svg" alt="" width="96" height="96"></picture>
+    </div>
     <ul class="releases" role="list">
       <li><span>2026-10-26</span><span><a href="https://github.com/theanhgen/sessio/releases/tag/v1.4.0"><b>1.4.0</b> · <code>sessions layout</code> saves and restores Ghostty windows and their sessions; Homebrew, Cargo and release binaries</a></span></li>
       <li><span>2026-10-01</span><span><a href="https://github.com/theanhgen/sessio/blob/main/CHANGELOG.md#130---2026-10-01"><b>1.3.0</b> · a click on a waiting notification opens that session's window</a></span></li>
