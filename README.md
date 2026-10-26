@@ -136,6 +136,8 @@ sessions resume 1b6324f5           # resume in its own folder, in this terminal
 sessions reply 1b6324f5 "run the tests again"   # one turn, without opening it
 sessions archive 1b6324f5          # hide it; `unarchive` undoes it
 sessions kill 1b6324f5             # end its claude, if it has sat idle for more than 48h
+sessions layout save               # remember Ghostty's windows, splits and their sessions
+sessions layout restore            # reopen them and resume every session in its place
 ```
 
 - **Ids** are any prefix only one session has; `ls` prints eight characters.
@@ -156,6 +158,17 @@ sessions kill 1b6324f5             # end its claude, if it has sat idle for more
   stdin. `kill` follows `^k`'s rules without the second press — running it is the consent — and
   exits `1` with the reason when a session is not running, was active within 48 hours, or is
   `busy` or `waiting`; `--json` prints the pid, idle days and whether the process went.
+- **`layout`** (macOS, Ghostty 1.3+) saves to `~/.claude/.sessio/layout.json`, or to a file you
+  name after the subcommand. `save` records each window's position and size, its tabs, every
+  split's direction and size, and which Claude session runs in each pane with the flags it was
+  started with (`--dangerously-skip-permissions` comes back too). `restore` rebuilds that and
+  resumes each session in its pane; one that is still running gets a shell in its folder instead
+  of a second `claude`. `show` prints what a restore would open, `show --json` the file. Split
+  sizes and window frames are read and set through the accessibility tree, so the terminal you
+  run it from needs Accessibility permission (System Settings › Privacy & Security ›
+  Accessibility); without it a save keeps the panes and sessions, and restore lays each tab out
+  as an even grid. Saving a window whose background tabs are split shows each of those tabs for a
+  moment.
 - Exit status: `0` done, `1` couldn't do it, `2` bad command line.
 
 ## Agent skill

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **`sessions layout save` / `restore` bring back your Ghostty windows** (macOS, Ghostty 1.3+).
+  `save` remembers every window, tab and split — its direction and size, read from the
+  accessibility tree — and the Claude session in each pane with the flags it was started with.
+  `restore` reopens them where they were and resumes each session in its own pane, so a reboot
+  costs one command instead of twenty. A session that is still running gets a shell in its place
+  rather than a second `claude` on the same transcript. `layout show` prints what a restore would
+  open. Without Accessibility permission a save keeps the panes and sessions, and restore lays a
+  tab's panes out as an even grid.
+
 ## 1.3.0 - 2026-10-01
 
 ### New

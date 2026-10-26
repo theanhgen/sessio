@@ -570,3 +570,65 @@ fn copilot_sessions_are_searched_and_archived_like_the_rest() {
     assert!(f.ok(&["unarchive", "dddd"]).starts_with("unarchived"));
     assert_eq!(f.ids(&["ls", "--json"]), [A, D, B, C]);
 }
+
+#[test]
+fn layout_show_prints_the_saved_windows_and_refuses_a_broken_file() {
+    let f = Fixture::new("layout");
+    let saved = f.root.join("claude/.sessio/layout.json");
+    fs::create_dir_all(saved.parent().unwrap()).unwrap();
+    let pane = |cwd: &str, session: Option<&str>| json!({"cwd": cwd, "session": session, "flags": ["--dangerously-skip-permissions"]});
+    fs::write(
+        &saved,
+        json!({
+            "version": 1, "saved_at": "2026-10-26 16:00",
+            "windows": [{
+                "frame": [0.0, 0.0, 800.0, 600.0], "selected_tab": 1,
+                "tabs": [
+                    {"panes": [pane("/w/alpha", Some(A))], "tree": null},
+                    {"panes": [pane("/w/beta", Some(B)), pane("/w/gamma", None), pane("/w/delta", None)],
+                     "tree": {"split": {"dir": "right", "ratio": 0.3, "a": {"leaf": 2},
+                              "b": {"split": {"dir": "down", "ratio": 0.6, "a": {"leaf": 0}, "b": {"leaf": 1}}}}}}
+                ]
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // The default file, the tree drawn as text in pane order, and the selected tab marked.
+    let text = f.ok(&["layout", "show"]);
+    assert_eq!(
+        text,
+        "saved 2026-10-26 16:00\nwindow 1\n  tab 1\n    alpha  claude aaaa1111\n  tab 2 (selected)\n    \
+         side by side 30%\n      delta  shell\n      stacked 60%\n        beta  claude aaaa2222\n        gamma  shell\n"
+    );
+    // --json is the file, for scripts.
+    let v: Value = serde_json::from_str(&f.ok(&["layout", "show", "--json", saved.to_str().unwrap()])).unwrap();
+    assert_eq!(v["windows"][0]["tabs"][1]["panes"][0]["session"], B);
+
+    // A tree that does not cover its panes would open the wrong sessions: refused.
+    let broken = f.root.join("broken.json");
+    fs::write(&broken, fs::read_to_string(&saved).unwrap().replace(r#"{"leaf":2}"#, r#"{"leaf":0}"#)).unwrap();
+    let o = f.run(&["layout", "show", broken.to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("does not match its panes"), "{}", stderr(&o));
+
+    let o = f.run(&["layout", "show", f.root.join("missing.json").to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("can't read"));
+}
+
+#[test]
+fn layout_needs_a_known_subcommand() {
+    let f = Fixture::new("layout-usage");
+    for (args, want) in [
+        (&["layout"][..], "layout needs save, restore or show"),
+        (&["layout", "load"][..], "unknown subcommand 'load'"),
+        (&["layout", "save", "--json"][..], "--json goes with `layout show`"),
+        (&["layout", "show", "a", "b"][..], "at most one file"),
+    ] {
+        let o = f.run(args);
+        assert_eq!(o.status.code(), Some(2), "{args:?}");
+        assert!(stderr(&o).contains(want), "{args:?}: {}", stderr(&o));
+    }
+}
