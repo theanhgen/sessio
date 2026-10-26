@@ -435,12 +435,13 @@ links) stays at the top while the page scrolls; on a phone its links scroll side
 | `--attention` | `#e0b341` | 9.99 | 9.45 | 9.00 | `#8a6100` | 5.32 | 4.94 | 4.50 |
 | `--running` | `#4ec96a` | 9.23 | 8.74 | 8.32 | `#1b6e31` | 6.08 | 5.64 | 5.14 |
 | `--recent` | `#e88a2b` | 7.56 | 7.16 | 6.82 | `#a4520c` | 5.32 | 4.94 | 4.50 |
-| `--voice` | `#af87ff` | 7.22 | 6.84 | 6.51 | `#6d3fa3` | 6.98 | 6.48 | 5.90 |
+| `--voice` | `#af87ff` | 7.22 | 6.84 | 6.51 | `#4b3a9e` | 8.42 | 7.81 | 7.12 |
 | `--success` | `#4ec96a` | 9.23 | 8.74 | 8.32 | `#1b6e31` | 6.08 | 5.64 | 5.14 |
 | `--error` | `#f07178` | 6.85 | 6.49 | 6.17 | `#b3261e` | 6.28 | 5.83 | 5.31 |
 
-Buttons: `--on-selection` on `--selection` is 6.19 (dark) and 7.00 (light); the primary button's
-hover (`--surface` on `--accent`) is 6.37 and 6.98. Every pair passes AA.
+Buttons: `--on-selection` on `--selection` is 6.19 (dark) and 7.00 (light); the primary
+button's hover darkens the plum (`--selection` 86% with black), which raises it to
+7.51 and 8.49. Every pair passes AA.
 
 `--faint` replaced the old `--dimmer` (`#5c6470`), which was 3.25:1 on the page and 3.06:1 on
 cards: below AA for the kicker, section headings, table headings, footer and demo note it set.
@@ -457,9 +458,9 @@ demo draws (bright variants), on a black terminal, a white one, and the demo's `
 | `ATTENTION` | `#ffff00` | 19.56 | 1.07 | 17.29 |
 | `RUNNING`, `SUCCESS` | `#00ff00` | 15.30 | 1.37 | 13.53 |
 | `ERROR` | `#ff0000` | 5.25 | 4.00 | 4.64 |
-| `RECENT` (202) | `#ff5f00` | 6.89 | 3.05 | 6.01 |
-| `VOICE` (98) | `#875fd7` | 4.65 | 4.52 | 4.05 (the demo draws `#af87ff`: 6.74) |
-| `AGENT_TAG` (68) | `#5f87d7` | 5.93 | 3.54 | 5.17 |
+| `RECENT` (202) | `#ff5f00` | 6.89 | 3.05 | 6.09 |
+| `VOICE` (98) | `#875fd7` | 4.65 | 4.52 | 4.11 (the demo draws `#af87ff`: 6.84) |
+| `AGENT_TAG` (68) | `#5f87d7` | 5.93 | 3.54 | 5.25 |
 
 The "on white" column for the ANSI roles is the raw xterm value and does not describe a real light
 theme, which remaps them (a light theme's yellow is dark). That is a manual check. The fixed roles

@@ -255,16 +255,19 @@ for (name, ink) in [("logo-dark.svg", inkDark), ("logo-light.svg", inkLight)] {
     try writeSVG(name, w: w, h: h, label: "sessio", g)
 }
 
-// The postmark carries the date of the newest release in CHANGELOG.md (today while the top entry
-// is still Unreleased), so run this as part of a release. Plum ink for light pages, a light plum
+// The postmark carries the date of the newest dated release in CHANGELOG.md, so run this as part
+// of a release, after the version's heading has its date. Plum ink for light pages, a light plum
 // for dark ones.
 let today = { () -> (String, String) in
     let log = (try? String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)) ?? ""
     let iso = DateFormatter(); iso.locale = Locale(identifier: "en_US_POSIX"); iso.dateFormat = "yyyy-MM-dd"
     var when = Date()
-    if let line = log.split(separator: "\n").first(where: { $0.hasPrefix("## ") }),
-       let r = line.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression), let d = iso.date(from: String(line[r])) {
-        when = d
+    // The first release heading that carries a date: `## Unreleased` has none.
+    for line in log.split(separator: "\n") where line.hasPrefix("## ") {
+        if let r = line.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression), let d = iso.date(from: String(line[r])) {
+            when = d
+            break
+        }
     }
     let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "dd MMM"; let a = f.string(from: when).uppercased()

@@ -99,6 +99,8 @@ The bump itself, as one pull request titled `release: vX.Y.Z`:
    `optionalDependencies`); the two must match or nothing is tagged.
 2. Run `cargo build` so `Cargo.lock` follows.
 3. Turn the changelog's `## Unreleased` into `## X.Y.Z - YYYY-MM-DD`.
+4. Run `swift scripts/brand.swift` so the postmark (`docs/brand/postmark*.svg`, `social.png`)
+   carries the new release's date. It needs macOS.
 
 Pushing a `v*` tag by hand still works.
 
