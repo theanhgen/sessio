@@ -10,6 +10,9 @@
   `.lock` (`layout.json.lock`).
 - **An autosave after a crashed save no longer gives up.** A lock left by a crashed save was
   removed, but `save --auto` then stopped without trying again, so the next save was lost too.
+- **A save that can't create its lock says why** (a read-only or unwritable folder) at once,
+  instead of retrying for 10 seconds and blaming "another save is running". And a save that ran
+  past the 2-minute stale window no longer deletes the lock of the save that took over.
 - **`--update` on a Homebrew or Cargo install names every way to update**, `brew upgrade sessio`
   included, instead of only npm.
 

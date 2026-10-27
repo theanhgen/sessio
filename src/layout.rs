@@ -509,8 +509,22 @@ pub fn sessions_by_tty(live: &crate::live::LiveMap, argv_of: &dyn Fn(i32) -> Opt
 /// One save at a time: several sessions reach `Stop` together, and each hook starts a save.
 /// The lock is the layout file's name plus `.lock` (`layout.json.lock`), created exclusively, so it
 /// can never be the file being saved. A lock older than two minutes is a crashed save: it is
-/// removed and taken, even by a save that does not wait.
-pub struct Lock(PathBuf);
+/// removed and taken, even by a save that does not wait. Each lock holds a token of its own, and
+/// a save only removes the lock if it still holds its token, so a save that outlived the two
+/// minutes cannot delete the lock of the save that took over.
+pub struct Lock {
+    path: PathBuf,
+    token: String,
+}
+
+/// Why a lock could not be taken.
+#[derive(Debug, PartialEq)]
+pub enum LockError {
+    /// Another save holds it.
+    Busy,
+    /// The lock file could not be created at all (a read-only or unwritable folder).
+    Io(String),
+}
 
 pub fn lock_file(file: &Path) -> PathBuf {
     let mut name = file.file_name().unwrap_or_default().to_os_string();
@@ -519,16 +533,25 @@ pub fn lock_file(file: &Path) -> PathBuf {
 }
 
 impl Lock {
-    pub fn take(file: &Path, wait: bool) -> Option<Lock> {
-        use std::time::Duration;
+    pub fn take(file: &Path, wait: bool) -> Result<Lock, LockError> {
+        use std::io::{ErrorKind, Write};
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
         let path = lock_file(file);
-        let _ = std::fs::create_dir_all(path.parent()?);
+        let io = |e: std::io::Error| LockError::Io(format!("{}: {e}", path.display()));
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(io)?;
+        }
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let token = format!("{} {nanos}", std::process::id());
         let mut tries = if wait { 100 } else { 1 };
         while tries > 0 {
             tries -= 1;
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Some(Lock(path)),
-                Err(_) => {
+                Ok(mut f) => {
+                    f.write_all(token.as_bytes()).map_err(io)?;
+                    return Ok(Lock { path, token });
+                }
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
                     let stale = std::fs::metadata(&path)
                         .and_then(|m| m.modified())
                         .is_ok_and(|t| t.elapsed().is_ok_and(|e| e > Duration::from_secs(120)));
@@ -540,15 +563,18 @@ impl Lock {
                         std::thread::sleep(Duration::from_millis(100));
                     }
                 }
+                Err(e) => return Err(io(e)),
             }
         }
-        None
+        Err(LockError::Busy)
     }
 }
 
 impl Drop for Lock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        if std::fs::read_to_string(&self.path).is_ok_and(|t| t == self.token) {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -661,8 +687,11 @@ end run"#,
     }
 
     pub fn save(file: &Path, auto: bool) -> Result<String, String> {
-        let Some(_lock) = Lock::take(file, !auto) else {
-            return if auto { Ok("another save is running; nothing saved".into()) } else { Err("another save is running".into()) };
+        let _lock = match Lock::take(file, !auto) {
+            Ok(lock) => lock,
+            Err(LockError::Busy) if auto => return Ok("another save is running; nothing saved".into()),
+            Err(LockError::Busy) => return Err("another save is running".into()),
+            Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock {why}")),
         };
         // A save that queued behind another one has nothing to add.
         let just_saved = std::fs::metadata(file)
@@ -1234,13 +1263,30 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("layout.json");
         let held = Lock::take(&file, false).expect("free lock");
-        assert!(Lock::take(&file, false).is_none(), "a fresh lock is respected");
-        std::mem::forget(held);
+        assert_eq!(Lock::take(&file, false).err(), Some(LockError::Busy), "a fresh lock is respected");
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
         std::fs::File::options().write(true).open(lock_file(&file)).unwrap().set_modified(old).unwrap();
-        assert!(Lock::take(&file, false).is_some(), "a stale lock is taken over");
+        let next = Lock::take(&file, false).expect("a stale lock is taken over");
+        drop(held);
+        assert!(lock_file(&file).exists(), "the save that outlived its lock leaves its successor's alone");
+        drop(next);
         assert!(!lock_file(&file).exists(), "dropping the lock removes it");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_that_cannot_be_created_is_an_error_not_a_busy_save() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("sessio-lock-ro-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let started = std::time::Instant::now();
+        let got = Lock::take(&dir.join("layout.json"), true);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(matches!(got, Err(LockError::Io(_))), "{:?}", got.err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "no 10s of retries");
     }
 
     #[test]
