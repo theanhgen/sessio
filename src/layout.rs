@@ -963,13 +963,19 @@ end run"#,
 
     pub fn restore(file: &Path) -> Result<String, String> {
         let layout = load(file)?;
-        // The sessions this resumes start their own autosaves; held, the lock turns those away
-        // until every window is open, so none of them saves a half-restored layout.
-        let _lock = match Lock::take(file, true) {
-            Ok(lock) => lock,
-            Err(LockError::Busy) => return Err("a layout save is running; try again in a moment".into()),
-            Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock: {why}")),
-        };
+        // The sessions this resumes start their own autosaves, which save to the default file;
+        // holding its lock turns them away until every window is open, so none of them saves a
+        // half-restored layout. Restoring another file (the backup, say) also holds that file's
+        // lock. Always the default first, so two restores can't each hold one and wait.
+        let mut _locks = Vec::new();
+        let default = default_file();
+        for f in std::iter::once(default.as_path()).chain((lock_file(file) != lock_file(&default)).then_some(file)) {
+            _locks.push(match Lock::take(f, true) {
+                Ok(lock) => lock,
+                Err(LockError::Busy) => return Err("a layout save is running; try again in a moment".into()),
+                Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock: {why}")),
+            });
+        }
         let live = crate::live::scan();
         let running = |p: &Pane| p.session.as_ref().is_some_and(|id| live.contains_key(id));
         let ax = ghostty_pid().and_then(Ax::new);
