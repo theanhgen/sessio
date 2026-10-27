@@ -507,14 +507,12 @@ pub fn sessions_by_tty(live: &crate::live::LiveMap, argv_of: &dyn Fn(i32) -> Opt
 }
 
 /// One save at a time: several sessions reach `Stop` together, and each hook starts a save.
-/// The lock is the layout file's name plus `.lock` (`layout.json.lock`), created exclusively, so it
-/// can never be the file being saved. A lock older than two minutes is a crashed save: it is
-/// removed and taken, even by a save that does not wait. Each lock holds a token of its own, and
-/// a save only removes the lock if it still holds its token, so a save that outlived the two
-/// minutes cannot delete the lock of the save that took over.
+/// The lock is an OS advisory lock (`flock`) on `<file>.lock` (`layout.json.lock`), so it can
+/// never be the file being saved, it is held for the whole save, and the kernel releases it when
+/// the save ends or crashes. The file itself stays: deleting a lock file is what made the old
+/// mtime-based lock racy.
 pub struct Lock {
-    path: PathBuf,
-    token: String,
+    _file: std::fs::File,
 }
 
 /// Why a lock could not be taken.
@@ -522,7 +520,7 @@ pub struct Lock {
 pub enum LockError {
     /// Another save holds it.
     Busy,
-    /// The lock file could not be created at all (a read-only or unwritable folder).
+    /// The lock file could not be opened at all (a read-only or unwritable folder).
     Io(String),
 }
 
@@ -533,48 +531,31 @@ pub fn lock_file(file: &Path) -> PathBuf {
 }
 
 impl Lock {
+    /// `wait` retries for up to 10s, as a manual save queued behind an autosave; an autosave
+    /// tries once.
     pub fn take(file: &Path, wait: bool) -> Result<Lock, LockError> {
-        use std::io::{ErrorKind, Write};
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use std::fs::TryLockError;
         let path = lock_file(file);
         let io = |e: std::io::Error| LockError::Io(format!("{}: {e}", path.display()));
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(io)?;
         }
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let token = format!("{} {nanos}", std::process::id());
-        let mut tries = if wait { 100 } else { 1 };
-        while tries > 0 {
-            tries -= 1;
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(mut f) => {
-                    f.write_all(token.as_bytes()).map_err(io)?;
-                    return Ok(Lock { path, token });
-                }
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                    let stale = std::fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .is_ok_and(|t| t.elapsed().is_ok_and(|e| e > Duration::from_secs(120)));
-                    if stale && std::fs::remove_file(&path).is_ok() {
-                        tries = tries.max(1);
-                        continue;
-                    }
-                    if wait {
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                }
-                Err(e) => return Err(io(e)),
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let f = opts.open(&path).map_err(io)?;
+        for attempt in 0..if wait { 100 } else { 1 } {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            match f.try_lock() {
+                Ok(()) => return Ok(Lock { _file: f }),
+                Err(TryLockError::WouldBlock) => {}
+                Err(TryLockError::Error(e)) => return Err(io(e)),
             }
         }
         Err(LockError::Busy)
-    }
-}
-
-impl Drop for Lock {
-    fn drop(&mut self) {
-        if std::fs::read_to_string(&self.path).is_ok_and(|t| t == self.token) {
-            let _ = std::fs::remove_file(&self.path);
-        }
     }
 }
 
@@ -1258,19 +1239,41 @@ mod tests {
     }
 
     #[test]
-    fn a_save_that_does_not_wait_takes_over_a_stale_lock() {
+    fn one_save_holds_the_lock_and_releasing_it_frees_it() {
         let dir = std::env::temp_dir().join(format!("sessio-lock-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("layout.json");
         let held = Lock::take(&file, false).expect("free lock");
-        assert_eq!(Lock::take(&file, false).err(), Some(LockError::Busy), "a fresh lock is respected");
+        assert_eq!(Lock::take(&file, false).err(), Some(LockError::Busy), "a held lock is respected");
+        // Even a lock file left from long ago means nothing on its own: only a live holder blocks.
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
         std::fs::File::options().write(true).open(lock_file(&file)).unwrap().set_modified(old).unwrap();
-        let next = Lock::take(&file, false).expect("a stale lock is taken over");
+        assert_eq!(Lock::take(&file, false).err(), Some(LockError::Busy), "age doesn't steal a held lock");
         drop(held);
-        assert!(lock_file(&file).exists(), "the save that outlived its lock leaves its successor's alone");
-        drop(next);
-        assert!(!lock_file(&file).exists(), "dropping the lock removes it");
+        assert!(Lock::take(&file, false).is_ok(), "released with its holder");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn simultaneous_saves_get_exactly_one_lock() {
+        let dir = std::env::temp_dir().join(format!("sessio-lock-race-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("layout.json");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let got: Vec<Option<Lock>> = std::thread::scope(|s| {
+            let hs: Vec<_> = (0..8)
+                .map(|_| {
+                    let (b, f) = (barrier.clone(), file.clone());
+                    s.spawn(move || {
+                        b.wait();
+                        Lock::take(&f, false).ok()
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert_eq!(got.iter().filter(|l| l.is_some()).count(), 1);
+        drop(got);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

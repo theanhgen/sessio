@@ -4,20 +4,19 @@
 
 ### Fixed
 
-- **A layout saved to a file ending in `.lock` is no longer deleted.** The save's lock was the
-  file's name with its extension swapped for `.lock`, so `sessions layout save snapshot.lock`
-  wrote the layout and then removed it as its own lock. The lock is now the full name plus
-  `.lock` (`layout.json.lock`).
-- **An autosave after a crashed save no longer gives up.** A lock left by a crashed save was
-  removed, but `save --auto` then stopped without trying again, so the next save was lost too.
-- **A save that can't create its lock says why** (a read-only or unwritable folder) at once,
-  instead of retrying for 10 seconds and blaming "another save is running". And a save that ran
-  past the 2-minute stale window no longer deletes the lock of the save that took over.
+- **One layout save at a time, for real.** The save lock was a file that a save created and
+  deleted, treated as abandoned after two minutes. Two saves could both take over an old lock and
+  write at once, a slow save could delete the next one's lock, a crashed save blocked autosaves,
+  and `sessions layout save snapshot.lock` deleted the layout it had just saved. The lock is now
+  an OS lock (`flock`) on `layout.json.lock`: held for the whole save, released by the system
+  even after a crash, and never the file being saved. A folder sessio can't write to is reported
+  as that at once, not as "another save is running" after 10 seconds.
 - **`--update` on a Homebrew or Cargo install names every way to update**, `brew upgrade sessio`
   included, instead of only npm.
 
 ### Changed
 
+- **Building from source needs Rust 1.89** (was 1.82), for the OS file lock in `std`.
 - **Docs say what 1.5.0 does.** The README gains the hook to keep the layout saved, how to bring
   back `layout.prev.json`, every file sessio writes, Ghostty, Accessibility and gh as optional
   requirements, and a note that an open dashboard keeps running the old version (and its old

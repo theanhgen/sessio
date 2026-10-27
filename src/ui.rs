@@ -5901,7 +5901,7 @@ pub mod demo {
             first: Some(f.first.into()),
             first_ts: None,
             cwd: Some(format!("~/code/{}", f.project)),
-            branch: Some(if n % 3 == 0 { "main" } else { "feat/limiter" }.into()),
+            branch: Some(if n.is_multiple_of(3) { "main" } else { "feat/limiter" }.into()),
             custom: None,
             ai: Some(f.name.into()),
             open: f.open,
