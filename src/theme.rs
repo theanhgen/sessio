@@ -178,9 +178,9 @@ pub fn rgb(c: Color) -> Option<(u8, u8, u8)> {
 }
 
 /// The website demo's screen background (`--surface-raised`).
-pub const DEMO_BG: (u8, u8, u8) = (0x12, 0x15, 0x19);
+pub const DEMO_BG: (u8, u8, u8) = (0x14, 0x12, 0x1a);
 
-/// A role colour as the website demo draws it: `rgb`, except `VOICE`, whose xterm 98 is 4.05:1 on
+/// A role colour as the website demo draws it: `rgb`, except `VOICE`, whose xterm 98 is 4.11:1 on
 /// the demo's background and fails AA for its 12.5px text. The page draws the site's `--voice`
 /// instead; the terminal keeps 98.
 pub fn demo_rgb(c: Color) -> Option<(u8, u8, u8)> {

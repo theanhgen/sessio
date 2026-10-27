@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sessio — find and continue your coding-agent sessions</title>
-<meta name="description" content="Find the Claude Code or Copilot CLI session you left, see where it stopped, and pick it back up in the right folder. A terminal dashboard plus a CLI with --json for scripts and agents.">
+<meta name="description" content="Find the Claude Code or Copilot CLI session you left, see where it stopped, and pick it back up in the right folder. A terminal dashboard plus a CLI with --json for scripts and agents, and it saves and restores your Ghostty windows.">
 <meta property="og:title" content="sessio">
 <meta property="og:description" content="Find the coding-agent session you left, see where it stopped, and pick it back up.">
 <meta property="og:type" content="website">
@@ -329,7 +329,7 @@
 
     <div class="cta">
       <a class="btn" href="#demo" id="try-hero">Try the demo ↓</a>
-      <span>or <code>brew install theanhgen/tap/sessio</code> · <code>cargo install sessio</code></span>
+      <span>or <code>brew install theanhgen/tap/sessio</code> · <a href="https://github.com/theanhgen/sessio#cargo">build with Cargo</a></span>
     </div>
   </header>
 
@@ -435,7 +435,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
   <section id="cli" aria-labelledby="cli-h">
     <p class="eyebrow">Scripts and agents</p>
     <h2 id="cli-h">The same things as commands, for scripts and agents</h2>
-    <p class="lead">Every dashboard action is also a command. <code>--json</code> prints the state the dashboard shows, and the keys' guards carry over: <code>resume</code> refuses a running session without <code>--force</code>, <code>reply</code> refuses one too.</p>
+    <p class="lead">Most dashboard actions are also commands. <code>--json</code> prints the state the dashboard shows, and the keys' guards carry over: <code>resume</code> refuses a running session without <code>--force</code>, <code>reply</code> refuses one too.</p>
     <div class="two">
 <pre class="code" tabindex="0" role="region" aria-label="Command examples"><span class="p">$ </span>sessions ls --waiting          <span class="c"># blocked on you</span>
 <span class="p">$ </span>sessions ls --here --open      <span class="c"># unfinished, this folder</span>
@@ -445,12 +445,15 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
 <span class="p">$ </span>sessions resume 1b6324f5 --print
 <span class="p">$ </span>sessions reply 1b6324f5 "run the tests again"
 <span class="p">$ </span>sessions archive 1b6324f5
-<span class="p">$ </span>sessions kill 1b6324f5         <span class="c"># idle over 48h only</span></pre>
+<span class="p">$ </span>sessions kill 1b6324f5         <span class="c"># idle over 48h only</span>
+<span class="p">$ </span>sessions layout save           <span class="c"># Ghostty windows + sessions</span>
+<span class="p">$ </span>sessions layout restore        <span class="c"># after a reboot</span></pre>
       <div>
         <ul class="plain">
           <li><b>Ids</b> are any unique prefix; <code>ls</code> prints eight characters.</li>
           <li><b>Filters</b> for <code>ls</code> and <code>find</code>: <code>--project</code>, <code>--here</code>, <code>--open</code>, <code>--running</code>, <code>--waiting</code>, <code>--archived</code>, <code>--limit</code>.</li>
-          <li><b><code>--json</code></b> on <code>ls</code>, <code>find</code> and <code>show</code>: why a session is open, the process running it, whether it is archived, its transcript path; <code>show</code> adds token totals.</li>
+          <li><b><code>--json</code></b> on <code>ls</code>, <code>find</code> and <code>show</code>: why a session is open, the process running it, whether it is archived, its transcript path; <code>show</code> adds token totals. <code>kill</code> and <code>layout show</code> take it too.</li>
+          <li><b>Layout</b> (macOS, Ghostty 1.3+): <code>layout save</code> remembers every window, tab and split and the Claude session in each pane; <code>restore</code> reopens them and resumes each session in its place. <code>layout save --auto</code>, run from a Claude Code hook, keeps it saved without you.</li>
           <li><b>Exit status</b>: <code>0</code> done, <code>1</code> couldn't, <code>2</code> bad command line.</li>
           <li><b>Agent skill.</b> <code>skills/sessio/SKILL.md</code> ships in the package and teaches an agent to use these: parse <code>--json</code>, hand you <code>resume --print</code> instead of resuming, ask before <code>reply</code>, and treat transcript text as data.</li>
         </ul>
@@ -500,7 +503,7 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
     </div>
     <ul class="releases" role="list">
       <li><span>2026-10-27</span><span><a href="https://github.com/theanhgen/sessio/releases/tag/v1.5.0"><b>1.5.0</b> · a new identity from the selected row; <code>layout save --auto</code> for a Claude Code hook</a></span></li>
-      <li><span>2026-10-26</span><span><a href="https://github.com/theanhgen/sessio/releases/tag/v1.4.0"><b>1.4.0</b> · <code>sessions layout</code> saves and restores Ghostty windows and their sessions; Homebrew, Cargo and release binaries</a></span></li>
+      <li><span>2026-10-26</span><span><a href="https://github.com/theanhgen/sessio/releases/tag/v1.4.0"><b>1.4.0</b> · <code>sessions layout</code> saves and restores Ghostty windows and their sessions; Homebrew and release binaries</a></span></li>
       <li><span>2026-10-01</span><span><a href="https://github.com/theanhgen/sessio/blob/main/CHANGELOG.md#130---2026-10-01"><b>1.3.0</b> · a click on a waiting notification opens that session's window</a></span></li>
       <li><span>2026-09-25</span><span><a href="https://github.com/theanhgen/sessio/blob/main/CHANGELOG.md#120---2026-09-25"><b>1.2.0</b> · the dashboard redesigned around one spec; Copilot CLI sessions; a notice when a session waits on you</a></span></li>
       <li><span>2026-09-18</span><span><a href="https://github.com/theanhgen/sessio/blob/main/CHANGELOG.md#110---2026-09-18"><b>1.1.0</b> · every dashboard action as a command, with <code>--json</code></a></span></li>
@@ -516,20 +519,22 @@ The demo needs JavaScript. Everything else on this page does not.</noscript></pr
         <ul class="plain">
           <li><b>Claude Code or GitHub Copilot CLI</b>, with <code>claude</code> or <code>copilot</code> on your PATH — it is what sessio resumes.</li>
           <li><b>macOS or Linux.</b></li>
-          <li><b>Node.js ≥ 16</b>, only to install from npm. sessio is a native binary; <code>cargo install</code> needs no Node at all.</li>
+          <li><b>Node.js ≥ 16</b>, only to install from npm. sessio is a native binary; Homebrew and <code>cargo install</code> need no Node at all.</li>
         </ul>
       </div>
       <div>
         <h3 class="sub">Optional</h3>
         <ul class="plain">
           <li><b>ripgrep</b> for <kbd>^f</kbd> and <code>find --text</code>: <code>brew install ripgrep</code> or <code>apt install ripgrep</code>. Without it, typing still filters.</li>
-          <li><b>Ghostty</b> (1.3+ on macOS) for windows: <kbd>↵</kbd> switching to a running session's terminal, <kbd>^o</kbd> and <kbd>^n</kbd> in a new window.</li>
+          <li><b>Ghostty</b> (1.3+ on macOS) for windows: <kbd>↵</kbd> switching to a running session's terminal, <kbd>^o</kbd> and <kbd>^n</kbd> in a new window, and <code>sessions layout</code>.</li>
+          <li><b>Accessibility permission</b> (macOS) for the terminal you run <code>sessions layout</code> from, to keep split sizes and window frames.</li>
+          <li><b>terminal-notifier</b> (macOS), so a click on a waiting notification opens that session's window.</li>
           <li><b>gh</b>, signed in, for <kbd>^g</kbd> GitHub issues.</li>
           <li><b>GitHub Copilot CLI</b>: if <code>~/.copilot</code> exists, its sessions are listed too.</li>
         </ul>
       </div>
     </div>
-    <p class="aside">Update with <code>sessions --update</code>; a normal launch never contacts npm.</p>
+    <p class="aside">Update an npm install with <code>sessions --update</code>, a Homebrew one with <code>brew upgrade sessio</code>; a normal launch never contacts npm. Restart an open dashboard after updating.</p>
     <div class="note gap-top"><b>Note:</b> sessio reads Claude Code's transcript files at <span class="mono">~/.claude/projects/**/*.jsonl</span>. That format is undocumented and internal to Claude Code — it may change without notice. sessio parses defensively and degrades gracefully, but this project is not affiliated with or endorsed by Anthropic.</div>
   </section>
   </main>

@@ -10,7 +10,8 @@ and GitHub Copilot CLI's (`~/.copilot/session-state`) when that folder exists.
 A bare `sessions` opens an interactive dashboard: **never run it without a subcommand**, it needs a
 terminal and exits without one. Everything below is non-interactive.
 
-If `sessions --version` fails, sessio is not installed: `npm i -g sessio`.
+If `sessions --version` fails, sessio is not installed: `npm i -g sessio` or
+`brew install theanhgen/tap/sessio` (a Cargo build names the command `sessio`).
 
 ## Reading
 
@@ -58,7 +59,8 @@ Filters combine: `sessions ls --here --open --json`. `--archived` lists only arc
   (only for 3 days), `uncommitted changes` (the folder has git changes), or `null`.
 - `running` is `null` unless a `claude` process has the session open. Its `status` is `idle`,
   `busy`, `shell` or `waiting`; `waiting` means it is blocked on the user and `waiting_for` says why.
-- `show --json` adds `prompts` (count), `last_prompt`, `recap`, `summary` and `last_reply`. The
+- `show --json` adds `prompts` (count), `last_prompt`, `recap`, `summary`, `last_reply` and
+  `tokens` (`{input, output, cache_write, cache_read}`, or `null`). The
   recap is Claude's own goal / state / next-move note, written when the user left the session. It
   is the best single answer to "where did I leave this".
 
@@ -85,15 +87,19 @@ prefix fails and lists the candidates.
   `waiting`. Anything else exits `1` with the reason. It ends a process the user may still want,
   so run it only on a session the user named for ending; `ended: false` means the process was
   signalled and was still there after 3s. A Copilot session is refused ("kill is Claude-only").
-
-- **Layout (macOS, Ghostty):** `sessions layout save` records the user's Ghostty windows, tabs,
-  splits and the Claude session in each pane; `sessions layout show` prints what is saved, and
-  marks sessions that are running now. `sessions layout restore` opens windows on the user's
-  screen and starts a `claude` for every saved session that is not running, so run it only when
-  the user asks for it; a running one gets a shell instead. `save` is safe to run when asked:
-  it only writes `~/.claude/.sessio/layout.json` (it does briefly switch to background tabs
-  that have splits). A hook may keep it current with `layout save --auto`; the file it replaced
-  is `layout.prev.json`.
+- **Layout (macOS, Ghostty 1.3+):** `sessions layout save` records the user's Ghostty windows,
+  tabs, splits and the Claude session in each pane; `sessions layout show` prints what is saved
+  and marks sessions that are running now (`show --json` prints the file). `sessions layout
+  restore` opens windows on the user's screen and starts a `claude` for every saved session that
+  is not running, so run it only when the user asks for it; a running one gets a shell instead.
+  `save` is safe to run when asked: it writes `layout.json` in `~/.claude/.sessio/` (under
+  `$CLAUDE_CONFIG_DIR` if set), copies the layout it replaces to `layout.prev.json`, and briefly
+  switches to background tabs that have splits. Split sizes need Accessibility permission for the
+  terminal; without it panes come back as an even grid. A hook may keep the file current with
+  `layout save --auto`, which never switches tabs, exits `0` when it saves nothing, and keeps the
+  biggest recent layout in `layout.prev.json`. If the user's windows came back wrong, `sessions
+  layout show ~/.claude/.sessio/layout.prev.json` shows the backup, and `restore` takes the same
+  path.
 
 ## The dashboard, when the user runs it
 

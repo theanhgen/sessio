@@ -1,6 +1,6 @@
 name: tag release
 
-# release.yml publishes to npm when a `v*` tag exists, and 14 commits once sat on main unreleased
+# release.yml publishes (npm, GitHub Releases, the tap, crates.io) when a `v*` tag exists, and 14 commits once sat on main unreleased
 # because nobody pushed one. This tags the version bump itself: when the version in Cargo.toml
 # on main has no tag yet, it creates `v<version>` and starts release.yml on it.
 #

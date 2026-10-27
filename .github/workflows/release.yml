@@ -1,7 +1,8 @@
 name: release
 
-# Build the native binaries for every supported target, then publish the platform packages and
-# the `sessio` launcher that depends on them. Publishing the launcher LAST matters: it pins
+# Build the native binaries for every supported target, then publish them everywhere: the npm
+# platform packages and the `sessio` launcher that depends on them, a GitHub release with an
+# archive per target, the Homebrew tap's formula, and (with CARGO_REGISTRY_TOKEN) crates.io. Publishing the launcher LAST matters: it pins
 # exact versions of the platform packages, so it must never be installable before they exist.
 
 on:

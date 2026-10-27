@@ -76,7 +76,7 @@ fn item(n: usize, s: &S) -> Item {
         first_ts: None,
         // Never a real folder: `^g` and git must have nothing to ask about.
         cwd: Some(format!("/nonexistent/code/{}", s.project)),
-        branch: Some(if n % 2 == 0 { "main" } else { "feat/limiter" }.into()),
+        branch: Some(if n.is_multiple_of(2) { "main" } else { "feat/limiter" }.into()),
         custom: None,
         ai: Some(s.name.into()),
         open: s.open.is_some(),

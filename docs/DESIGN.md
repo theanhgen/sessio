@@ -33,13 +33,14 @@ fails on any `Color::`, `.fg(` or `.bg(` outside `src/theme.rs`.
 | Attention | Your move: waiting (`◆`), unfinished (`▶`), content-search hits, warnings | `ATTENTION` = ANSI yellow | `--attention` | `#e0b341` | `#8a6100` |
 | Running | A `claude` is attached (`◉`), or written in the last 5 minutes (`●`) | `RUNNING` = ANSI green | `--running` | `#4ec96a` | `#1b6e31` |
 | Recent | Written in the last 24 hours (`○`) | `RECENT` = xterm 202 | `--recent` | `#e88a2b` | `#a4520c` |
-| Voice | Claude's own words: recap and reply labels | `VOICE` = xterm 98 | `--voice` | `#af87ff` | `#6d3fa3` |
+| Voice | Claude's own words: recap and reply labels | `VOICE` = xterm 98 | `--voice` | `#af87ff` | `#4b3a9e` |
 | Agent tag | `copilot` on another agent's sessions | `AGENT_TAG` = xterm 68 | (not used on the site) | — | — |
 | Success | An action you asked for happened | `SUCCESS` = ANSI green | `--success` | `#4ec96a` | `#1b6e31` |
 | Error | An action you asked for failed | `ERROR` = ANSI red | `--error` | `#f07178` | `#b3261e` |
 
-Accent is cyan in the terminal and plum on the site. The site takes the selection hue as its only
-brand colour; the terminal keeps cyan because it is an ANSI colour the user's theme already tunes.
+Accent is cyan in the terminal and plum on the site. The site's brand colours are the selection
+plum and the running green (see Brand); the terminal keeps cyan because it is an ANSI colour the
+user's theme already tunes.
 
 The named ANSI roles (dim, accent, code, attention, running, success, error) are remapped by the
 terminal theme, which is what keeps them legible on light and dark backgrounds alike. The fixed
@@ -389,7 +390,12 @@ Type: the headline, the section heads and the logo are Fraunces SemiBold; the he
 drawn as the dashboard's selected row (plum, led by the running dot). Body text is the system sans;
 code and labels the system monospace; the hero ledger and the demo are Fira Code, so the status
 marks are drawn at one size. Everything smaller than body text takes one of three sizes,
-`--fs-s` 12px, `--fs-m` 13.5px, `--fs-l` 15px. Buttons animate colour only and press to 97%.
+`--fs-s` 12px, `--fs-m` 13.5px, `--fs-l` 15px.
+
+Motion: buttons animate colour only and press to 97%; in-page links scroll smoothly; the running
+dot in the headline blinks (a 1.6s ease-in-out fade to 25% and back), because a running session's
+dot is live; the postmark is tilted 8°. Nothing else moves. `prefers-reduced-motion` turns off the
+transitions, the smooth scroll, the blink and the tilt. The terminal never animates (principle 5).
 
 The page follows `prefers-color-scheme`. Terminal windows (`.term`) stay dark in both schemes: the
 demo draws the palette a dark terminal shows, and `.term` re-declares the dark roles for
@@ -407,7 +413,8 @@ must stay the page's first table (`ui::guidance`). Below 560px it drops the age 
 
 The demo window sits on a **stage**: a dark field, permanently dark like the window, lit from
 behind with `--glow`. The glow and the page's top glow are the site's two decorative uses of colour
-(the terminal has none), both in the selection hue at under 10% opacity. The **band** above the
+(the terminal has none), both in the selection hue at under 10% opacity. The headline's blinking
+dot is the brand's running dot, not a third one. The **band** above the
 nav is the brand, not decoration: the selected row and its running dot, at full strength. The stage never transforms
 the window: `measure()` fits the frame to the window's real width. The **changelog** is a dated
 list, newest first, one line per release linking to its notes.
@@ -569,7 +576,8 @@ Manual, for a release or a change to this file:
    (about 390px) the page does not scroll sideways, the demo narrows toward 60x18 and scrolls
    inside its own window below that. **Try the demo** gives it the keyboard with a visible ring,
    `esc`, **Exit demo** and `Tab` give it back, and with the wasm blocked the screen says so and
-   the rest of the page works.
+   the rest of the page works. `node scripts/site-check.cjs` (needs Playwright and a built demo)
+   checks this headlessly and saves light and dark screenshots of each.
 
 ## Known divergences
 

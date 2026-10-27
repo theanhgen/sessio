@@ -48,8 +48,14 @@ fn main() {
     }
     if args.iter().any(|a| a == "--update") {
         // Updates are handled by the npm launcher, which knows how sessio was installed.
-        // A self-updating binary can't tell a cargo install from a brew tap from an npm global.
-        eprintln!("Run `npm i -g sessio` to update, or `cargo install --git <repo>` for a source build.");
+        // A self-updating binary can't tell a cargo install from a brew tap from an npm global,
+        // so it names every route.
+        eprintln!(
+            "sessio can't update itself. Update it the way you installed it:\n  \
+             npm i -g sessio\n  \
+             brew upgrade sessio\n  \
+             cargo install --git https://github.com/theanhgen/sessio --locked"
+        );
         std::process::exit(1);
     }
     if args.iter().any(|a| a == "--dump-json") {

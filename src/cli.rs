@@ -46,13 +46,15 @@ USAGE:
   sessions kill <id> [--json]       end a running session idle for more than 48h
                                     (SIGTERM; refuses busy, waiting or recent ones)
   sessions layout save [file]       remember Ghostty's windows, tabs and splits, and
-                                    the Claude session in each pane (macOS)
+                                    the Claude session in each pane (macOS); the file
+                                    defaults to ~/.claude/.sessio/layout.json and the
+                                    one it replaces is kept as layout.prev.json
            [--auto]                   unattended, for a hook: no tab switching, never
                                       starts Ghostty, keeps a bigger pre-reboot layout
   sessions layout restore [file]    reopen them and resume every session in its place;
                                     one already running gets a shell instead
   sessions layout show [file]       what a restore would open [--json]
-  sessions --update                 update instructions for this install
+  sessions --update                 update an npm install, or say how to update this one
   sessions --dump-json              print the computed session list (oracle harness)
   sessions --version
 

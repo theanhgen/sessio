@@ -2,9 +2,9 @@
 // Launcher for the sessio native binary.
 //
 // The package itself carries no implementation: the per-platform binary arrives as an optional
-// dependency, so `npm install` downloads exactly one. This file finds it and hands the process
-// over with execve, so sessio *is* the process — no idle node parent holding the terminal, and
-// signals reach the TUI directly.
+// dependency, so `npm install` downloads exactly one. This file finds it and runs it with the
+// terminal attached. Node has no execve, so the launcher stays alive as a thin parent that
+// forwards the child's exit status and signals.
 //
 // `--update` stays here rather than in the binary: only the launcher knows how sessio was
 // installed, and a self-updating binary can't tell a global npm install from a cargo build.
@@ -49,7 +49,7 @@ function findBinary() {
       error:
         `sessio has no prebuilt binary for ${process.platform}-${process.arch}${musl}.\n` +
         'Build from source instead:\n' +
-        '  cargo install --git https://github.com/theanhgen/sessio',
+        '  cargo install --git https://github.com/theanhgen/sessio --locked',
     };
   }
   try {

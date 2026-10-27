@@ -506,6 +506,61 @@ pub fn sessions_by_tty(live: &crate::live::LiveMap, argv_of: &dyn Fn(i32) -> Opt
     out
 }
 
+/// One save at a time: several sessions reach `Stop` together, and each hook starts a save.
+/// The lock is an OS advisory lock (`flock`) on the backup's name plus `.lock`
+/// (`layout.prev.json.lock`), so saves that share a backup share a lock, and it can never be the
+/// file being saved. It is held for the whole save (and the whole restore, whose resumed sessions
+/// fire autosaves of their own), and the kernel releases it when the save ends or crashes. The file itself stays: deleting a lock file is what made the old
+/// mtime-based lock racy.
+pub struct Lock {
+    _file: std::fs::File,
+}
+
+/// Why a lock could not be taken.
+#[derive(Debug, PartialEq)]
+pub enum LockError {
+    /// Another save holds it.
+    Busy,
+    /// The lock file could not be opened at all (a read-only or unwritable folder).
+    Io(String),
+}
+
+pub fn lock_file(file: &Path) -> PathBuf {
+    let backup = prev_file(file);
+    let mut name = backup.file_name().unwrap_or_default().to_os_string();
+    name.push(".lock");
+    backup.with_file_name(name)
+}
+
+impl Lock {
+    /// `wait` retries for up to 10s, as a manual save queued behind an autosave; an autosave
+    /// tries once.
+    pub fn take(file: &Path, wait: bool) -> Result<Lock, LockError> {
+        use std::fs::TryLockError;
+        let path = lock_file(file);
+        let io = |e: std::io::Error| LockError::Io(format!("{}: {e}", path.display()));
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(io)?;
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let f = opts.open(&path).map_err(io)?;
+        for attempt in 0..if wait { 100 } else { 1 } {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            match f.try_lock() {
+                Ok(()) => return Ok(Lock { _file: f }),
+                Err(TryLockError::WouldBlock) => {}
+                Err(TryLockError::Error(e)) => return Err(io(e)),
+            }
+        }
+        Err(LockError::Busy)
+    }
+}
+
 // ---------- Ghostty ----------
 
 #[cfg(target_os = "macos")]
@@ -614,42 +669,12 @@ end run"#,
         parse_etime(&String::from_utf8_lossy(&out.stdout))
     }
 
-    /// One save at a time: several sessions reach `Stop` together, and each hook starts a save.
-    /// `layout.lock` is created exclusively; a lock older than two minutes is a crashed save.
-    struct Lock(PathBuf);
-    impl Lock {
-        fn take(file: &Path, wait: bool) -> Option<Lock> {
-            let path = file.with_extension("lock");
-            let _ = std::fs::create_dir_all(path.parent()?);
-            for _ in 0..if wait { 100 } else { 1 } {
-                match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                    Ok(_) => return Some(Lock(path)),
-                    Err(_) => {
-                        let stale = std::fs::metadata(&path)
-                            .and_then(|m| m.modified())
-                            .is_ok_and(|t| t.elapsed().is_ok_and(|e| e > Duration::from_secs(120)));
-                        if stale {
-                            let _ = std::fs::remove_file(&path);
-                            continue;
-                        }
-                        if wait {
-                            sleep(Duration::from_millis(100));
-                        }
-                    }
-                }
-            }
-            None
-        }
-    }
-    impl Drop for Lock {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
-        }
-    }
-
     pub fn save(file: &Path, auto: bool) -> Result<String, String> {
-        let Some(_lock) = Lock::take(file, !auto) else {
-            return if auto { Ok("another save is running; nothing saved".into()) } else { Err("another save is running".into()) };
+        let _lock = match Lock::take(file, !auto) {
+            Ok(lock) => lock,
+            Err(LockError::Busy) if auto => return Ok("another save is running; nothing saved".into()),
+            Err(LockError::Busy) => return Err("another save is running".into()),
+            Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock: {why}")),
         };
         // A save that queued behind another one has nothing to add.
         let just_saved = std::fs::metadata(file)
@@ -938,6 +963,19 @@ end run"#,
 
     pub fn restore(file: &Path) -> Result<String, String> {
         let layout = load(file)?;
+        // The sessions this resumes start their own autosaves, which save to the default file;
+        // holding its lock turns them away until every window is open, so none of them saves a
+        // half-restored layout. Restoring another file (the backup, say) also holds that file's
+        // lock. Always the default first, so two restores can't each hold one and wait.
+        let mut _locks = Vec::new();
+        let default = default_file();
+        for f in std::iter::once(default.as_path()).chain((lock_file(file) != lock_file(&default)).then_some(file)) {
+            _locks.push(match Lock::take(f, true) {
+                Ok(lock) => lock,
+                Err(LockError::Busy) => return Err("a layout save is running; try again in a moment".into()),
+                Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock: {why}")),
+            });
+        }
         let live = crate::live::scan();
         let running = |p: &Pane| p.session.as_ref().is_some_and(|id| live.contains_key(id));
         let ax = ghostty_pid().and_then(Ax::new);
@@ -1207,6 +1245,66 @@ mod tests {
 
     fn el(role: &str, desc: &str, rect: Rect, kids: Vec<El>) -> El {
         El { role: role.into(), desc: desc.into(), rect, kids }
+    }
+
+    #[test]
+    fn the_lock_is_never_the_file_it_guards() {
+        assert_eq!(lock_file(Path::new("/s/layout.json")), PathBuf::from("/s/layout.prev.json.lock"));
+        assert_eq!(lock_file(Path::new("/s/layout")), lock_file(Path::new("/s/layout.json")), "one backup, one lock");
+        for f in ["/s/snapshot.lock", "/s/x.prev.json.lock", "/s/x.prev.json"] {
+            assert_ne!(lock_file(Path::new(f)), PathBuf::from(f), "{f} is never its own lock");
+        }
+    }
+
+    #[test]
+    fn one_save_holds_the_lock_and_releasing_it_frees_it() {
+        let dir = std::env::temp_dir().join(format!("sessio-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("layout.json");
+        let held = Lock::take(&file, false).expect("free lock");
+        assert_eq!(Lock::take(&file, false).err(), Some(LockError::Busy), "a held lock is respected");
+        // Even a lock file left from long ago means nothing on its own: only a live holder blocks.
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        std::fs::File::options().write(true).open(lock_file(&file)).unwrap().set_modified(old).unwrap();
+        assert_eq!(Lock::take(&file, false).err(), Some(LockError::Busy), "age doesn't steal a held lock");
+        drop(held);
+        assert!(Lock::take(&file, false).is_ok(), "released with its holder");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn simultaneous_saves_get_exactly_one_lock() {
+        let dir = std::env::temp_dir().join(format!("sessio-lock-race-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("layout.json");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let got: Vec<Option<Lock>> = std::thread::scope(|s| {
+            let hs: Vec<_> = (0..8)
+                .map(|_| {
+                    let (b, f) = (barrier.clone(), file.clone());
+                    s.spawn(move || {
+                        b.wait();
+                        Lock::take(&f, false).ok()
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert_eq!(got.iter().filter(|l| l.is_some()).count(), 1);
+        drop(got);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_created_is_an_error_not_a_busy_save() {
+        // A folder that is really a file fails for every user, root included.
+        let not_dir = std::env::temp_dir().join(format!("sessio-lock-file-{}", std::process::id()));
+        std::fs::write(&not_dir, b"").unwrap();
+        let started = std::time::Instant::now();
+        let got = Lock::take(&not_dir.join("layout.json"), true);
+        let _ = std::fs::remove_file(&not_dir);
+        assert!(matches!(got, Err(LockError::Io(_))), "{:?}", got.err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "no 10s of retries");
     }
 
     #[test]
