@@ -194,7 +194,8 @@ sessions layout show               # what a restore would open
   as an even grid. Saving a window whose background tabs are split shows each of those tabs for a
   moment. A save copies the layout it replaces to `layout.prev.json`; bring that one back with
   `sessions layout restore ~/.claude/.sessio/layout.prev.json`. One save runs at a time: each
-  takes an OS lock on `layout.json.lock`, which the system releases even if a save crashes.
+  takes an OS lock on `layout.prev.json.lock`, which the system releases even if a save crashes,
+  and a restore holds it until every window is open.
 - **`layout save --auto`** is the save for a hook (below), so there is always a layout to restore.
   It switches no tabs (a background tab keeps the splits read last time), never starts Ghostty,
   skips a save within 30 seconds of the last one, and without Accessibility permission keeps the
@@ -254,7 +255,7 @@ quit it and start `sessions` again.
 
 `sessio` reads Claude Code's transcript files at `~/.claude/projects/**/*.jsonl` (or under `$CLAUDE_CONFIG_DIR` if you've relocated it), parsing each session's title, prompts, compact summary, and last reply, and Copilot CLI's `events.jsonl` files. Which sessions are running comes from the registry Claude Code keeps in `~/.claude/sessions`, checked against `ps`. Only the 300 most-recent sessions are read while browsing; full-text search loads every matching session, including matches older than that cap.
 
-A full cold scan of those 300 takes about 40ms, so there is no metadata cache to go stale — every refresh re-reads from disk. The state sessio keeps, all written owner-only in `~/.claude/.sessio/`: your archive list (`archived.json`) and, if you use `sessions layout`, `layout.json`, `layout.prev.json` and the empty `layout.json.lock` that saves lock. On macOS the notification icon is cached as `~/Library/Caches/sessio/icon-<version>.png`.
+A full cold scan of those 300 takes about 40ms, so there is no metadata cache to go stale — every refresh re-reads from disk. The state sessio keeps, all written owner-only in `~/.claude/.sessio/`: your archive list (`archived.json`) and, if you use `sessions layout`, `layout.json`, `layout.prev.json` and the empty `layout.prev.json.lock` that saves lock. On macOS the notification icon is cached as `~/Library/Caches/sessio/icon-<version>.png`.
 
 > ⚠️ **The `.jsonl` transcript format is undocumented and internal to Claude Code.** It may change without notice. `sessio` parses defensively and degrades gracefully, but a format change on Anthropic's side can break fields until this tool is updated. This project is not affiliated with or endorsed by Anthropic.
 

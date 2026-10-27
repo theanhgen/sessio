@@ -8,8 +8,9 @@
   deleted, treated as abandoned after two minutes. Two saves could both take over an old lock and
   write at once, a slow save could delete the next one's lock, a crashed save blocked autosaves,
   and `sessions layout save snapshot.lock` deleted the layout it had just saved. The lock is now
-  an OS lock (`flock`) on `layout.json.lock`: held for the whole save, released by the system
-  even after a crash, and never the file being saved. A folder sessio can't write to is reported
+  an OS lock (`flock`) on `layout.prev.json.lock`: held for the whole save, released by the
+  system even after a crash, and never the file being saved. A restore holds it too, so the
+  sessions it resumes can't autosave a half-restored layout over the one being restored. A folder sessio can't write to is reported
   as that at once, not as "another save is running" after 10 seconds.
 - **`--update` on a Homebrew or Cargo install names every way to update**, `brew upgrade sessio`
   included, instead of only npm.

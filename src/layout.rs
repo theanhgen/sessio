@@ -507,9 +507,10 @@ pub fn sessions_by_tty(live: &crate::live::LiveMap, argv_of: &dyn Fn(i32) -> Opt
 }
 
 /// One save at a time: several sessions reach `Stop` together, and each hook starts a save.
-/// The lock is an OS advisory lock (`flock`) on `<file>.lock` (`layout.json.lock`), so it can
-/// never be the file being saved, it is held for the whole save, and the kernel releases it when
-/// the save ends or crashes. The file itself stays: deleting a lock file is what made the old
+/// The lock is an OS advisory lock (`flock`) on the backup's name plus `.lock`
+/// (`layout.prev.json.lock`), so saves that share a backup share a lock, and it can never be the
+/// file being saved. It is held for the whole save (and the whole restore, whose resumed sessions
+/// fire autosaves of their own), and the kernel releases it when the save ends or crashes. The file itself stays: deleting a lock file is what made the old
 /// mtime-based lock racy.
 pub struct Lock {
     _file: std::fs::File,
@@ -525,9 +526,10 @@ pub enum LockError {
 }
 
 pub fn lock_file(file: &Path) -> PathBuf {
-    let mut name = file.file_name().unwrap_or_default().to_os_string();
+    let backup = prev_file(file);
+    let mut name = backup.file_name().unwrap_or_default().to_os_string();
     name.push(".lock");
-    file.with_file_name(name)
+    backup.with_file_name(name)
 }
 
 impl Lock {
@@ -672,7 +674,7 @@ end run"#,
             Ok(lock) => lock,
             Err(LockError::Busy) if auto => return Ok("another save is running; nothing saved".into()),
             Err(LockError::Busy) => return Err("another save is running".into()),
-            Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock {why}")),
+            Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock: {why}")),
         };
         // A save that queued behind another one has nothing to add.
         let just_saved = std::fs::metadata(file)
@@ -961,6 +963,13 @@ end run"#,
 
     pub fn restore(file: &Path) -> Result<String, String> {
         let layout = load(file)?;
+        // The sessions this resumes start their own autosaves; held, the lock turns those away
+        // until every window is open, so none of them saves a half-restored layout.
+        let _lock = match Lock::take(file, true) {
+            Ok(lock) => lock,
+            Err(LockError::Busy) => return Err("a layout save is running; try again in a moment".into()),
+            Err(LockError::Io(why)) => return Err(format!("couldn't take the save lock: {why}")),
+        };
         let live = crate::live::scan();
         let running = |p: &Pane| p.session.as_ref().is_some_and(|id| live.contains_key(id));
         let ax = ghostty_pid().and_then(Ax::new);
@@ -1234,8 +1243,11 @@ mod tests {
 
     #[test]
     fn the_lock_is_never_the_file_it_guards() {
-        assert_eq!(lock_file(Path::new("/s/layout.json")), PathBuf::from("/s/layout.json.lock"));
-        assert_eq!(lock_file(Path::new("/s/snapshot.lock")), PathBuf::from("/s/snapshot.lock.lock"));
+        assert_eq!(lock_file(Path::new("/s/layout.json")), PathBuf::from("/s/layout.prev.json.lock"));
+        assert_eq!(lock_file(Path::new("/s/layout")), lock_file(Path::new("/s/layout.json")), "one backup, one lock");
+        for f in ["/s/snapshot.lock", "/s/x.prev.json.lock", "/s/x.prev.json"] {
+            assert_ne!(lock_file(Path::new(f)), PathBuf::from(f), "{f} is never its own lock");
+        }
     }
 
     #[test]
@@ -1277,17 +1289,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_lock_that_cannot_be_created_is_an_error_not_a_busy_save() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("sessio-lock-ro-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        // A folder that is really a file fails for every user, root included.
+        let not_dir = std::env::temp_dir().join(format!("sessio-lock-file-{}", std::process::id()));
+        std::fs::write(&not_dir, b"").unwrap();
         let started = std::time::Instant::now();
-        let got = Lock::take(&dir.join("layout.json"), true);
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        let got = Lock::take(&not_dir.join("layout.json"), true);
+        let _ = std::fs::remove_file(&not_dir);
         assert!(matches!(got, Err(LockError::Io(_))), "{:?}", got.err());
         assert!(started.elapsed() < std::time::Duration::from_secs(1), "no 10s of retries");
     }
