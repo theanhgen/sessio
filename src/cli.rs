@@ -18,7 +18,7 @@ use sessio::{discover, parse, rank, resume, search, ui};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub const COMMANDS: &[&str] =
-    &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "kill", "layout", "help"];
+    &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "kill", "layout", "spotlight", "help"];
 
 /// What `ls` and `find` print when not told otherwise. `--limit 0` lifts it.
 const DEFAULT_LIMIT: usize = 20;
@@ -54,6 +54,10 @@ USAGE:
   sessions layout restore [file]    reopen them and resume every session in its place;
                                     one already running gets a shell instead
   sessions layout show [file]       what a restore would open [--json]
+  sessions spotlight install        Spotlight launchers for open sessions: search a
+                                    project or title, land on its Ghostty pane (macOS)
+  sessions spotlight sync           add/remove launchers to match what is open (for a hook)
+  sessions spotlight status|uninstall
   sessions --update                 update an npm install, or say how to update this one
   sessions --dump-json              print the computed session list (oracle harness)
   sessions --version
@@ -144,6 +148,7 @@ fn dispatch(cmd: &str, o: &Opts) -> Result<(), Fail> {
         "unarchive" => archive(o, false),
         "kill" => kill_cmd(o),
         "layout" => layout_cmd(o),
+        "spotlight" => spotlight_cmd(o),
         _ => unreachable!("run() only dispatches known commands"),
     }
 }
@@ -547,6 +552,47 @@ fn resume_cmd(o: &Opts) -> Result<(), Fail> {
 }
 
 /// `layout save|restore|show [file]`. The file defaults to `<claude-home>/.sessio/layout.json`.
+#[cfg(not(target_os = "macos"))]
+fn spotlight_cmd(_o: &Opts) -> Result<(), Fail> {
+    Err(err("spotlight launchers are macOS only (they jump to a Ghostty pane)"))
+}
+
+#[cfg(target_os = "macos")]
+fn spotlight_cmd(o: &Opts) -> Result<(), Fail> {
+    use sessio::spotlight::{self, Open, Paths};
+    let sub = match o.args.as_slice() {
+        [sub] => sub.as_str(),
+        [] => return Err(usage_err("spotlight needs install, sync, status or uninstall")),
+        _ => return Err(usage_err("spotlight takes one subcommand")),
+    };
+    // Running Claude Code sessions with a terminal: the ones a launcher can jump to.
+    let open = || -> Vec<Open> {
+        let w = World::load(&[]);
+        w.items
+            .iter()
+            .filter(|it| w.live.get(&it.id).is_some_and(|l| !l.tty.is_empty()))
+            .map(|it| Open { id: it.id.clone(), project: it.project.clone(), title: it.name.clone() })
+            .collect()
+    };
+    let p = Paths::user();
+    let msg = match sub {
+        "install" => {
+            let focus = spotlight::bundled_focus_binary().ok_or_else(|| {
+                err("sessio-focus isn't next to this sessions binary; reinstall sessio (npm, Homebrew or cargo install sessio)")
+            })?;
+            spotlight::install(&p, &focus, &open()).map_err(err)?
+        }
+        "sync" => spotlight::sync(&p, &open()).map_err(err)?,
+        "status" => spotlight::status(&p),
+        "uninstall" => spotlight::uninstall(&p).map_err(err)?,
+        other => {
+            return Err(usage_err(format!("spotlight: unknown subcommand '{other}' (install, sync, status, uninstall)")))
+        }
+    };
+    out(&format!("{msg}\n"));
+    Ok(())
+}
+
 fn layout_cmd(o: &Opts) -> Result<(), Fail> {
     use sessio::layout;
     let (sub, file) = match o.args.as_slice() {

@@ -223,6 +223,27 @@ output goes into Claude's context. Installed with Cargo, the command is `sessio`
 
 After a reboot, open Ghostty and run `sessions layout restore`.
 
+### Find an open session from Spotlight
+
+On macOS with Ghostty, `sessions spotlight install` gives every running Claude Code session a
+launcher in `~/Sessions`, named `<project> — <title>`. Type a project or a word of the title in
+Spotlight, press Enter, and Ghostty brings that session's pane to the front: the exact split, not
+just its window, in about 0.2 seconds. Only open sessions have a launcher, so a search that finds
+nothing means nothing by that name is running.
+
+It installs a small helper, `~/Applications/Sessio Focus.app`, that launchd keeps running
+(`com.sessio.focus`); the first jump asks to let it control Ghostty. Keep the launchers current by
+adding `sessions spotlight sync` to the same hooks:
+
+```json
+{ "type": "command", "command": "sessions spotlight sync >/dev/null 2>&1 &" }
+```
+
+`sessions spotlight status` shows what is installed; `sessions spotlight uninstall` removes the
+helper, its LaunchAgent and the launchers. Spotlight's own "Windows" results match a Ghostty
+window only by the title of its focused pane, so pick the launcher (the app with the Ghostty
+icon), not the window.
+
 ## Agent skill
 
 [`skills/sessio/SKILL.md`](skills/sessio/SKILL.md) teaches an agent to use those commands: when to

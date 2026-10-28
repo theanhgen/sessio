@@ -38,6 +38,10 @@ for entry in "${targets[@]}"; do
   pkg="$out/sessio-$suffix"
   mkdir -p "$pkg/bin"
   install -m 0755 "$src" "$pkg/bin/sessio"
+  # The Spotlight launcher/helper (`sessions spotlight install` looks for it next to sessio).
+  if [[ "$os" == darwin ]]; then
+    install -m 0755 "$artifacts/$triple/sessio-focus" "$pkg/bin/sessio-focus"
+  fi
 
   libc_field=""
   [[ -n "$libc" ]] && libc_field=$'\n  "libc": ["'"$libc"$'"],'

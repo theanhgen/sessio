@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `sessions spotlight install|sync|status|uninstall` (macOS, Ghostty): a Spotlight launcher per
+  open Claude Code session in `~/Sessions`, named `<project> — <title>`, that brings that
+  session's Ghostty pane to the front. A new `sessio-focus` binary is both the launcher and the
+  helper app launchd keeps running; the macOS release archives, npm packages and Homebrew
+  formula ship it next to `sessio`.
+
 ## 1.5.1 - 2026-10-27
 
 ### Fixed

@@ -81,7 +81,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/sessio
+          # sessio-focus is the Spotlight launcher/helper (`sessions spotlight`); only the macOS
+          # packages ship it, the other targets build a stub that says it is macOS only.
+          path: |
+            target/${{ matrix.target }}/release/sessio
+            target/${{ matrix.target }}/release/sessio-focus
           if-no-files-found: error
 
   publish:
@@ -214,8 +218,13 @@ jobs:
             stage=$(mktemp -d)
             # upload-artifact does not keep the executable bit.
             install -m 755 "$dir/sessio" "$stage/sessio"
+            files=(sessio README.md LICENSE)
+            if [[ "$target" == *-apple-darwin ]]; then
+              install -m 755 "$dir/sessio-focus" "$stage/sessio-focus"
+              files+=(sessio-focus)
+            fi
             cp README.md LICENSE "$stage/"
-            tar -czf "dist/$name" -C "$stage" sessio README.md LICENSE
+            tar -czf "dist/$name" -C "$stage" "${files[@]}"
             (cd dist && sha256sum "$name" > "$name.sha256")
           done
           ls -l dist
@@ -308,6 +317,8 @@ jobs:
 
             def install
               bin.install "sessio"
+              # The Spotlight launcher/helper beside it (`sessions spotlight install`); macOS archives only.
+              bin.install "sessio-focus" if File.exist?("sessio-focus")
               # The command the README and --help use; npm installs it under both names too.
               bin.install_symlink "sessio" => "sessions"
             end

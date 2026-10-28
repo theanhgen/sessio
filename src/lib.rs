@@ -21,6 +21,8 @@ pub mod rank;
 pub mod resume;
 pub mod safety;
 pub mod search;
+#[cfg(target_os = "macos")]
+pub mod spotlight;
 pub mod store;
 pub mod theme;
 pub mod ui;
