@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.2 - 2026-10-28
+
+### Changed
+
+- **The agent skill ships with every install.** Homebrew installs it under
+  `$(brew --prefix)/share/sessio/skills/sessio` (`brew info sessio` says how to link it), and
+  each release archive carries `skills/sessio/`; until now only npm had it.
+- **The skill checks a restore instead of trusting it.** Before restoring it compares
+  `layout.json` with `layout.prev.json` and picks the one that holds the sessions you mean; after,
+  it confirms every restored session is running, looks at any pane stuck at startup (an iCloud
+  placeholder settings file is a common cause), and saves the layout again once all is open.
+
 ## 1.5.1 - 2026-10-27
 
 ### Fixed
