@@ -574,7 +574,7 @@ fn spotlight_cmd(o: &Opts) -> Result<(), Fail> {
             .map(|it| Open { id: it.id.clone(), project: it.project.clone(), title: it.name.clone() })
             .collect()
     };
-    let p = Paths::user();
+    let p = Paths::user().ok_or_else(|| err("HOME is not set"))?;
     let msg = match sub {
         "install" => {
             let focus = spotlight::bundled_focus_binary().ok_or_else(|| {

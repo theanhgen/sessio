@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const LABEL: &str = "com.sessio.focus";
+const LAUNCHER_ID_PREFIX: &str = "com.sessio.launcher.";
 const APP_NAME: &str = "Sessio Focus.app";
 const EXE: &str = "sessio-focus";
 const GHOSTTY_ICON: &str = "/Applications/Ghostty.app/Contents/Resources/Ghostty.icns";
@@ -41,8 +42,10 @@ impl Paths {
         }
     }
 
-    pub fn user() -> Paths {
-        Paths::for_home(&PathBuf::from(std::env::var_os("HOME").unwrap_or_default()))
+    /// `None` without a `HOME`: every path would land relative to the current folder.
+    pub fn user() -> Option<Paths> {
+        let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
+        Some(Paths::for_home(&PathBuf::from(home)))
     }
 
     fn helper_exe(&self) -> PathBuf {
@@ -191,6 +194,8 @@ fn existing(dir: &Path) -> Vec<(String, String)> {
                 return None;
             }
             let xml = fs::read_to_string(e.path().join("Contents/Info.plist")).ok()?;
+            // Ours only if both stamps are there: the identifier prefix and the session id.
+            plist_string(&xml, "CFBundleIdentifier")?.starts_with(LAUNCHER_ID_PREFIX).then_some(())?;
             Some((name, plist_string(&xml, "SessionID")?))
         })
         .collect()
@@ -239,7 +244,7 @@ pub fn sync(p: &Paths, open: &[Open]) -> Result<String, String> {
         let short: String = id.chars().take(8).collect();
         let info = plist(&[
             ("CFBundleExecutable", Val::Str(EXE)),
-            ("CFBundleIdentifier", Val::Str(&format!("com.sessio.launcher.{short}"))),
+            ("CFBundleIdentifier", Val::Str(&format!("{LAUNCHER_ID_PREFIX}{short}"))),
             ("CFBundleName", Val::Str(name.trim_end_matches(".app"))),
             ("CFBundlePackageType", Val::Str("APPL")),
             ("CFBundleIconFile", Val::Str("app.icns")),
@@ -316,9 +321,19 @@ pub fn install(p: &Paths, focus: &Path, open: &[Open]) -> Result<String, String>
          \t<key>Program</key>\n\t<string>{}</string>\n\
          \t<key>RunAtLoad</key>\n\t<true/>\n\t<key>KeepAlive</key>\n\t<true/>\n\
          \t<key>ProcessType</key>\n\t<string>Interactive</string>\n\
-         \t<key>ThrottleInterval</key>\n\t<integer>1</integer>\n</dict>\n</plist>\n",
-        xml_escape(&helper.display().to_string())
+         \t<key>ThrottleInterval</key>\n\t<integer>1</integer>\n{}</dict>\n</plist>\n",
+        xml_escape(&helper.display().to_string()),
+        // launchd doesn't pass the shell's environment on: a custom Claude home has to be written in.
+        std::env::var("CLAUDE_CONFIG_DIR")
+            .ok()
+            .filter(|d| !d.is_empty())
+            .map(|d| format!(
+                "\t<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>CLAUDE_CONFIG_DIR</key>\n\t\t<string>{}</string>\n\t</dict>\n",
+                xml_escape(&d)
+            ))
+            .unwrap_or_default()
     );
+    let _ = fs::create_dir_all(crate::store::state_dir());
     fs::write(&p.agent, agent).map_err(|e| format!("can't write {}: {e}", p.agent.display()))?;
     let domain = gui_domain();
     let _ = launchctl(&["bootout", &format!("{domain}/{LABEL}")]);
@@ -424,8 +439,13 @@ mod tests {
         assert_eq!(fs::read(&exe).unwrap(), b"build-1");
         assert_eq!(fs::metadata(&exe).unwrap().nlink(), 1, "a copy, not a hard link");
 
-        // Something the user put there is not ours and stays.
+        // Something the user put there is not ours and stays, even with a SessionID key.
         fs::create_dir_all(p.launchers.join("Mine.app/Contents")).unwrap();
+        fs::write(
+            p.launchers.join("Mine.app/Contents/Info.plist"),
+            plist(&[("CFBundleIdentifier", Val::Str("org.example.mine")), ("SessionID", Val::Str("x"))]),
+        )
+        .unwrap();
         // s2 closes, the helper is updated: s2's launcher goes, s1's executable is refreshed.
         fs::write(p.helper_exe(), b"build-2").unwrap();
         let msg = sync(&p, &[s1]).unwrap();

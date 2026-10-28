@@ -95,7 +95,9 @@ mod focus {
 
     fn ask_helper(id: &str) -> std::io::Result<String> {
         let mut s = UnixStream::connect(socket_path())?;
-        s.set_read_timeout(Some(Duration::from_secs(5)))?;
+        // Longer than the helper's 20 s AppleEvent timeout, so a first-use permission prompt
+        // still gets its answer logged.
+        s.set_read_timeout(Some(Duration::from_secs(25)))?;
         writeln!(s, "{id}")?;
         let mut reply = String::new();
         BufReader::new(s).read_line(&mut reply)?;
@@ -123,7 +125,7 @@ mod focus {
                 }
             }
         };
-        log(&format!("launcher {} -> {reply}", &id[..id.len().min(8)]));
+        log(&format!("launcher {} -> {reply}", id.chars().take(8).collect::<String>()));
     }
 
     // ---------------------------------------------------------------- helper
@@ -201,9 +203,10 @@ mod focus {
     /// Run AppleScript in-process (no osascript): Ghostty's `focus` raises only that pane's window
     /// and makes Ghostty frontmost; `activate` would bring every Ghostty window forward.
     fn ghostty_focus(tty: &str) -> Result<(), String> {
-        // The timeout keeps a hung Ghostty from wedging the single-threaded helper (default is 2 min).
+        // The timeout keeps a hung Ghostty from wedging the single-threaded helper (default is 2 min)
+        // while leaving time to answer macOS's first-use "control Ghostty?" prompt.
         let src = format!(
-            "with timeout of 3 seconds\ntell application \"Ghostty\" to focus (first terminal whose tty is \"{tty}\")\nend timeout"
+            "with timeout of 20 seconds\ntell application \"Ghostty\" to focus (first terminal whose tty is \"{tty}\")\nend timeout"
         );
         autoreleasepool(|_| unsafe {
             let src = CString::new(src).map_err(|e| e.to_string())?;
@@ -233,7 +236,7 @@ mod focus {
     fn handle(id: &str) -> String {
         match find_session(id) {
             None => {
-                log(&format!("helper {} not open", &id[..id.len().min(8)]));
+                log(&format!("helper {} not open", id.chars().take(8).collect::<String>()));
                 "not open".into()
             }
             Some((_, tty)) => match ghostty_focus(&tty) {
@@ -253,6 +256,11 @@ mod focus {
             return;
         }
         let _ = std::fs::remove_file(&path);
+        // A fresh install may have no <claude-home>/.sessio yet; without it bind fails and launchd
+        // would respawn the helper every second.
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let listener = match UnixListener::bind(&path) {
             Ok(l) => l,
             Err(e) => {
