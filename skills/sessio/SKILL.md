@@ -102,24 +102,30 @@ prefix fails and lists the candidates.
   path.
 - **Restoring: pick the right file, then prove it worked.** `layout.json` may have been
   overwritten by a smaller layout (a save taken after the windows were closed), so before
-  restoring run `sessions layout show ~/.claude/.sessio/layout.json` and the same on
-  `~/.claude/.sessio/layout.prev.json` (under `$CLAUDE_CONFIG_DIR` if set), and restore the one
-  that holds the sessions the user means (for "the last 24h", the one whose sessions match
-  `sessions ls` for that window and are not running): `sessions layout restore <that path>`. Say
-  which file you used and why. If it is `layout.prev.json`, first copy it to a name no save
-  touches (e.g. `layout.restore-<date>.json` in the same folder): the next manual save moves
-  `layout.json` into `layout.prev.json` and would overwrite it. `resumed N` and exit `0` only mean
-  a `claude` was started in each pane, not that it loaded, so afterwards:
+  restoring compare `sessions layout show ~/.claude/.sessio/layout.json` with the same on
+  `~/.claude/.sessio/layout.prev.json` (under `$CLAUDE_CONFIG_DIR` if set; add `--json` for full
+  session ids), and pick the one that holds the sessions the user means (for "the last 24h", the
+  one whose sessions match `sessions ls` for that window and are not running). Say which file you
+  picked and why. Before restoring, copy it to a name no save touches (e.g.
+  `layout.restore-<date>.json` in the same folder): the restored sessions' hooks and any manual
+  save rotate `layout.json` and `layout.prev.json`, and the copy is what you go back to if the
+  restore goes wrong. Then `sessions layout restore <the copy>`. `resumed N` and exit `0` only
+  mean a `claude` was started in each pane, not that it loaded, so afterwards:
   1. Wait ~30s, then `sessions ls --running -n 0 --json` (without `-n 0` it stops at 20). Every
      session id in the restored file must be in that list; a missing one did not start or exited.
      A `null` `running.status` is not proof of failure (it is also null right after start, or when
      only the process arguments identify the session), so look at that pane before calling it
      stuck.
-  2. To look at a pane (macOS): raise its Ghostty window by title with System Events `AXRaise`,
-     then `screencapture -x <file>.png` and read the image. A common cause of a stuck pane is a
-     settings file that is an iCloud placeholder (`ls -lO <dir>/.claude/settings.local.json` shows
-     `dataless`): reading it blocks, and Claude shows a "Settings Error … ECANCELED" prompt. Never
-     `cat` a dataless file to test it; the read hangs until iCloud downloads it.
+  2. To look at a pane (macOS, Ghostty): focus that exact pane with Ghostty's own scripting,
+     `osascript -e 'tell application "Ghostty" to focus (first terminal whose tty is "/dev/<tty>")'`
+     (the tty from `running.tty`), then `screencapture -x <file>.png` and read the image. The
+     capture is the whole screen, so do this only on the user's own machine for the restore they
+     asked for, and delete the image afterwards. A common cause of a stuck pane is a settings file
+     that is an iCloud placeholder (`ls -lO <dir>/.claude/settings.local.json` shows `dataless`):
+     reading it blocks, and Claude shows a "Settings Error … ECANCELED" prompt. Never `cat` a
+     dataless file to test it; the read hangs until iCloud downloads it. `brctl download <path>`
+     fetches it without blocking (poll `ls -lO` until `dataless` is gone). The open prompt won't
+     re-read the file: the user answers it in that pane (Esc, then `claude --resume <id>` there).
   3. Report per session: loaded, or stuck with what the pane shows and how to unblock it. Never
      report success on the restore's own output.
   4. Only when every session is verified loaded and the panes look right, run `sessions layout
