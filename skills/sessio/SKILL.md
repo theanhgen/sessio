@@ -100,6 +100,23 @@ prefix fails and lists the candidates.
   biggest recent layout in `layout.prev.json`. If the user's windows came back wrong, `sessions
   layout show ~/.claude/.sessio/layout.prev.json` shows the backup, and `restore` takes the same
   path.
+- **Restoring: pick the right file, then prove it worked.** `layout.json` may have been
+  overwritten by a smaller layout (a save taken after the windows were closed), so before
+  restoring run `layout show` on both `layout.json` and `layout.prev.json` and restore the one
+  that holds the sessions the user means (for "the last 24h", the one whose sessions match
+  `sessions ls` for that window and are not running). Say which file you used and why. `resumed N`
+  and exit `0` only mean a `claude` was started in each pane, not that it loaded, so afterwards:
+  1. Wait ~30s, then `sessions ls --running --json`. Every restored id must be listed with a
+     non-null `running.status`; a `null` one is stuck in startup.
+  2. For a stuck one, look at its pane (macOS: raise the Ghostty window with System Events
+     `AXRaise` and `screencapture -x`). A common cause is a settings file that is an iCloud
+     placeholder (`ls -lO <dir>/.claude/settings.local.json` shows `dataless`): reading it blocks,
+     and Claude shows a "Settings Error … ECANCELED" prompt. Never `cat` a dataless file to test
+     it; the read hangs until iCloud downloads it.
+  3. Report per session: loaded, or stuck with what the pane shows and how to unblock it. Never
+     report success on the restore's own output.
+  4. Once everything that should be open is open, run `sessions layout save` so `layout.json`
+     matches the screen again and the next restore opens the same set.
 
 ## The dashboard, when the user runs it
 

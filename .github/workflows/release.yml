@@ -215,7 +215,9 @@ jobs:
             # upload-artifact does not keep the executable bit.
             install -m 755 "$dir/sessio" "$stage/sessio"
             cp README.md LICENSE "$stage/"
-            tar -czf "dist/$name" -C "$stage" sessio README.md LICENSE
+            # The agent skill ships with every install, not only npm.
+            cp -R skills "$stage/"
+            tar -czf "dist/$name" -C "$stage" sessio README.md LICENSE skills
             (cd dist && sha256sum "$name" > "$name.sha256")
           done
           ls -l dist
@@ -310,6 +312,14 @@ jobs:
               bin.install "sessio"
               # The command the README and --help use; npm installs it under both names too.
               bin.install_symlink "sessio" => "sessions"
+              pkgshare.install "skills"
+            end
+
+            def caveats
+              <<~EOS
+                The agent skill is in #{opt_pkgshare}/skills/sessio. Link it into Claude Code:
+                  ln -s #{opt_pkgshare}/skills/sessio ~/.claude/skills/sessio
+              EOS
             end
 
             test do
