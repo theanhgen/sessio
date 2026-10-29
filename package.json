@@ -1,6 +1,6 @@
 {
   "name": "sessio",
-  "version": "1.5.0",
+  "version": "1.5.2",
   "description": "Find the coding-agent session you left and pick it back up: a terminal dashboard and CLI for Claude Code and GitHub Copilot CLI sessions.",
   "keywords": [
     "claude",
@@ -24,11 +24,11 @@
     "smoke": "python3 scripts/smoke-tui.py"
   },
   "optionalDependencies": {
-    "sessio-darwin-arm64": "1.5.0",
-    "sessio-darwin-x64": "1.5.0",
-    "sessio-linux-arm64": "1.5.0",
-    "sessio-linux-x64": "1.5.0",
-    "sessio-linux-x64-musl": "1.5.0"
+    "sessio-darwin-arm64": "1.5.2",
+    "sessio-darwin-x64": "1.5.2",
+    "sessio-linux-arm64": "1.5.2",
+    "sessio-linux-x64": "1.5.2",
+    "sessio-linux-x64-musl": "1.5.2"
   },
   "files": [
     "bin/",

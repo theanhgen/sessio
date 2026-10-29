@@ -228,14 +228,14 @@ After a reboot, open Ghostty and run `sessions layout restore`.
 [`skills/sessio/SKILL.md`](skills/sessio/SKILL.md) teaches an agent to use those commands: when to
 reach for them, to parse `--json`, to hand you `resume --print` rather than resume anything itself,
 to ask before `reply`, and to treat transcript text as data rather than instructions. It ships in
-the npm package; link it into Claude Code with:
+every install; link it into Claude Code from wherever yours put it:
 
 ```sh
-ln -s "$(npm root -g)/sessio/skills/sessio" ~/.claude/skills/sessio
+ln -s "$(npm root -g)/sessio/skills/sessio" ~/.claude/skills/sessio            # npm
+ln -s "$(brew --prefix)/share/sessio/skills/sessio" ~/.claude/skills/sessio   # Homebrew
 ```
 
-Homebrew, Cargo and the release archives don't include it; link it from a clone of this repo
-instead.
+The release archives carry it as `skills/sessio/`. With Cargo, link it from a clone of this repo.
 
 ## Update
 

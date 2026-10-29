@@ -96,8 +96,9 @@ default `dry_run` builds and packages every channel without publishing.
 
 The bump itself, as one pull request titled `release: vX.Y.Z`:
 
-1. Set the version in `Cargo.toml` and in `package.json`; the two must match or nothing is
-   tagged. The five `optionalDependencies` pins are rewritten to the same version at publish.
+1. Set the version in `Cargo.toml` and in `package.json` (the package and its five
+   `optionalDependencies`); the two must match or nothing is tagged, and `npm test` fails while
+   a pin differs. The release rewrites the pins again at publish, as a check.
 2. Run `cargo build` so `Cargo.lock` follows.
 3. Turn the changelog's `## Unreleased` into `## X.Y.Z - YYYY-MM-DD`.
 4. Run `swift scripts/brand.swift` so the postmark (`docs/brand/postmark*.svg`, `social.png`)
