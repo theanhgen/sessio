@@ -100,6 +100,12 @@ pub struct Workspace {
     pub user_named: bool,
 }
 
+/// When the workspace file beside `events` last changed; a rename reaches it, not `events.jsonl`.
+pub fn workspace_mtime(events: &Path) -> Option<i64> {
+    let meta = fs::metadata(events.parent()?.join(WORKSPACE)).ok()?;
+    Some(crate::discover::mtime_ms(&meta))
+}
+
 pub fn workspace(events: &Path) -> Workspace {
     let Some(dir) = events.parent() else {
         return Workspace::default();
