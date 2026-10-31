@@ -24,7 +24,7 @@ jobs:
       matrix:
         # Both platforms sessio ships for: the process registry, `ps` parsing and the Ghostty
         # launch route differ between them.
-        os: [ubuntu-22.04, macos-14]
+        os: [ubuntu-22.04, macos-15]
     steps:
       - uses: actions/checkout@v4
 
