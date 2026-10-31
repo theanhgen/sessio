@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use crate::discover::{self, Row, Source, CAP};
 use crate::parse::{self, Detail, OpenReason};
@@ -265,8 +266,35 @@ pub fn tab_for_dir(items: &[Item], tabs: &[String], dir: &Path, home: Option<&Pa
     None
 }
 
-/// Read head+tail for every selected row, bounded by core count.
+/// What a row's parse was read from: its file's mtime and size, and for Copilot the mtime of the
+/// workspace file its head also reads. A file that changes between the stat and the read is parsed
+/// newer than its stamp says, so the next refresh sees a new stamp and reads it again.
+type Stamp = (i64, u64, Option<i64>);
+
+/// The last parse of each selected row.
+type Parsed = HashMap<PathBuf, (Stamp, parse::Head, parse::Tail)>;
+
+fn stamp(row: &Row) -> Stamp {
+    let workspace = match row.source {
+        Source::Claude => None,
+        Source::Copilot => crate::copilot::workspace_mtime(&row.file),
+    };
+    (row.mtime, row.size, workspace)
+}
+
+/// Read head+tail for every selected row whose file changed since the last call. The dashboard
+/// lands here every refresh, and re-reading 300 transcripts each time kept a session list left
+/// open at a quarter of a core.
 fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
+    static PARSED: OnceLock<Mutex<Parsed>> = OnceLock::new();
+    parse_with(rows, PARSED.get_or_init(Mutex::default))
+}
+
+/// Bounded by core count. The cache is taken for the pass and replaced after it, which also drops
+/// rows no longer selected; a concurrent pass finds it empty and only reads what it would have
+/// read anyway.
+fn parse_with(rows: &[Row], cache: &Mutex<Parsed>) -> Vec<(parse::Head, parse::Tail)> {
+    let known = std::mem::take(&mut *cache.lock().expect("no worker panics"));
     let workers = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
@@ -285,9 +313,13 @@ fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
                         break;
                     }
                     let f = &rows[i].file;
-                    local.push(match rows[i].source {
-                        Source::Claude => (i, parse::head(f), parse::tail(f)),
-                        Source::Copilot => (i, crate::copilot::head(f), crate::copilot::tail(f)),
+                    let s = stamp(&rows[i]);
+                    local.push(match (known.get(f), rows[i].source) {
+                        (Some((was, h, t)), _) if *was == s => (i, s, h.clone(), t.clone()),
+                        (_, Source::Claude) => (i, s, parse::head(f), parse::tail(f)),
+                        (_, Source::Copilot) => {
+                            (i, s, crate::copilot::head(f), crate::copilot::tail(f))
+                        }
                     });
                 }
                 results.lock().expect("no worker panics").extend(local);
@@ -297,8 +329,12 @@ fn parse_all(rows: &[Row]) -> Vec<(parse::Head, parse::Tail)> {
 
     // Restore input order — completion order is arbitrary.
     let mut collected = results.into_inner().expect("workers joined");
-    collected.sort_by_key(|(i, _, _)| *i);
-    collected.into_iter().map(|(_, h, t)| (h, t)).collect()
+    collected.sort_by_key(|(i, ..)| *i);
+    *cache.lock().expect("no worker panics") = collected
+        .iter()
+        .map(|(i, s, h, t)| (rows[*i].file.clone(), (*s, h.clone(), t.clone())))
+        .collect();
+    collected.into_iter().map(|(_, _, h, t)| (h, t)).collect()
 }
 
 /// `SystemTime::now()` panics on `wasm32-unknown-unknown`, and a demo wants a fixed clock
@@ -337,6 +373,108 @@ mod tests {
 
     const DAY: i64 = 86_400_000;
     const NOW: i64 = 1_700_000_000_000;
+
+    /// A transcript on disk and the row a scan would make of it.
+    fn transcript(dir: &Path, source: Source, prompt: &str) -> Row {
+        let file = dir.join("t.jsonl");
+        let line = match source {
+            Source::Claude => format!(
+                r#"{{"type":"user","promptSource":"typed","cwd":"/tmp","message":{{"role":"user","content":"{prompt}"}}}}"#
+            ),
+            Source::Copilot => format!(
+                r#"{{"type":"user.message","data":{{"content":"{prompt}"}},"timestamp":"2026-01-01T00:00:00Z"}}"#
+            ),
+        };
+        std::fs::write(&file, format!("{line}\n")).unwrap();
+        row_for(file, source)
+    }
+
+    fn row_for(file: PathBuf, source: Source) -> Row {
+        let meta = std::fs::metadata(&file).unwrap();
+        Row {
+            id: "t".into(),
+            key: "d/t.jsonl".into(),
+            mtime: discover::mtime_ms(&meta),
+            size: meta.len(),
+            file,
+            dir: "d".into(),
+            source,
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sessio-model-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Rewrite the file with same-length text and put its mtime back: only a read can tell.
+    fn swap_behind_the_stamp(row: &Row, from: &str, to: &str) {
+        let was = std::fs::metadata(&row.file).unwrap().modified().unwrap();
+        let text = std::fs::read_to_string(&row.file).unwrap().replace(from, to);
+        std::fs::write(&row.file, text).unwrap();
+        let f = std::fs::OpenOptions::new().write(true).open(&row.file).unwrap();
+        f.set_modified(was).unwrap();
+    }
+
+    fn first(rows: &[Row], cache: &Mutex<Parsed>) -> Option<String> {
+        parse_with(rows, cache).remove(0).0.first
+    }
+
+    #[test]
+    fn an_unchanged_transcript_is_not_read_again() {
+        let dir = scratch("unchanged");
+        let row = transcript(&dir, Source::Claude, "before");
+        let cache = Mutex::default();
+        assert_eq!(first(std::slice::from_ref(&row), &cache).as_deref(), Some("before"));
+
+        swap_behind_the_stamp(&row, "before", "after_");
+        let rescan = row_for(row.file.clone(), Source::Claude);
+        assert_eq!(rescan.size, row.size);
+        assert_eq!(first(&[rescan], &cache).as_deref(), Some("before"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_transcript_that_changed_is_read_again() {
+        let dir = scratch("changed");
+        let row = transcript(&dir, Source::Claude, "before");
+        let cache = Mutex::default();
+        assert_eq!(first(std::slice::from_ref(&row), &cache).as_deref(), Some("before"));
+
+        let row = transcript(&dir, Source::Claude, "and after");
+        assert_eq!(first(&[row], &cache).as_deref(), Some("and after"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copilot_rename_is_read_again_though_its_events_did_not_change() {
+        let dir = scratch("copilot");
+        let row = transcript(&dir, Source::Copilot, "before");
+        let yaml = dir.join("workspace.yaml");
+        std::fs::write(&yaml, "cwd: /tmp\nname: old\nuser_named: true\n").unwrap();
+        let cache = Mutex::default();
+        let custom = |rows: &[Row]| parse_with(rows, &cache).remove(0).0.custom;
+        assert_eq!(custom(std::slice::from_ref(&row)).as_deref(), Some("old"));
+
+        std::fs::write(&yaml, "cwd: /tmp\nname: new\nuser_named: true\n").unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::OpenOptions::new().write(true).open(&yaml).unwrap().set_modified(later).unwrap();
+        assert_eq!(custom(&[row]).as_deref(), Some("new"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_row_no_longer_selected_leaves_the_cache() {
+        let dir = scratch("pruned");
+        let row = transcript(&dir, Source::Claude, "before");
+        let cache = Mutex::default();
+        parse_with(std::slice::from_ref(&row), &cache);
+        parse_with(&[], &cache);
+        assert!(cache.lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn stale_call_to_action_stops_counting_as_open() {

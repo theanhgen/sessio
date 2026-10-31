@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.3 - 2026-11-01
+
+### Fixed
+
+- **An open dashboard no longer eats a quarter of a core.** Every 2s refresh read the head and tail
+  of up to 300 transcripts again, whether or not they had changed, which kept a dashboard left open
+  in a tab at 25-29% CPU and cost real battery on a laptop. A transcript is now read again only
+  when its modified time or size changes (for a Copilot session, also its `workspace.yaml`). The
+  same dashboard, idle over the same sessions, measured 3.1%. New and updated sessions still appear
+  on the next refresh.
+
 ## 1.5.2 - 2026-10-28
 
 ### Changed
