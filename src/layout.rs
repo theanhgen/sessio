@@ -448,12 +448,22 @@ pub struct Seen {
 /// id the other knows, so: the title (without its status glyph) and the visible tab's pane count
 /// first; then, for what is left, the tab and pane counts when only one pair has them — titles are
 /// free text the two APIs can render differently.
+///
+/// `script` has the windows on every Space and `seen` only those on the current one, so when more
+/// windows share a title and pane count than are on screen, the title can't say which of them is
+/// here; those are left to the shape pass, which only pairs when one window could be it.
 pub fn pair(script: &[ScriptWindow], seen: &[Seen]) -> Vec<Option<usize>> {
     let mut taken = vec![false; seen.len()];
+    let key = |w: &ScriptWindow| (bare_title(&w.name).to_string(), w.tabs[w.selected].len());
     let mut out: Vec<Option<usize>> = script
         .iter()
         .map(|w| {
-            let panes = w.tabs[w.selected].len();
+            let (title, panes) = key(w);
+            let in_script = script.iter().filter(|o| key(o) == (title.clone(), panes)).count();
+            let on_screen = seen.iter().filter(|s| bare_title(&s.title) == title && s.panes == panes).count();
+            if in_script > on_screen {
+                return None;
+            }
             let hit = seen
                 .iter()
                 .enumerate()
@@ -528,7 +538,11 @@ pub fn place_unseen(name: &str, cg: &[(String, Option<usize>, Rect)]) -> (Option
         Some(first) if hits.iter().all(|h| h.1 == first.1) => first.1,
         _ => None,
     };
-    let frame = if let [one] = hits[..] { Some(one.2) } else { None };
+    // The tabs of one window share its frame.
+    let frame = match hits.first() {
+        Some(first) if hits.iter().all(|h| h.2 == first.2) => Some(first.2),
+        _ => None,
+    };
     (space, frame)
 }
 
@@ -550,6 +564,23 @@ pub fn is_idle_shell(procs: &[String]) -> bool {
         }
         _ => false,
     }
+}
+
+/// The processes on a tty from `ps -o comm= -t`, minus the `login` that started its shell (only
+/// `login` itself: `docker-credential-ecr-login` is a program running in the pane).
+pub fn pane_procs(ps_out: &str) -> Vec<String> {
+    ps_out
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && Path::new(l).file_name().is_none_or(|f| f != "login"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The device name `ps -t` takes for a pane's tty, only when Ghostty gave a real device path:
+/// anything else ("missing value", say) is a pane whose tty couldn't be read.
+pub fn tty_device(tty: &str) -> Option<&str> {
+    tty.strip_prefix("/dev/").filter(|n| n.starts_with("tty") && n.len() > 3 && !n.contains('/'))
 }
 
 /// The windows a restore closes once its own are open: every window it did not make where every
@@ -817,7 +848,9 @@ end run"#,
         // rest, with their Space and frame (not their splits).
         let desks = ax::desktops();
         let number = |wid: u32| ax::spaces_of(wid).first().and_then(|s| desktop_number(&desks, *s));
-        let listed: Vec<u32> = ax_windows.iter().filter_map(|w| w.window_id()).collect();
+        // Only the windows paired here are placed already; an on-screen window left unpaired
+        // (two windows with one title, say) is looked up by title like the rest.
+        let listed: Vec<u32> = pairs.iter().flatten().filter_map(|&j| ax_windows[j].window_id()).collect();
         let cg: Vec<(String, Option<usize>, Rect)> = match (&ax, pid) {
             (Some(_), Some(pid)) => ax::cg_windows(pid)
                 .into_iter()
@@ -1136,8 +1169,11 @@ end run"#,
     /// Whether nothing but an idle shell runs on `tty`. A tty `ps` can't find has nothing on it;
     /// any other `ps` failure counts as busy, so a window is never closed on a guess.
     fn tty_idle(tty: &str) -> bool {
+        let Some(dev) = tty_device(tty) else {
+            return false;
+        };
         let Ok(out) = Command::new("ps")
-            .args(["-o", "comm=", "-t", tty.trim_start_matches("/dev/")])
+            .args(["-o", "comm=", "-t", dev])
             .stdin(Stdio::null())
             .output()
         else {
@@ -1147,13 +1183,7 @@ end run"#,
         if !out.status.success() && !err.trim().is_empty() && !err.contains("No such file") {
             return false;
         }
-        let procs: Vec<String> = String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.ends_with("login"))
-            .map(str::to_string)
-            .collect();
-        is_idle_shell(&procs)
+        is_idle_shell(&pane_procs(&String::from_utf8_lossy(&out.stdout)))
     }
 
     /// Close the Ghostty windows this restore didn't make that have nothing running in them: the
@@ -1934,6 +1964,16 @@ mod tests {
         // Two leftovers of the same shape cannot be told apart, so neither is guessed.
         let script = [sw("1", "a", &[1]), sw("2", "b", &[1])];
         assert_eq!(pair(&script, &[seen("x", 1, 1), seen("y", 1, 1)]), [None, None]);
+
+        // Two windows titled alike, one on another Space: the title can't say which one is on
+        // screen, so neither takes it (one would get the other's desktop and frame).
+        let script = [sw("off", "~", &[1]), sw("here", "~", &[1])];
+        assert_eq!(pair(&script, &[seen("~", 1, 1)]), [None, None]);
+        // Both on screen: paired by title as before.
+        assert_eq!(pair(&script, &[seen("~", 1, 1), seen("~", 1, 1)]), [Some(0), Some(1)]);
+        // Alike in title only, not in shape: the shape pass tells them apart.
+        let script = [sw("off", "~", &[1, 1]), sw("here", "~", &[1])];
+        assert_eq!(pair(&script, &[seen("~", 1, 1)]), [None, Some(0)]);
     }
 
     #[test]
@@ -2012,7 +2052,10 @@ mod tests {
         ];
         assert_eq!(place_unseen("◐ Lifelab", &cg), (Some(2), Some(r(1.0, 2.0, 3.0, 4.0))), "the status glyph doesn't count");
         assert_eq!(place_unseen("…/02-personal", &cg), (None, None), "two Spaces: neither");
-        assert_eq!(place_unseen("tabbed", &cg), (Some(3), None), "one Space, two frames: the Space only");
+        assert_eq!(place_unseen("tabbed", &cg), (Some(3), Some(r(0.0, 0.0, 1.0, 1.0))), "a window's tabs share its frame");
+        let mut two = cg.clone();
+        two.push(("tabbed".to_string(), Some(3), r(4.0, 4.0, 1.0, 1.0)));
+        assert_eq!(place_unseen("tabbed", &two), (Some(3), None), "one Space, two frames: the Space only");
         assert_eq!(place_unseen("nowhere", &cg), (None, None));
     }
 
@@ -2027,6 +2070,29 @@ mod tests {
         assert!(!is_idle_shell(&v(&["claude"])), "a program started without a shell");
         assert!(!is_idle_shell(&v(&["-/bin/zsh", "sleep"])), "a background job counts too");
         assert!(!is_idle_shell(&v(&["vim"])));
+    }
+
+    #[test]
+    fn only_the_login_that_started_the_shell_is_left_out_of_a_pane() {
+        assert_eq!(pane_procs("login\n-zsh\n"), ["-zsh"]);
+        assert_eq!(pane_procs("/usr/bin/login\n-zsh\n"), ["-zsh"]);
+        assert_eq!(
+            pane_procs("login\n-zsh\ndocker-credential-ecr-login\n"),
+            ["-zsh", "docker-credential-ecr-login"],
+            "a program whose name ends in login is running"
+        );
+        assert!(!is_idle_shell(&pane_procs("login\n-zsh\naws-sso-login\n")));
+        assert!(pane_procs("\n").is_empty());
+    }
+
+    #[test]
+    fn a_pane_without_a_readable_tty_is_never_checked() {
+        assert_eq!(tty_device("/dev/ttys012"), Some("ttys012"));
+        assert_eq!(tty_device("missing value"), None, "what AppleScript gives for no tty");
+        assert_eq!(tty_device(""), None);
+        assert_eq!(tty_device("/dev/"), None);
+        assert_eq!(tty_device("/dev/tty"), None, "the controlling-terminal alias is no pane's");
+        assert_eq!(tty_device("/dev/../dev/ttys1"), None);
     }
 
     #[test]

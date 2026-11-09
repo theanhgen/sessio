@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.1 - 2026-11-09
+
+### Fixed
+
+- **Restore never closes a window with something running in it.** A program whose name ends in
+  "login" (`docker-credential-ecr-login`, `aws-sso-login`) was mistaken for the `login` that
+  starts a shell, so its window counted as unused; and a pane whose tty Ghostty couldn't report
+  counted as empty. Only `login` itself is left out now, and a pane without a readable tty keeps
+  its window open.
+- **Look-alike windows no longer swap desktops on save.** Two windows with the same title, one on
+  another desktop, could be matched the wrong way round, so each was saved with the other's
+  desktop and frame. When the title can't tell them apart, each is now placed by the window
+  server instead.
+- **A tabbed window on another desktop keeps its frame** when two of its tabs share a title.
+
 ## 1.6.0 - 2026-11-09
 
 ### Added
