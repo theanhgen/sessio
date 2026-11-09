@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.6.0 - 2026-11-09
+
+### Added
+
+- **Windows come back on their own desktops.** `layout save` records which Mission Control
+  desktop each Ghostty window is on, and `layout restore` switches to it (with its "Switch to
+  Desktop N" shortcut) before opening the window, then returns to the desktop you started on.
+  `layout show` prints `(Desktop N)` per window. A desktop whose shortcut is off is reported and
+  its window opens where you are. Layouts saved before this restore as they did.
+- **Restore closes Ghostty's leftover windows.** After a reboot Ghostty reopens its windows as
+  empty shells next to the ones `restore` rebuilds. Restore now closes every window it didn't make
+  in which every pane is a shell at its prompt with nothing running, and names them; a window with
+  anything running in any pane stays.
+
+### Fixed
+
+- **Windows on another desktop keep their frame.** Accessibility lists only the windows on the
+  desktop on screen, so a save lost the position and size of the rest. They now come from the
+  window server, and their splits from the last save when the tab's panes are unchanged.
+
 ## 1.5.3 - 2026-11-01
 
 ### Fixed

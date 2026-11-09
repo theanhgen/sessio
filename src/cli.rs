@@ -51,7 +51,8 @@ USAGE:
                                     one it replaces is kept as layout.prev.json
            [--auto]                   unattended, for a hook: no tab switching, never
                                       starts Ghostty, keeps a bigger pre-reboot layout
-  sessions layout restore [file]    reopen them and resume every session in its place;
+  sessions layout restore [file]    reopen them, each on its desktop, resume every session
+                                    in its place and close Ghostty's empty windows;
                                     one already running gets a shell instead
   sessions layout show [file]       what a restore would open [--json]
   sessions --update                 update an npm install, or say how to update this one
@@ -574,7 +575,8 @@ fn layout_cmd(o: &Opts) -> Result<(), Fail> {
             let running = |id: &str| live.contains_key(id);
             let mut s = format!("saved {}\n", l.saved_at);
             for (wi, w) in l.windows.iter().enumerate() {
-                s.push_str(&format!("window {}\n", wi + 1));
+                let on = w.space.map(|n| format!(" (Desktop {n})")).unwrap_or_default();
+                s.push_str(&format!("window {}{on}\n", wi + 1));
                 for (ti, t) in w.tabs.iter().enumerate() {
                     let mark = if ti == w.selected_tab && w.tabs.len() > 1 { " (selected)" } else { "" };
                     if w.tabs.len() > 1 {

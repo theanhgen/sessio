@@ -192,7 +192,18 @@ sessions layout show               # what a restore would open
   run it from needs Accessibility permission (System Settings › Privacy & Security ›
   Accessibility); without it a save keeps the panes and sessions, and restore lays each tab out
   as an even grid. Saving a window whose background tabs are split shows each of those tabs for a
-  moment. A save copies the layout it replaces to `layout.prev.json`; bring that one back with
+  moment.
+  `save` also records which Mission Control desktop each window is on, and `restore` switches to
+  that desktop before opening the window, through its "Switch to Desktop N" shortcut (System
+  Settings › Keyboard › Keyboard Shortcuts › Mission Control; macOS lets no app move another
+  app's window between Spaces, and a new window opens on the one on screen). The screen slides
+  between desktops while it runs and ends on the one you started on. A desktop whose shortcut is
+  off is reported, and its window opens where you are. Accessibility only sees the desktop on
+  screen, so a window on another one is saved with its desktop and frame but keeps its splits only
+  when the last save had a tab with exactly the same panes.
+  Once its windows are open, `restore` closes every Ghostty window it didn't make in which every
+  pane is a shell at its prompt with nothing running: the empty windows Ghostty opens, or reopens,
+  at launch. A window with anything running in any pane stays. A save copies the layout it replaces to `layout.prev.json`; bring that one back with
   `sessions layout restore ~/.claude/.sessio/layout.prev.json`. One save runs at a time: each
   takes an OS lock on `layout.prev.json.lock`, which the system releases even if a save crashes,
   and a restore holds it until every window is open.

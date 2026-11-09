@@ -92,10 +92,19 @@ prefix fails and lists the candidates.
   and marks sessions that are running now (`show --json` prints the file). `sessions layout
   restore` opens windows on the user's screen and starts a `claude` for every saved session that
   is not running, so run it only when the user asks for it; a running one gets a shell instead.
-  `save` is safe to run when asked: it writes `layout.json` in `~/.claude/.sessio/` (under
+  Restore also puts each window back on its saved Mission Control desktop (`show` prints
+  `(Desktop N)`) by switching to that desktop with its "Switch to Desktop N" shortcut, so the
+  screen slides between desktops while it runs and ends on the one it started on; a desktop whose
+  shortcut is off (System Settings › Keyboard › Keyboard Shortcuts › Mission Control) is reported
+  and its window opens on the current one. Last, it closes every Ghostty window it didn't make
+  where every pane is a shell at its prompt with nothing running (the empty or reopened windows
+  Ghostty shows after a reboot) and names them in its output; a window with anything running in
+  any pane stays. `save` is safe to run when asked: it writes `layout.json` in `~/.claude/.sessio/` (under
   `$CLAUDE_CONFIG_DIR` if set), copies the layout it replaces to `layout.prev.json`, and briefly
   switches to background tabs that have splits. Split sizes need Accessibility permission for the
-  terminal; without it panes come back as an even grid. A hook may keep the file current with
+  terminal; without it panes come back as an even grid. Splits can be read only for windows on the
+  desktop on screen: a window on another desktop keeps its desktop and frame, and its splits only
+  when the last save had a tab with exactly the same panes. A hook may keep the file current with
   `layout save --auto`, which never switches tabs, exits `0` when it saves nothing, and keeps the
   biggest recent layout in `layout.prev.json`. If the user's windows came back wrong, `sessions
   layout show ~/.claude/.sessio/layout.prev.json` shows the backup, and `restore` takes the same
