@@ -88,6 +88,11 @@ pub struct Window {
     pub frame: Option<[f64; 4]>,
     pub selected_tab: usize,
     pub tabs: Vec<Tab>,
+    /// The Mission Control desktop the window was on, numbered as the "Switch to Desktop N"
+    /// shortcuts number them (1 = Desktop 1); `None` when it could not be read, or for a
+    /// full-screen window, which has a space of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -474,6 +479,95 @@ pub fn pair(script: &[ScriptWindow], seen: &[Seen]) -> Vec<Option<usize>> {
     out
 }
 
+// ---------- Spaces ----------
+
+/// The desktop number of `space`: every display's desktops in order, as Mission Control counts
+/// them for its "Switch to Desktop N" shortcuts. Each display lists its spaces as (id, is a
+/// desktop); a full-screen space is not a desktop and gets no number.
+pub fn desktop_number(displays: &[Vec<(u64, bool)>], space: u64) -> Option<usize> {
+    displays
+        .iter()
+        .flatten()
+        .filter(|(_, desktop)| *desktop)
+        .position(|(id, _)| *id == space)
+        .map(|i| i + 1)
+}
+
+/// The space id of desktop `n`, the inverse of [`desktop_number`].
+pub fn desktop_id(displays: &[Vec<(u64, bool)>], n: usize) -> Option<u64> {
+    displays.iter().flatten().filter(|(_, desktop)| *desktop).nth(n.checked_sub(1)?).map(|(id, _)| *id)
+}
+
+/// The symbolic-hotkey id of "Switch to Desktop N" in `com.apple.symbolichotkeys`: 118 for
+/// Desktop 1 up to 126 for Desktop 9. Higher desktops have no shortcut to switch with.
+pub fn desktop_hotkey_id(n: usize) -> Option<usize> {
+    (1..=9).contains(&n).then(|| 117 + n)
+}
+
+/// A desktop shortcut as `PlistBuddy` prints its three fields — `enabled`, then the key code and
+/// the modifier mask from `value:parameters` — as (key code, modifier flags). `None` when it is
+/// off or unreadable: pressing it then would type into whatever window has focus.
+pub fn hotkey_from(enabled: &str, keycode: &str, mods: &str) -> Option<(u16, u64)> {
+    if enabled.trim() != "true" {
+        return None;
+    }
+    let key: u16 = keycode.trim().parse().ok()?;
+    let mods: u64 = mods.trim().parse().ok()?;
+    // 65535 is "no key"; a shortcut needs a key and at least one modifier.
+    (key != 65535 && mods != 0).then_some((key, mods))
+}
+
+/// Saved windows that the accessibility tree could not see — it lists only the windows on the
+/// current Space — get their Space and frame from the window server instead. `cg` is every Ghostty
+/// window there as (title, desktop number, frame); a native tab is a window of its own, so a window
+/// with tabs shows up once per tab. Only an unambiguous title match gives a frame; a Space is
+/// given whenever every match is on the same one.
+pub fn place_unseen(name: &str, cg: &[(String, Option<usize>, Rect)]) -> (Option<usize>, Option<Rect>) {
+    let hits: Vec<&(String, Option<usize>, Rect)> = cg.iter().filter(|(t, _, _)| bare_title(t) == bare_title(name)).collect();
+    let space = match hits.first() {
+        Some(first) if hits.iter().all(|h| h.1 == first.1) => first.1,
+        _ => None,
+    };
+    let frame = if let [one] = hits[..] { Some(one.2) } else { None };
+    (space, frame)
+}
+
+// ---------- leftover windows ----------
+
+/// Shells a pane can sit idle in.
+const SHELLS: [&str; 9] = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu"];
+
+/// Whether a pane is unused: nothing on its tty but a login shell waiting at its prompt (the
+/// `login` that started it left out), or nothing at all — a pane whose program has exited.
+/// `procs` is the `comm` of every other process on the tty, as `ps -o comm= -t` lists them.
+pub fn is_idle_shell(procs: &[String]) -> bool {
+    match procs {
+        [] => true,
+        [one] => {
+            let name = one.trim().trim_start_matches('-');
+            let base = Path::new(name).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+            SHELLS.contains(&base.as_str())
+        }
+        _ => false,
+    }
+}
+
+/// The windows a restore closes once its own are open: every window it did not make where every
+/// pane of every tab is idle (see [`is_idle_shell`]) — the empty windows Ghostty opens or reopens
+/// at launch. A window with anything running in any pane stays, and so does one whose panes could
+/// not be read (no tty).
+pub fn leftovers(windows: &[ScriptWindow], made: &[String], idle: &dyn Fn(&str) -> bool) -> Vec<String> {
+    windows
+        .iter()
+        .filter(|w| !made.contains(&w.id))
+        .filter(|w| {
+            let ttys: Vec<&String> = w.tabs.iter().flatten().map(|(tty, _)| tty).collect();
+            !ttys.is_empty() && ttys.iter().all(|t| !t.is_empty() && idle(t))
+        })
+        .map(|w| w.id.clone())
+        .collect()
+}
+
 // ---------- what a pane runs ----------
 
 /// The command a restored pane runs, through the same login-shell launcher `^o` uses. A session
@@ -719,12 +813,32 @@ end run"#,
             })
             .collect();
         let pairs = pair(&script, &seen);
+        // Accessibility lists only the windows on the current Space; the window server has the
+        // rest, with their Space and frame (not their splits).
+        let desks = ax::desktops();
+        let number = |wid: u32| ax::spaces_of(wid).first().and_then(|s| desktop_number(&desks, *s));
+        let listed: Vec<u32> = ax_windows.iter().filter_map(|w| w.window_id()).collect();
+        let cg: Vec<(String, Option<usize>, Rect)> = match (&ax, pid) {
+            (Some(_), Some(pid)) => ax::cg_windows(pid)
+                .into_iter()
+                .filter(|(wid, _, _)| !listed.contains(wid))
+                .map(|(wid, title, r)| (title, number(wid), r))
+                .collect(),
+            _ => Vec::new(),
+        };
 
         let mut windows = Vec::new();
-        let (mut unread, mut split_tabs) = (0, 0);
+        let (mut unread, mut split_tabs, mut elsewhere) = (0, 0, 0);
         for (sw, hit) in script.iter().zip(&pairs) {
             let el = hit.map(|j| &ax_windows[j]);
-            let frame = hit.map(|j| snaps[j].rect);
+            let (space, frame) = match hit {
+                Some(j) => (ax_windows[*j].window_id().and_then(number), Some(snaps[*j].rect)),
+                None if ax.is_some() => {
+                    elsewhere += 1;
+                    place_unseen(&sw.name, &cg)
+                }
+                None => (None, None),
+            };
             let mut tabs = Vec::new();
             for (ti, terms) in sw.tabs.iter().enumerate() {
                 let panes: Vec<Pane> = terms
@@ -740,7 +854,8 @@ end run"#,
                 let mut tree = None;
                 if terms.len() > 1 {
                     split_tabs += 1;
-                    if auto && ti != sw.selected {
+                    // A window on another Space isn't drawn for accessibility at all.
+                    if (auto && ti != sw.selected) || (el.is_none() && ax.is_some()) {
                         tree = known_tree(prev.as_ref(), &panes);
                     } else if let (Some(el), Some(ax)) = (el, &ax) {
                         // Only the selected tab is drawn: show the others for a moment.
@@ -770,6 +885,7 @@ end run"#,
                 frame: frame.map(|r| [r.x, r.y, r.w, r.h]),
                 selected_tab: sw.selected,
                 tabs,
+                space,
             });
         }
         let layout = Layout {
@@ -826,6 +942,11 @@ end run"#,
             );
         } else if unread > 0 {
             msg.push_str(&format!("\n{unread} of {split_tabs} split tabs could not be read; they will come back as an even grid"));
+            if elsewhere > 0 {
+                msg.push_str(&format!(
+                    " ({elsewhere} windows are on another Space, where splits can't be read and only an unchanged tab keeps the last save's)"
+                ));
+            }
         }
         Ok(msg)
     }
@@ -961,6 +1082,108 @@ end run"#,
         Ok(())
     }
 
+    /// The "Switch to Desktop N" shortcut as the user has it set, read from a fresh export of
+    /// the preferences (the file on disk can lag behind what `cfprefsd` holds).
+    fn hotkey(n: usize) -> Option<(u16, u64)> {
+        let id = desktop_hotkey_id(n)?;
+        let tmp = std::env::temp_dir().join(format!("sessio-hotkeys-{}.plist", std::process::id()));
+        let exported = Command::new("defaults")
+            .args(["export", "com.apple.symbolichotkeys"])
+            .arg(&tmp)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        let get = |key: &str| -> Option<String> {
+            let out = Command::new("/usr/libexec/PlistBuddy")
+                .args(["-c", &format!("Print :AppleSymbolicHotKeys:{id}:{key}")])
+                .arg(&tmp)
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+                .ok()?;
+            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+        };
+        let found = exported.then(|| hotkey_from(&get("enabled")?, &get("value:parameters:1")?, &get("value:parameters:2")?)).flatten();
+        let _ = std::fs::remove_file(&tmp);
+        found
+    }
+
+    /// Switch to desktop `n` with its keyboard shortcut and wait until it is on screen. The key is
+    /// only pressed when the shortcut is on: otherwise it would land in the focused terminal.
+    fn go_to(n: usize) -> Result<(), String> {
+        let target = desktop_id(&ax::desktops(), n).ok_or_else(|| format!("there is no Desktop {n}"))?;
+        if ax::active_space() == target {
+            return Ok(());
+        }
+        let (key, mods) = hotkey(n).ok_or_else(|| {
+            format!(
+                "\"Switch to Desktop {n}\" is off (System Settings › Keyboard › Keyboard Shortcuts › Mission Control)"
+            )
+        })?;
+        ax::press(key, mods);
+        for _ in 0..30 {
+            sleep(Duration::from_millis(100));
+            if ax::active_space() == target {
+                // The slide is still running; a window made now can land on the old Space.
+                sleep(Duration::from_millis(600));
+                return Ok(());
+            }
+        }
+        Err(format!("Desktop {n} didn't come up"))
+    }
+
+    /// Whether nothing but an idle shell runs on `tty`. A tty `ps` can't find has nothing on it;
+    /// any other `ps` failure counts as busy, so a window is never closed on a guess.
+    fn tty_idle(tty: &str) -> bool {
+        let Ok(out) = Command::new("ps")
+            .args(["-o", "comm=", "-t", tty.trim_start_matches("/dev/")])
+            .stdin(Stdio::null())
+            .output()
+        else {
+            return false;
+        };
+        let err = String::from_utf8_lossy(&out.stderr);
+        if !out.status.success() && !err.trim().is_empty() && !err.contains("No such file") {
+            return false;
+        }
+        let procs: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.ends_with("login"))
+            .map(str::to_string)
+            .collect();
+        is_idle_shell(&procs)
+    }
+
+    /// Close the Ghostty windows this restore didn't make that have nothing running in them: the
+    /// empty or reopened windows Ghostty shows at launch. Returns the report lines.
+    fn close_leftovers(made: &[String]) -> Vec<String> {
+        let windows = match osa(DUMP_SCRIPT, &[]) {
+            Ok(out) => parse_dump(&out),
+            Err(why) => return vec![format!("couldn't list windows to close unused ones: {why}")],
+        };
+        let mut closed = Vec::new();
+        let mut lines = Vec::new();
+        for id in leftovers(&windows, made, &tty_idle) {
+            let name = windows.iter().find(|w| w.id == id).map(|w| bare_title(&w.name).to_string()).unwrap_or_default();
+            let r = osa(
+                r#"on run argv
+  tell application "Ghostty" to close window (first window whose id is (item 1 of argv))
+end run"#,
+                &[&id],
+            );
+            match r {
+                Ok(_) => closed.push(if name.is_empty() { "untitled".to_string() } else { name }),
+                Err(why) => lines.push(format!("couldn't close unused window \"{name}\": {why}")),
+            }
+        }
+        if !closed.is_empty() {
+            lines.insert(0, format!("closed {} unused windows: {}", closed.len(), closed.join(", ")));
+        }
+        lines
+    }
+
     pub fn restore(file: &Path) -> Result<String, String> {
         let layout = load(file)?;
         // The sessions this resumes start their own autosaves, which save to the default file;
@@ -981,12 +1204,22 @@ end run"#,
         let ax = ghostty_pid().and_then(Ax::new);
         let mut report = Vec::new();
         let (mut resumed, mut skipped) = (0, 0);
+        // Switching Spaces posts the desktop shortcut as a keystroke, which needs the same
+        // Accessibility permission as moving windows does.
+        let home = if ax::trusted() { Some(ax::active_space()) } else { None };
+        let mut made: Vec<String> = Vec::new();
 
         for (wi, w) in layout.windows.iter().enumerate() {
+            let mut misses = Vec::new();
+            // A window opens on the Space on screen, so go to its Space first.
+            if let (Some(n), Some(_)) = (w.space, home) {
+                if let Err(why) = go_to(n) {
+                    misses.push(format!("{why}; opened on the current desktop"));
+                }
+            }
             let before = ax.as_ref().map(|a| a.windows()).unwrap_or_default();
             let mut win = String::new();
             let mut view: Option<ax::Element> = None;
-            let mut misses = Vec::new();
             for (ti, t) in w.tabs.iter().enumerate() {
                 let tree = tree_for(t);
                 let first = &t.panes[tree.leaves()[0]];
@@ -1028,14 +1261,25 @@ end run"#,
                 }
             }
             select_tab(&win, w.selected_tab.min(w.tabs.len() - 1))?;
+            made.push(win.clone());
             let panes: usize = w.tabs.iter().map(|t| t.panes.len()).sum();
-            report.push(format!("window {}: {} tabs, {panes} panes", wi + 1, w.tabs.len()));
+            let on = w.space.map(|n| format!(" on Desktop {n}")).unwrap_or_default();
+            report.push(format!("window {}{on}: {} tabs, {panes} panes", wi + 1, w.tabs.len()));
             report.extend(misses.into_iter().map(|m| format!("  {m}")));
         }
         report.push(format!(
             "resumed {resumed} sessions{}",
             if skipped > 0 { format!(", {skipped} already running") } else { String::new() }
         ));
+        report.extend(close_leftovers(&made));
+        if let Some(home) = home {
+            if ax::active_space() != home {
+                let back = desktop_number(&ax::desktops(), home).ok_or_else(|| "it is gone".to_string()).and_then(go_to);
+                if let Err(why) = back {
+                    report.push(format!("couldn't switch back to the desktop you started on: {why}"));
+                }
+            }
+        }
         if ax.is_none() {
             report.push("no Accessibility permission for this terminal: window frames and split sizes were left at Ghostty's defaults".into());
         }
@@ -1195,6 +1439,16 @@ end run"#,
                 El { desc: self.text("AXDescription"), role, rect: Rect { x, y, w, h }, kids }
             }
 
+            /// The window server's id for this window, through the private `_AXUIElementGetWindow`
+            /// every window manager uses; `None` if this macOS lacks it.
+            pub fn window_id(&self) -> Option<u32> {
+                type F = unsafe extern "C" fn(CFTypeRef, *mut u32) -> i32;
+                let f = private::<F>(c"_AXUIElementGetWindow")?;
+                let mut id = 0u32;
+                // SAFETY: f has this signature; the element is live.
+                (unsafe { f(self.0 .0, &mut id) } == 0 && id != 0).then_some(id)
+            }
+
             pub fn set_frame(&self, r: Rect) {
                 let (p, s) = ((r.x, r.y), (r.w, r.h));
                 for (name, kind, ptr) in
@@ -1229,6 +1483,203 @@ end run"#,
                         .map(|i| Element(Cf(CFRetain(CFArrayGetValueAtIndex(arr.0, i)))))
                         .filter(|w| w.text("AXRole") == "AXWindow")
                         .collect()
+                }
+            }
+        }
+
+        // ----- Spaces and the window server -----
+        //
+        // macOS has no public API for Spaces. Reading them goes through the private CGS calls
+        // every window manager uses, looked up at run time so a macOS without one degrades to
+        // "Space unknown" instead of failing to start. Nothing here moves a window between
+        // Spaces (macOS refuses that to other apps); restore switches the Space instead.
+
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
+            fn CGEventSourceCreate(state: i32) -> CFTypeRef;
+            fn CGEventCreateKeyboardEvent(source: CFTypeRef, key: u16, down: bool) -> CFTypeRef;
+            fn CGEventSetFlags(event: CFTypeRef, flags: u64);
+            fn CGEventPost(tap: u32, event: CFTypeRef);
+        }
+
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            fn CFDictionaryGetValue(d: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+            fn CFDictionaryGetTypeID() -> usize;
+            fn CFNumberGetValue(n: CFTypeRef, kind: isize, out: *mut c_void) -> u8;
+            fn CFNumberGetTypeID() -> usize;
+            fn CFNumberCreate(alloc: CFTypeRef, kind: isize, value: *const c_void) -> CFTypeRef;
+            fn CFArrayCreate(alloc: CFTypeRef, values: *const CFTypeRef, n: isize, callbacks: *const c_void) -> CFTypeRef;
+            static kCFTypeArrayCallBacks: c_void;
+        }
+
+        extern "C" {
+            fn dlsym(handle: *mut c_void, symbol: *const std::ffi::c_char) -> *mut c_void;
+        }
+
+        const SINT64: isize = 4;
+        const FLOAT64: isize = 6;
+
+        /// A private function by name, from the frameworks already loaded.
+        fn private<F: Copy>(name: &std::ffi::CStr) -> Option<F> {
+            const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+            // SAFETY: dlsym only looks the name up.
+            let p = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr()) };
+            // SAFETY: F is always the fn-pointer type of the named function.
+            (!p.is_null()).then(|| unsafe { std::mem::transmute_copy::<*mut c_void, F>(&p) })
+        }
+
+        fn connection() -> Option<i32> {
+            let f = private::<unsafe extern "C" fn() -> i32>(c"CGSMainConnectionID")?;
+            // SAFETY: no arguments; returns this process's window-server connection.
+            Some(unsafe { f() })
+        }
+
+        /// `d[key]`, borrowed from `d`, when `d` is a dictionary.
+        fn get(d: CFTypeRef, key: &str) -> Option<CFTypeRef> {
+            // SAFETY: d is a live CF object, checked to be a dictionary before the lookup.
+            unsafe {
+                if d.is_null() || CFGetTypeID(d) != CFDictionaryGetTypeID() {
+                    return None;
+                }
+                let v = CFDictionaryGetValue(d, cfstr(key).0);
+                (!v.is_null()).then_some(v)
+            }
+        }
+
+        fn num<T: Default>(v: CFTypeRef, kind: isize) -> Option<T> {
+            let mut out = T::default();
+            // SAFETY: v is type-checked; `kind` names a T-sized number type.
+            unsafe {
+                (CFGetTypeID(v) == CFNumberGetTypeID() && CFNumberGetValue(v, kind, &mut out as *mut T as *mut c_void) != 0)
+                    .then_some(out)
+            }
+        }
+
+        /// The items of a CF array, borrowed from it.
+        fn items(a: CFTypeRef) -> Vec<CFTypeRef> {
+            // SAFETY: a is type-checked before it is read.
+            unsafe {
+                if a.is_null() || CFGetTypeID(a) != CFArrayGetTypeID() {
+                    return Vec::new();
+                }
+                (0..CFArrayGetCount(a)).map(|i| CFArrayGetValueAtIndex(a, i)).collect()
+            }
+        }
+
+        /// Whether this process may read other apps' windows and post key events.
+        pub fn trusted() -> bool {
+            // SAFETY: a plain call.
+            unsafe { AXIsProcessTrusted() != 0 }
+        }
+
+        /// The id of the Space on screen (on the active display).
+        pub fn active_space() -> u64 {
+            let (Some(cid), Some(f)) = (connection(), private::<unsafe extern "C" fn(i32) -> u64>(c"CGSGetActiveSpace")) else {
+                return 0;
+            };
+            // SAFETY: f has this signature.
+            unsafe { f(cid) }
+        }
+
+        /// Every display's Spaces in Mission Control order, as (id, is a desktop rather than a
+        /// full-screen app).
+        pub fn desktops() -> Vec<Vec<(u64, bool)>> {
+            let (Some(cid), Some(f)) =
+                (connection(), private::<unsafe extern "C" fn(i32) -> CFTypeRef>(c"CGSCopyManagedDisplaySpaces"))
+            else {
+                return Vec::new();
+            };
+            // SAFETY: a Copy call; the array is owned.
+            let all = unsafe { f(cid) };
+            if all.is_null() {
+                return Vec::new();
+            }
+            let all = Cf(all);
+            items(all.0)
+                .into_iter()
+                .map(|display| {
+                    get(display, "Spaces")
+                        .map(items)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|s| {
+                            let id: i64 = num(get(s, "ManagedSpaceID")?, SINT64)?;
+                            let kind: i64 = get(s, "type").and_then(|t| num(t, SINT64)).unwrap_or(0);
+                            Some((id as u64, kind == 0))
+                        })
+                        .collect()
+                })
+                .collect()
+        }
+
+        /// The Spaces a window is on: none for one that isn't on screen anywhere, several for one
+        /// shown on every desktop.
+        pub fn spaces_of(wid: u32) -> Vec<u64> {
+            type F = unsafe extern "C" fn(i32, i32, CFTypeRef) -> CFTypeRef;
+            let (Some(cid), Some(f)) = (connection(), private::<F>(c"CGSCopySpacesForWindows")) else {
+                return Vec::new();
+            };
+            let wid = wid as i64;
+            // SAFETY: a one-number array, owned; the callbacks retain what goes in.
+            unsafe {
+                let n = Cf(CFNumberCreate(std::ptr::null(), SINT64, &wid as *const i64 as *const c_void));
+                let arr = Cf(CFArrayCreate(std::ptr::null(), &n.0, 1, &kCFTypeArrayCallBacks as *const c_void));
+                // 7: the current, other and user Spaces alike.
+                let out = f(cid, 7, arr.0);
+                if out.is_null() {
+                    return Vec::new();
+                }
+                let out = Cf(out);
+                items(out.0).into_iter().filter_map(|v| num::<i64>(v, SINT64)).map(|v| v as u64).collect()
+            }
+        }
+
+        /// `pid`'s titled windows on every Space, as (window id, title, frame). A native tab is a
+        /// window of its own here.
+        pub fn cg_windows(pid: i32) -> Vec<(u32, String, Rect)> {
+            // SAFETY: a Copy call; the array is owned, its dictionaries borrowed from it.
+            let all = unsafe { CGWindowListCopyWindowInfo(16 /* all, minus desktop elements */, 0) };
+            if all.is_null() {
+                return Vec::new();
+            }
+            let all = Cf(all);
+            items(all.0)
+                .into_iter()
+                .filter_map(|w| {
+                    let owner: i64 = num(get(w, "kCGWindowOwnerPID")?, SINT64)?;
+                    let layer: i64 = num(get(w, "kCGWindowLayer")?, SINT64)?;
+                    if owner != pid as i64 || layer != 0 {
+                        return None;
+                    }
+                    let id: i64 = num(get(w, "kCGWindowNumber")?, SINT64)?;
+                    let title = string(get(w, "kCGWindowName")?)?;
+                    let b = get(w, "kCGWindowBounds")?;
+                    let f = |k: &str| get(b, k).and_then(|v| num::<f64>(v, FLOAT64));
+                    let rect = Rect { x: f("X")?, y: f("Y")?, w: f("Width")?, h: f("Height")? };
+                    (!title.is_empty()).then_some((id as u32, title, rect))
+                })
+                .collect()
+        }
+
+        /// Press and release `key` with `flags` held, as the keyboard would. Mission Control takes
+        /// its desktop shortcuts from this stream.
+        pub fn press(key: u16, flags: u64) {
+            // SAFETY: plain calls; every created event and the source are released.
+            unsafe {
+                let src = CGEventSourceCreate(1 /* the HID system state */);
+                for down in [true, false] {
+                    let e = CGEventCreateKeyboardEvent(src, key, down);
+                    if e.is_null() {
+                        continue;
+                    }
+                    CGEventSetFlags(e, flags);
+                    CGEventPost(0 /* the HID event tap */, e);
+                    CFRelease(e);
+                }
+                if !src.is_null() {
+                    CFRelease(src);
                 }
             }
         }
@@ -1326,6 +1777,7 @@ mod tests {
                 frame: None,
                 selected_tab: 0,
                 tabs: vec![Tab { panes: vec![p("a")], tree: None }, Tab { panes: vec![p("b"), p("c")], tree: Some(tree.clone()) }],
+                space: None,
             }],
         };
         assert_eq!(known_tree(Some(&prev), &[p("b"), p("c")]), Some(tree));
@@ -1342,7 +1794,7 @@ mod tests {
         let two = vec![shell("a"), shell("a")];
         let down = Node::Split { dir: Dir::Down, ratio: 0.5, a: Box::new(Node::Leaf(0)), b: Box::new(Node::Leaf(1)) };
         let right = Node::Split { dir: Dir::Right, ratio: 0.5, a: Box::new(Node::Leaf(0)), b: Box::new(Node::Leaf(1)) };
-        let l = |tabs: Vec<Tab>| Layout { version: 1, saved_at: String::new(), windows: vec![Window { frame: None, selected_tab: 0, tabs }] };
+        let l = |tabs: Vec<Tab>| Layout { version: 1, saved_at: String::new(), windows: vec![Window { frame: None, selected_tab: 0, tabs, space: None }] };
         let both = l(vec![Tab { panes: two.clone(), tree: Some(down.clone()) }, Tab { panes: two.clone(), tree: Some(right) }]);
         assert_eq!(known_tree(Some(&both), &two), None);
         let one = l(vec![Tab { panes: two.clone(), tree: Some(down.clone()) }]);
@@ -1358,6 +1810,7 @@ mod tests {
                 frame: None,
                 selected_tab: 0,
                 tabs: (0..n).map(|i| Tab { panes: vec![Pane { cwd: "/x".into(), session: Some(format!("s{i}")), flags: vec![] }], tree: None }).collect(),
+                space: None,
             }],
         };
         // Ghostty quitting: 9 → 6 → 2 sessions. The backup keeps 9 through both shrinking saves.
@@ -1519,12 +1972,97 @@ mod tests {
     }
 
     #[test]
+    fn desktops_are_numbered_across_displays_without_full_screen_spaces() {
+        // Display one: desktops 1 and 6 with a full-screen app between them; display two: 9.
+        let displays = vec![vec![(1, true), (40, false), (6, true)], vec![(9, true)]];
+        assert_eq!(desktop_number(&displays, 1), Some(1));
+        assert_eq!(desktop_number(&displays, 6), Some(2));
+        assert_eq!(desktop_number(&displays, 9), Some(3));
+        assert_eq!(desktop_number(&displays, 40), None, "a full-screen space is not a desktop");
+        assert_eq!(desktop_number(&displays, 77), None);
+        for n in 1..=3 {
+            assert_eq!(desktop_id(&displays, n).and_then(|id| desktop_number(&displays, id)), Some(n));
+        }
+        assert_eq!(desktop_id(&displays, 0), None);
+        assert_eq!(desktop_id(&displays, 4), None);
+    }
+
+    #[test]
+    fn only_an_enabled_desktop_shortcut_with_a_key_is_pressed() {
+        assert_eq!(desktop_hotkey_id(1), Some(118));
+        assert_eq!(desktop_hotkey_id(9), Some(126));
+        assert_eq!(desktop_hotkey_id(0), None);
+        assert_eq!(desktop_hotkey_id(10), None);
+        // As PlistBuddy prints them, newline and all.
+        assert_eq!(hotkey_from("true\n", "18\n", "262144\n"), Some((18, 262144)));
+        assert_eq!(hotkey_from("false\n", "18\n", "262144\n"), None, "off: the key would reach the terminal");
+        assert_eq!(hotkey_from("true", "65535", "262144"), None, "no key");
+        assert_eq!(hotkey_from("true", "18", "0"), None, "no modifier");
+        assert_eq!(hotkey_from("true", "x", "262144"), None);
+    }
+
+    #[test]
+    fn a_window_on_another_space_is_placed_only_by_an_unambiguous_title() {
+        let cg = vec![
+            ("✳ Lifelab".to_string(), Some(2), r(1.0, 2.0, 3.0, 4.0)),
+            ("…/02-personal".to_string(), Some(1), r(0.0, 0.0, 9.0, 9.0)),
+            ("…/02-personal".to_string(), Some(2), r(5.0, 5.0, 9.0, 9.0)),
+            ("tabbed".to_string(), Some(3), r(0.0, 0.0, 1.0, 1.0)),
+            ("tabbed".to_string(), Some(3), r(0.0, 0.0, 1.0, 1.0)),
+        ];
+        assert_eq!(place_unseen("◐ Lifelab", &cg), (Some(2), Some(r(1.0, 2.0, 3.0, 4.0))), "the status glyph doesn't count");
+        assert_eq!(place_unseen("…/02-personal", &cg), (None, None), "two Spaces: neither");
+        assert_eq!(place_unseen("tabbed", &cg), (Some(3), None), "one Space, two frames: the Space only");
+        assert_eq!(place_unseen("nowhere", &cg), (None, None));
+    }
+
+    #[test]
+    fn a_pane_is_unused_only_when_a_bare_shell_or_nothing_runs_in_it() {
+        let v = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(is_idle_shell(&v(&["-/bin/zsh"])), "a login shell at its prompt");
+        assert!(is_idle_shell(&v(&["-zsh"])));
+        assert!(is_idle_shell(&v(&["/opt/homebrew/bin/fish"])));
+        assert!(is_idle_shell(&[]), "a pane whose program exited");
+        assert!(!is_idle_shell(&v(&["-/bin/zsh", "claude"])), "something running in the shell");
+        assert!(!is_idle_shell(&v(&["claude"])), "a program started without a shell");
+        assert!(!is_idle_shell(&v(&["-/bin/zsh", "sleep"])), "a background job counts too");
+        assert!(!is_idle_shell(&v(&["vim"])));
+    }
+
+    #[test]
+    fn only_windows_the_restore_did_not_make_with_every_pane_idle_are_closed() {
+        let w = |id: &str, tabs: Vec<Vec<&str>>| ScriptWindow {
+            id: id.into(),
+            name: String::new(),
+            selected: 0,
+            tabs: tabs.into_iter().map(|t| t.into_iter().map(|tty| (tty.to_string(), String::new())).collect()).collect(),
+        };
+        let idle = |tty: &str| tty.starts_with("idle");
+        let windows = vec![
+            w("reopened", vec![vec!["idle1", "idle2"]]),
+            w("mixed", vec![vec!["idle3"], vec!["busy1"]]),
+            w("busy", vec![vec!["busy2"]]),
+            w("made", vec![vec!["idle4"]]),
+            w("no-tty", vec![vec![""]]),
+        ];
+        assert_eq!(leftovers(&windows, &["made".to_string()], &idle), vec!["reopened".to_string()]);
+    }
+
+    #[test]
+    fn a_layout_saved_before_spaces_still_loads() {
+        let old = r#"{"version":1,"saved_at":"x","windows":[{"frame":null,"selected_tab":0,"tabs":[{"panes":[{"cwd":"/a"}]}]}]}"#;
+        let l: Layout = serde_json::from_str(old).unwrap();
+        assert_eq!(l.windows[0].space, None);
+        assert!(!serde_json::to_string(&l).unwrap().contains("space"), "an unknown Space isn't written");
+    }
+
+    #[test]
     fn a_saved_layout_round_trips_and_a_broken_one_is_refused() {
         let tab = Tab {
             panes: vec![Pane { cwd: "/a".into(), session: None, flags: vec![] }; 2],
             tree: Some(Node::Split { dir: Dir::Down, ratio: 0.6, a: Box::new(Node::Leaf(1)), b: Box::new(Node::Leaf(0)) }),
         };
-        let l = Layout { version: 1, saved_at: "2026-10-26 16:00".into(), windows: vec![Window { frame: Some([1.0, 2.0, 3.0, 4.0]), selected_tab: 0, tabs: vec![tab] }] };
+        let l = Layout { version: 1, saved_at: "2026-10-26 16:00".into(), windows: vec![Window { frame: Some([1.0, 2.0, 3.0, 4.0]), selected_tab: 0, tabs: vec![tab], space: Some(2) }] };
         let dir = std::env::temp_dir().join(format!("sessio-layout-{}", std::process::id()));
         let file = dir.join("layout.json");
         assert!(crate::store::save_private_json(&file, &l));
