@@ -15,8 +15,10 @@
 - **`sessions digest`: what happened, per project.** For each session with something typed or
   written in the window (`--since 1d` by default; `30m`, `12h`, `2d`, `1w`, `today`), its recap,
   the prompts from that window with their times, and the files Claude edited or wrote. Opening a
-  session without typing in it (a layout restore) does not count. Takes `-p`, `--here`, `-n`,
-  `--json` and `--host`.
+  session without typing in it (a layout restore) does not count, and a session's age is its last
+  prompt or write. Pastes show as `[pasted N lines]`, a prompt sent twice in a row once, and
+  temporary files are left out. On a pulled copy, a window reaching past what the pull copied
+  says so. Takes `-p`, `--here`, `-n`, `--json` and `--host`.
 
 ## 1.6.1 - 2026-11-09
 

@@ -220,9 +220,10 @@ sessions digest --host lansium     # what happened over there; `sessions --host 
   it saved nothing, and says why.
 - **`digest`** answers "what did I do": per project, newest first, each session with something
   typed or written since `--since` (`1d` by default; `30m`, `12h`, `2d`, `1w`, `today`), its
-  recap, the prompts from that window with their times (the last 8; the rest are counted), and the
-  files Claude edited or wrote. Opening a session without typing in it does not count, so a
-  layout restore doesn't fill it with every session it reopened.
+  recap, the prompts from that window with their times (the last 8; the rest are counted; a paste
+  shows as `[pasted N lines]`), and the files Claude edited or wrote (temporary files left out).
+  Each session's age is its last prompt or write. Opening a session without typing in it does
+  not count, so a layout restore doesn't fill it with every session it reopened.
 - **Another machine** (`pull`, `--host`): `sessions pull <host>` copies that machine's
   `~/.claude/projects` transcripts from the last 14 days (`--days N`, `0` for all) over ssh into
   `~/.claude/.sessio/hosts/<host>/`, owner-only. `<host>` is an ssh host name, such as a Tailscale
@@ -232,8 +233,8 @@ sessions digest --host lansium     # what happened over there; `sessions --host 
   this machine's sessions, in `ls`, `find`, `show`, `digest` and the dashboard (`sessions --host
   <host>`). It is read-only: commands that act on a session refuse `--host`, the dashboard's
   acting keys say so, and nothing from this machine (git changes, running processes) is shown as
-  the other's. `--json` rows carry `"host"`. `sessions pull` with no host lists the copies and
-  when each was pulled.
+  the other's. `--json` rows carry `"host"`. `sessions pull` with no host lists the copies, when
+  each was pulled and how many days it holds; a `digest --since` reaching past that says so.
 - Exit status: `0` done, `1` couldn't do it, `2` bad command line.
 
 ### Keep the layout saved

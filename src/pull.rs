@@ -21,14 +21,37 @@ pub struct Report {
     pub bytes: u64,
     /// The `~/.claude`-shaped folder `--host` reads.
     pub into: PathBuf,
+    /// The days the pull asked for; `0` is everything.
+    pub days: u32,
+    /// The oldest change among the copied transcripts, in ms: how far back the copy reaches.
+    #[serde(serialize_with = "iso_opt")]
+    pub oldest: Option<i64>,
 }
 
 /// A host pulled before, and when.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Pulled {
     pub host: String,
-    /// Milliseconds since the epoch of the last finished pull; `None` if it never finished.
+    /// When the last pull finished; `None` if none did.
+    #[serde(serialize_with = "iso_opt")]
     pub at: Option<i64>,
+    /// The days that pull asked for; `0` is everything.
+    pub days: Option<u32>,
+}
+
+/// What a finished pull leaves behind, so `--host` can say how old and how deep the copy is.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct Stamp {
+    pub at: i64,
+    pub days: u32,
+}
+
+/// Times go out as ISO 8601, like every other time sessio prints in JSON.
+fn iso_opt<S: serde::Serializer>(ms: &Option<i64>, s: S) -> Result<S::Ok, S::Error> {
+    match ms.and_then(chrono::DateTime::from_timestamp_millis) {
+        Some(t) => s.serialize_str(&t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        None => s.serialize_none(),
+    }
 }
 
 /// `<claude-home>/.sessio/hosts`.
@@ -36,14 +59,14 @@ pub fn hosts_root() -> PathBuf {
     local_claude_home().join(".sessio").join("hosts")
 }
 
-/// The marker a finished pull leaves; its mtime is when.
+/// The stamp a finished pull leaves.
 fn marker(home: &Path) -> PathBuf {
-    home.join(".sessio").join("pulled")
+    home.join(".sessio").join("pulled.json")
 }
 
-/// When `host` was last pulled, if ever.
-pub fn pulled_at(host: &str) -> Option<i64> {
-    fs::metadata(marker(&host_home(host))).ok().map(|m| crate::discover::mtime_ms(&m))
+/// When `host` was last pulled and how many days it asked for, if it ever finished.
+pub fn stamp(host: &str) -> Option<Stamp> {
+    serde_json::from_slice(&fs::read(marker(&host_home(host))).ok()?).ok()
 }
 
 /// Every host pulled before, by name.
@@ -54,7 +77,10 @@ pub fn pulled() -> Vec<Pulled> {
         .filter(|e| e.path().join("projects").is_dir())
         .filter_map(|e| e.file_name().to_str().map(str::to_string))
         .filter(|h| valid_host(h))
-        .map(|host| Pulled { at: pulled_at(&host), host })
+        .map(|host| {
+            let s = stamp(&host);
+            Pulled { at: s.map(|s| s.at), days: s.map(|s| s.days), host }
+        })
         .collect();
     out.sort_by(|a, b| a.host.cmp(&b.host));
     out
@@ -137,14 +163,12 @@ pub fn pull(host: &str, days: u32) -> Result<Report, String> {
         }
     }
 
-    let bytes = files
-        .iter()
-        .filter_map(|f| fs::metadata(projects.join(f)).ok())
-        .map(|m| m.len())
-        .sum();
-    let m = marker(&home);
-    let _ = fs::write(&m, b"");
-    Ok(Report { host: host.to_string(), files: files.len(), bytes, into: home })
+    let metas: Vec<fs::Metadata> = files.iter().filter_map(|f| fs::metadata(projects.join(f)).ok()).collect();
+    let bytes = metas.iter().map(|m| m.len()).sum();
+    let oldest = metas.iter().map(crate::discover::mtime_ms).min();
+    let s = Stamp { at: crate::model::now_ms(), days };
+    crate::store::save_private_json(&marker(&home), &s);
+    Ok(Report { host: host.to_string(), files: files.len(), bytes, into: home, days, oldest })
 }
 
 /// Transcripts are private: the copy is owner-only, like `~/.claude` itself.

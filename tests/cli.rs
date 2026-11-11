@@ -735,9 +735,16 @@ fn pull_copies_another_machine_and_host_reads_only_that_copy() {
     assert!(text.contains("files  src/export.rs"), "{text}");
     assert!(text.contains("+ 1 earlier prompt\n"), "{text}");
 
+    // The copy is 14 days deep, and a longer window says so instead of looking like a quiet week.
+    assert!(!text.contains("only holds"), "{text}");
+    let deep = f.ok(&["digest", "--host", "office", "--since", "3w"]);
+    assert!(deep.contains("the copy only holds the last 14 days"), "{deep}");
+
     let hosts = f.json(&["pull", "--json"]);
     assert_eq!(hosts[0]["host"], "office");
-    assert!(hosts[0]["at"].is_i64());
+    assert!(hosts[0]["at"].as_str().is_some_and(|t| t.ends_with('Z')), "{hosts}");
+    assert_eq!(hosts[0]["days"], 14);
+    assert!(f.ok(&["pull"]).starts_with("office  pulled just now · of the last 14 days"));
 }
 
 #[test]

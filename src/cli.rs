@@ -601,12 +601,23 @@ pub fn dashboard_host(args: &[String]) -> Result<(), i32> {
     })
 }
 
-/// `@lansium · read-only copy, pulled 3h ago`.
+/// `@lansium · read-only copy of the last 14 days, pulled 3h ago`.
 fn host_note(h: &str) -> String {
-    match sessio::pull::pulled_at(h) {
-        Some(at) => format!("@{h} · read-only copy, pulled {} ago", ui::ago(at)),
+    match sessio::pull::stamp(h) {
+        Some(s) => format!("@{h} · read-only copy {}, pulled {}", window_words(s.days), ago_words(s.at)),
         None => format!("@{h} · read-only copy, last pull did not finish"),
     }
+}
+
+/// `of the last 14 days` / `of everything`.
+fn window_words(days: u32) -> String {
+    if days == 0 { "of everything".into() } else { format!("of the last {days} days") }
+}
+
+/// `just now` under a minute, else `3h ago`. `ui::ago` never says less than a minute, which
+/// read wrong straight after a pull.
+fn ago_words(ms: i64) -> String {
+    if model::now_ms() - ms < 60_000 { "just now".into() } else { format!("{} ago", ui::ago(ms)) }
 }
 
 fn pull_cmd(o: &Opts) -> Result<(), Fail> {
@@ -623,8 +634,9 @@ fn pull_cmd(o: &Opts) -> Result<(), Fail> {
             } else {
                 let mut s = String::new();
                 for p in &hosts {
-                    let when = p.at.map_or_else(|| "unfinished".to_string(), |t| format!("{} ago", ui::ago(t)));
-                    s.push_str(&format!("{}  pulled {when}\n", p.host));
+                    let when = p.at.map_or_else(|| "never finished".to_string(), ago_words);
+                    let what = p.days.map(|d| format!(" · {}", window_words(d))).unwrap_or_default();
+                    s.push_str(&format!("{}  pulled {when}{what}\n", p.host));
                 }
                 out(&s);
             }
@@ -645,8 +657,9 @@ fn pull_cmd(o: &Opts) -> Result<(), Fail> {
     if o.json {
         out(&format!("{}\n", serde_json::to_string(&r).expect("plain data")));
     } else {
+        let back = r.oldest.map(|t| format!(", changed since {}", local_time(t, model::now_ms()))).unwrap_or_default();
         out(&format!(
-            "{} transcripts · {} from {host} · read them with `sessions digest --host {host}`\n",
+            "{} transcripts{back} · {} from {host} · read them with `sessions digest --host {host}`\n",
             r.files,
             size_fmt(r.bytes)
         ));
@@ -714,7 +727,14 @@ fn digest(o: &Opts) -> Result<(), Fail> {
         return Err(usage_err("digest takes no text; --since sets the window"));
     }
     let now = model::now_ms();
-    let since = since_ms(o.since.as_deref().unwrap_or(DEFAULT_SINCE), now)?;
+    let window = o.since.as_deref().unwrap_or(DEFAULT_SINCE);
+    let since = since_ms(window, now)?;
+    // A copy only reaches back as far as its pull asked: past that, say so, rather than let a
+    // short answer read as a quiet week.
+    let shallow = discover::host().and_then(sessio::pull::stamp).and_then(|s| {
+        let reach = s.at - i64::from(s.days) * 86_400_000;
+        (s.days > 0 && since < reach).then_some(s.days)
+    });
     let w = World::load(&[]);
     let project = project_filter(o, &w)?;
 
@@ -743,9 +763,8 @@ fn digest(o: &Opts) -> Result<(), Fail> {
         .count()
         - picked.len();
     // Newest activity first, which is also the order the projects appear in.
-    let last_at = |i: usize, a: &parse::Activity| {
-        a.prompts.iter().rev().find_map(|(t, _)| *t).unwrap_or(w.items[i].mtime)
-    };
+    // The newest prompt or file write: what happened, not when the file was last opened.
+    let last_at = |i: usize, a: &parse::Activity| a.last_ms.unwrap_or(w.items[i].mtime);
     picked.sort_by_key(|(i, a)| std::cmp::Reverse(last_at(*i, a)));
     let limit = o.limit.unwrap_or(0);
     if limit > 0 {
@@ -787,12 +806,18 @@ fn digest(o: &Opts) -> Result<(), Fail> {
     let whose = discover::host().map_or_else(|| "this machine".to_string(), |h| format!("@{h}"));
     let n = picked.len();
     let mut s = format!(
-        "{whose} · since {} · {n} session{} in {} project{}\n",
+        "{whose} · since {} ({window}) · {n} session{} in {} project{}\n",
         local_time(since, now),
         if n == 1 { "" } else { "s" },
         projects.len(),
         if projects.len() == 1 { "" } else { "s" },
     );
+    if let Some(days) = shallow {
+        let h = discover::host().unwrap_or_default();
+        s.push_str(&format!(
+            "the copy only holds the last {days} days before its pull · `sessions pull {h} --days 0` copies everything\n"
+        ));
+    }
     if n == 0 {
         s.push_str("nothing typed or written in that window\n");
     }
@@ -822,7 +847,7 @@ fn digest(o: &Opts) -> Result<(), Fail> {
             for (k, (t, text)) in a.prompts.iter().skip(skip).enumerate() {
                 let label = if k == 0 { "you" } else { "" };
                 let at = t.map(|t| local_time(t, now)).unwrap_or_default();
-                let line = format!("    {label:<5}  {at:>9}  {}", one_line(text));
+                let line = format!("    {label:<5}  {at:>9}  {}", one_line(&parse::prompt_brief(text)));
                 s.push_str(&clip(&line, width.min(DIGEST_LINE_MAX)));
                 s.push('\n');
             }
