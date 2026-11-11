@@ -65,6 +65,9 @@ fn main() {
         return;
     }
 
+    if let Err(code) = cli::dashboard_host(&args) {
+        std::process::exit(code);
+    }
     if let Err(e) = ui::run() {
         eprintln!("sessions error: {e}");
         std::process::exit(1);

@@ -7,12 +7,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// `<claude-home>/.sessio`, honouring `CLAUDE_CONFIG_DIR` the same way `projects_root` does.
+/// Under `--host`, the pulled copy's own `.sessio`, so nothing done there touches this machine's.
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".claude")))
-        .unwrap_or_else(|| PathBuf::from(".claude"));
-    base.join(".sessio")
+    crate::discover::claude_home().join(".sessio")
 }
 
 pub fn archive_file() -> PathBuf {

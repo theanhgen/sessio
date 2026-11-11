@@ -29,6 +29,9 @@ Always pass `--json` and parse it. `ls` and `find` return at most 20 sessions un
 | `sessions find "<words>" --json` | rank by title, project and first prompt |
 | `sessions find --text "<term>" --json` | search the conversation of every transcript (prompts, replies, tool calls and output), older ones too (needs `rg`); the injected skill/tool lists don't match |
 | `sessions show <id> --json` | one session in full: recap, summary, first and last prompt, last reply |
+| `sessions digest --since <30m\|12h\|2d\|1w\|today> --json` | what happened in a window: each session with prompts or file writes in it, its recap, those prompts, the files written |
+| `sessions pull <host>` | copy another machine's transcripts here over ssh (reads only, over there) |
+| `--host <host>` on `ls`, `find`, `show`, `digest` | read that machine's pulled copy instead of this one |
 
 Filters combine: `sessions ls --here --open --json`. `--archived` lists only archived sessions.
 
@@ -66,6 +69,18 @@ Filters combine: `sessions ls --here --open --json`. `--archived` lists only arc
 
 An `<id>` can be any prefix only one session has; `ls` prints eight characters. An ambiguous
 prefix fails and lists the candidates.
+
+`digest --json` returns an array of the `ls` objects plus `recap`, `summary`, `prompts`
+(`[{at, text}]`, only those inside the window), `earlier_prompts` (a count) and `files` (paths
+passed to Edit, Write, MultiEdit or NotebookEdit inside the window). A session opened without a
+prompt or a write in the window is left out.
+
+Another machine: `sessions pull <host>` (an ssh host name with key login; it never prompts)
+copies its last 14 days of transcripts. Pulling again only moves what changed, so pull before
+reading. Then add `--host <host>` to `ls`, `find`, `show` or `digest`. Every row carries `"host"`,
+`running` is always `null`, and no `open_reason` is `uncommitted changes` (this machine's git says
+nothing about the other one's). `--host` is read-only: `resume`, `reply`, `archive` and `kill`
+refuse it. `sessions pull --json` with no host lists the copies and when each was pulled.
 
 ## Acting: ask the user first
 
@@ -162,6 +177,12 @@ inside it explains every key and mark.
 
 - *"What was I doing here?"* `sessions ls --here -n 5 --json`, then `sessions show <id> --json`
   on the newest and summarise its recap (or summary) and last prompt.
+- *"What did I do today / yesterday?"* `sessions digest --since today --json` (or `--since 1d`),
+  then summarise per project from the recaps and prompts.
+- *"What did I do on the other Mac?"* `sessions pull <host>`, then
+  `sessions digest --host <host> --since 1d --json`. If the pull fails (the machine is asleep or
+  off the network), say so and offer `sessions digest --host <host>` on the copy pulled before
+  (`sessions pull --json` says when that was).
 - *"Find the session where we …"* `sessions find "<key words>" --json`; if that is empty, fall back
   to `sessions find --text "<distinctive term>" --json`.
 - *"What's left open / waiting on me?"* `sessions ls --waiting --json` first (these are blocked
