@@ -27,7 +27,7 @@ Always pass `--json` and parse it. `ls` and `find` return at most 20 sessions un
 | `sessions ls --waiting --json` | running sessions blocked on the user right now |
 | `sessions ls --running --json` | sessions with a `claude` attached right now |
 | `sessions find "<words>" --json` | rank by title, project and first prompt |
-| `sessions find --text "<term>" --json` | grep inside every transcript, older ones too (needs `rg`) |
+| `sessions find --text "<term>" --json` | search the conversation of every transcript (prompts, replies, tool calls and output), older ones too (needs `rg`); the injected skill/tool lists don't match |
 | `sessions show <id> --json` | one session in full: recap, summary, first and last prompt, last reply |
 | `sessions digest --since <30m\|12h\|2d\|1w\|today> --json` | what happened in a window: each session with prompts or file writes in it, its recap, those prompts, the files written |
 | `sessions pull <host>` | copy another machine's transcripts here over ssh (reads only, over there) |
