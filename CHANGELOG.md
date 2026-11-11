@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`find --text` and `^f` match the conversation, not the context around it.** Every transcript
+  also carries what the agent injects: the skill and tool lists, CLAUDE.md, `<system-reminder>`
+  blocks, copies of each API request (and for Copilot CLI, `system.*` and `model.*` events).
+  A word from those, such as a skill's name, matched nearly every session: `card-reconcile`
+  matched 153 of 170 here, and now matches the 12 that used it. ripgrep still finds the
+  candidates; each is then read, and a match counts only in prompts, replies, tool calls and
+  their output, titles, and prompts queued while the agent was busy.
+
 ## 1.6.1 - 2026-11-09
 
 ### Fixed

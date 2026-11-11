@@ -632,3 +632,23 @@ fn layout_needs_a_known_subcommand() {
         assert!(stderr(&o).contains(want), "{args:?}: {}", stderr(&o));
     }
 }
+
+#[test]
+fn text_search_skips_what_claude_code_injects() {
+    if Command::new("rg").arg("--version").output().is_err() {
+        return; // ripgrep is optional
+    }
+    let f = Fixture::new("text-injected");
+    let alpha = f.work("alpha");
+    // A skill name in the listing every session carries, and a real mention in one prompt.
+    let listing = json!({"type": "attachment", "attachment": {"type": "skill_listing", "content": "- zebra-skill: does things"}});
+    f.transcript("dddd4444-0000-4000-8000-000000000004", &alpha, 30, &[
+        listing.clone(),
+        user("nothing to see", &alpha, "2026-09-01T11:00:00.000Z"),
+    ]);
+    f.transcript("dddd5555-0000-4000-8000-000000000005", &alpha, 40, &[
+        listing,
+        user("run the zebra-skill please", &alpha, "2026-09-01T11:00:00.000Z"),
+    ]);
+    assert_eq!(f.ids(&["find", "--json", "--text", "zebra-skill"]), ["dddd5555-0000-4000-8000-000000000005"]);
+}
