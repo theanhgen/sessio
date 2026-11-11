@@ -11,7 +11,7 @@
 
 🌐 **[Website](https://theanhgen.github.io/sessio/)** · 📦 **[npm](https://www.npmjs.com/package/sessio)**
 
-`sessio` is a fast, self-contained TUI that reads your local Claude Code and Copilot CLI transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Most of those are also plain commands (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `unarchive`, `kill`) with `--json` for scripts and agents, `sessions layout` saves and restores your Ghostty windows with the session in each pane, and an [agent skill](#agent-skill) ships with it.
+`sessio` is a fast, self-contained TUI that reads your local Claude Code and Copilot CLI transcripts and lets you jump back into any past session — the right one, in the right directory — without hunting through `claude --resume` output. A project panel, browser-style session tabs, type-to-filter, full-text search, live refresh, a preview of where each session left off — and a reply key that answers a session without opening it. Most of those are also plain commands (`sessions ls`, `find`, `show`, `resume`, `reply`, `archive`, `unarchive`, `kill`) with `--json` for scripts and agents, `sessions digest` says what happened per project, `sessions pull` brings another Mac's sessions over to read, `sessions layout` saves and restores your Ghostty windows with the session in each pane, and an [agent skill](#agent-skill) ships with it.
 
 > The command you type is `sessions`. The npm package is named `sessio` (Latin for "a sitting / session") because `sessions` was taken.
 
@@ -161,6 +161,9 @@ sessions kill 1b6324f5             # end its claude, if it has sat idle for more
 sessions layout save               # remember Ghostty's windows, splits and their sessions
 sessions layout restore            # reopen them and resume every session in its place
 sessions layout show               # what a restore would open
+sessions digest --since 12h        # per project: recaps, your prompts, files changed
+sessions pull lansium              # copy another Mac's transcripts here over ssh
+sessions digest --host lansium     # what happened over there; `sessions --host lansium` browses it
 ```
 
 - **Ids** are any prefix only one session has; `ls` prints eight characters.
@@ -215,6 +218,22 @@ sessions layout show               # what a restore would open
   copies the replaced layout to `layout.prev.json` when that is at least as big as the backup, so
   while Ghostty quits window by window the backup keeps the biggest layout. It exits `0` even when
   it saved nothing, and says why.
+- **`digest`** answers "what did I do": per project, newest first, each session with something
+  typed or written since `--since` (`1d` by default; `30m`, `12h`, `2d`, `1w`, `today`), its
+  recap, the prompts from that window with their times (the last 8; the rest are counted), and the
+  files Claude edited or wrote. Opening a session without typing in it does not count, so a
+  layout restore doesn't fill it with every session it reopened.
+- **Another machine** (`pull`, `--host`): `sessions pull <host>` copies that machine's
+  `~/.claude/projects` transcripts from the last 14 days (`--days N`, `0` for all) over ssh into
+  `~/.claude/.sessio/hosts/<host>/`, owner-only. `<host>` is an ssh host name, such as a Tailscale
+  machine or a `~/.ssh/config` alias, and needs key login: the pull never prompts. It runs one
+  `find` over there and copies with `rsync`, so a second pull only moves what changed, and a
+  transcript the other machine deletes stays here. `--host <host>` then reads that copy instead of
+  this machine's sessions, in `ls`, `find`, `show`, `digest` and the dashboard (`sessions --host
+  <host>`). It is read-only: commands that act on a session refuse `--host`, the dashboard's
+  acting keys say so, and nothing from this machine (git changes, running processes) is shown as
+  the other's. `--json` rows carry `"host"`. `sessions pull` with no host lists the copies and
+  when each was pulled.
 - Exit status: `0` done, `1` couldn't do it, `2` bad command line.
 
 ### Keep the layout saved

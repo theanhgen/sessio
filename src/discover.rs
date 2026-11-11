@@ -42,17 +42,63 @@ pub struct Row {
     pub source: Source,
 }
 
-/// `~/.claude/projects`, honouring `CLAUDE_CONFIG_DIR`.
+/// The other machine this process reads, when it was started with `--host <name>`. Set once,
+/// before anything is loaded; every root below follows it.
+static HOST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Read `name`'s pulled transcripts instead of this machine's, for the rest of the process.
+/// Refuses a name `sessions pull` would never have written, and a second, different host.
+pub fn set_host(name: &str) -> Result<(), String> {
+    if !valid_host(name) {
+        return Err(format!("'{name}' is not a host name (letters, digits, '.', '_', '-')"));
+    }
+    HOST.set(name.to_string()).or_else(|was| if was == name { Ok(()) } else { Err("--host given twice".into()) })
+}
+
+/// The host set by `set_host`; `None` means this machine.
+pub fn host() -> Option<&'static str> {
+    HOST.get().map(String::as_str)
+}
+
+/// An ssh host alias sessio will put on a command line and in a path: no leading `-` (so it can
+/// never be read as an option), no `/` or `..` (so it can never leave the hosts folder).
+pub fn valid_host(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && !name.contains("..")
+        && name.len() <= 64
+}
+
+/// This machine's `~/.claude`, honouring `CLAUDE_CONFIG_DIR`, whatever `--host` says.
+pub fn local_claude_home() -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".claude")))
+        .unwrap_or_else(|| PathBuf::from(".claude"))
+}
+
+/// Where `sessions pull <name>` keeps its copy: `<claude-home>/.sessio/hosts/<name>`, laid out
+/// like a `~/.claude` so everything that reads one reads the other.
+pub fn host_home(name: &str) -> PathBuf {
+    local_claude_home().join(".sessio").join("hosts").join(name)
+}
+
+/// The `~/.claude` this process reads: this machine's, or under `--host` the pulled copy.
+pub fn claude_home() -> PathBuf {
+    match host() {
+        Some(h) => host_home(h),
+        None => local_claude_home(),
+    }
+}
+
+/// `~/.claude/projects`, honouring `CLAUDE_CONFIG_DIR` and `--host`.
 ///
 /// The JS hardcodes `~/.claude` (bin/sessio.mjs:15), so an instance that relocates the agent's
 /// config dir sees an empty list. Fixed here; the oracle is run with the variable unset, where
 /// both implementations agree.
 pub fn projects_root() -> PathBuf {
-    let base = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".claude")))
-        .unwrap_or_else(|| PathBuf::from(".claude"));
-    base.join("projects")
+    claude_home().join("projects")
 }
 
 /// One level of directories, then `*.jsonl` inside each — the JS walks exactly this shape,
@@ -105,7 +151,11 @@ pub fn scan(root: &Path) -> Vec<Row> {
 /// split per source.
 pub fn scan_all() -> Vec<Row> {
     let mut rows = scan(&projects_root());
-    rows.extend(crate::copilot::scan(&crate::copilot::root()));
+    // `pull` copies Claude Code transcripts only; this machine's Copilot sessions are not the
+    // other machine's.
+    if host().is_none() {
+        rows.extend(crate::copilot::scan(&crate::copilot::root()));
+    }
     rows.sort_by_key(|r| std::cmp::Reverse(r.mtime));
     rows
 }
@@ -181,6 +231,16 @@ fn strip_user_prefix(dir: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_names_cannot_be_options_or_paths() {
+        for ok in ["lansium", "Elaeis", "mac-mini.local", "a_b", "x1"] {
+            assert!(valid_host(ok), "{ok}");
+        }
+        for bad in ["", "-oProxyCommand=x", ".", "..", "a/b", "a..b", "user@host", "a b", "é"] {
+            assert!(!valid_host(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn decodes_dir_labels_like_the_js() {

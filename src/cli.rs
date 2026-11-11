@@ -18,7 +18,19 @@ use sessio::{discover, parse, rank, resume, search, ui};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub const COMMANDS: &[&str] =
-    &["ls", "find", "show", "resume", "reply", "archive", "unarchive", "kill", "layout", "help"];
+    &["ls", "find", "show", "digest", "pull", "resume", "reply", "archive", "unarchive", "kill", "layout", "help"];
+
+/// What `digest` covers when not told otherwise.
+const DEFAULT_SINCE: &str = "1d";
+/// What `pull` copies when not told otherwise: two weeks of transcripts.
+const DEFAULT_DAYS: u32 = 14;
+/// The prompts `digest` prints per session; the rest are counted.
+const DIGEST_PROMPTS: usize = 8;
+/// The files `digest` names per session; the rest are counted.
+const DIGEST_FILES: usize = 6;
+/// A prompt line in `digest` is clipped here even on a pipe: a pasted log is one prompt, and the
+/// whole of it is in `--json`.
+const DIGEST_LINE_MAX: usize = 160;
 
 /// What `ls` and `find` print when not told otherwise. `--limit 0` lifts it.
 const DEFAULT_LIMIT: usize = 20;
@@ -36,6 +48,12 @@ USAGE:
   sessions find <text> [filters]    rank by title, project and first prompt
   sessions find --text <term>       search inside every transcript (needs rg)
   sessions show <id> [--json]       recap, first and last prompt, and the last reply
+  sessions digest [--since 1d]      what happened: per project, each session's recap,
+                                    your prompts and the files it changed (30m, 12h,
+                                    2d, 1w or today; filters -p, --here, --json)
+  sessions pull <host> [--days N]   copy another Mac's transcripts here over ssh, the
+                                    last {DEFAULT_DAYS} days by default (0: all); no host lists
+                                    the ones pulled before
   sessions resume <id>              resume it in its own folder, in this terminal
            [--print]                  print the command instead of running it
            [--force]                  resume even though it is already running
@@ -65,6 +83,8 @@ FILTERS (ls, find):
   --waiting              waiting on you    --archived   archived sessions only
   -n, --limit <N>        default {DEFAULT_LIMIT}, 0 for all
   --json                 one JSON array, for scripts and agents
+  --host <name>          read a pulled machine instead of this one (ls, find,
+                         show, digest and the dashboard); read-only
 
 An <id> is any prefix only one session has; ls prints eight characters.
 Marks: ◆ waiting on you · ◉ running · ▶ unfinished
@@ -106,7 +126,7 @@ pub fn run(cmd: &str, args: &[String]) -> i32 {
                 out(&usage());
                 Ok(())
             }
-            Ok(o) => dispatch(cmd, &o),
+            Ok(o) => use_host(o.host.as_deref()).and_then(|()| dispatch(cmd, &o)),
             Err(e) => Err(e),
         }
     };
@@ -139,6 +159,8 @@ fn dispatch(cmd: &str, o: &Opts) -> Result<(), Fail> {
             list(o, Some(&q))
         }
         "show" => show(o),
+        "digest" => digest(o),
+        "pull" => pull_cmd(o),
         "resume" => resume_cmd(o),
         "reply" => reply(o),
         "archive" => archive(o, true),
@@ -167,10 +189,17 @@ struct Opts {
     print: bool,
     auto: bool,
     help: bool,
+    host: Option<String>,
+    since: Option<String>,
+    days: Option<u32>,
 }
 
-const LIST_FLAGS: &[&str] =
-    &["--project", "--here", "--open", "--running", "--waiting", "--archived", "--limit", "--json"];
+const LIST_FLAGS: &[&str] = &[
+    "--project", "--here", "--open", "--running", "--waiting", "--archived", "--limit", "--json", "--host",
+];
+
+/// The commands that only read, and so may read another machine's copy.
+const HOST_COMMANDS: &[&str] = &["ls", "find", "show", "digest"];
 
 /// The flags each command accepts. Anything else is refused rather than ignored: an agent that
 /// misspells `--open` should hear about it, not get every session back.
@@ -178,7 +207,9 @@ fn flags_for(cmd: &str) -> Vec<&'static str> {
     match cmd {
         "ls" => LIST_FLAGS.to_vec(),
         "find" => [LIST_FLAGS, &["--text"]].concat(),
-        "show" => vec!["--json"],
+        "show" => vec!["--json", "--host"],
+        "digest" => vec!["--since", "--project", "--here", "--limit", "--json", "--host"],
+        "pull" => vec!["--days", "--json"],
         "kill" => vec!["--json"],
         "layout" => vec!["--json", "--auto"],
         "resume" => vec!["--force", "--print"],
@@ -212,11 +243,16 @@ fn parse(cmd: &str, raw: &[String]) -> Result<Opts, Fail> {
             "-n" => "--limit",
             n => n,
         };
+        if flag == "--host" && !HOST_COMMANDS.contains(&cmd) && cmd != "help" {
+            return Err(usage_err(format!(
+                "{cmd} acts on this machine's sessions; --host only reads (ls, find, show, digest)"
+            )));
+        }
         if !allowed.contains(&flag) {
             let hint = if cmd == "reply" { " (a message starting with '-' goes after `--`)" } else { "" };
             return Err(usage_err(format!("{cmd}: unknown option '{name}'{hint}")));
         }
-        let takes_value = matches!(flag, "--project" | "--limit");
+        let takes_value = matches!(flag, "--project" | "--limit" | "--host" | "--since" | "--days");
         if inline.is_some() && !takes_value {
             return Err(usage_err(format!("{flag} takes no value")));
         }
@@ -243,6 +279,9 @@ fn parse(cmd: &str, raw: &[String]) -> Result<Opts, Fail> {
             "--force" => o.force = true,
             "--print" => o.print = true,
             "--auto" => o.auto = true,
+            "--host" => o.host = Some(value),
+            "--since" => o.since = Some(value),
+            "--days" => o.days = Some(value.parse().map_err(|_| usage_err("--days takes a number"))?),
             _ => unreachable!("every allowed flag is handled"),
         }
     }
@@ -514,6 +553,330 @@ fn show(o: &Opts) -> Result<(), Fail> {
     Ok(())
 }
 
+// ---------- --host / pull ----------
+
+/// Point this process at a pulled machine's copy. Refuses a host never pulled, rather than
+/// showing an empty list that reads as "nothing happened there".
+fn use_host(host: Option<&str>) -> Result<(), Fail> {
+    let Some(h) = host else { return Ok(()) };
+    if !discover::valid_host(h) {
+        return Err(usage_err(format!("'{h}' is not a host name (letters, digits, '.', '_', '-')")));
+    }
+    if !discover::host_home(h).join("projects").is_dir() {
+        return Err(err(format!("nothing pulled from '{h}' yet — run `sessions pull {h}` first")));
+    }
+    discover::set_host(h).map_err(err)?;
+    // Under a terminal, say whose sessions these are and how old the copy is. Never on a pipe,
+    // so `--json` and `| grep` see only the answer.
+    if std::io::stderr().is_terminal() {
+        eprintln!("{}", host_note(h));
+    }
+    Ok(())
+}
+
+/// The dashboard's `--host <name>` (or `--host=<name>`), checked the way the commands check it.
+/// `Err` carries the exit status, after the reason has been printed.
+pub fn dashboard_host(args: &[String]) -> Result<(), i32> {
+    let mut host = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--host" {
+            host = Some(it.next().cloned().ok_or(()).map_err(|()| {
+                eprintln!("sessions: --host needs a value");
+                2
+            })?);
+        } else if let Some(v) = a.strip_prefix("--host=") {
+            host = Some(v.to_string());
+        }
+    }
+    use_host(host.as_deref()).map_err(|f| match f {
+        Fail::Usage(m) => {
+            eprintln!("sessions: {m}");
+            2
+        }
+        Fail::Error(m) => {
+            eprintln!("sessions: {m}");
+            1
+        }
+    })
+}
+
+/// `@lansium · read-only copy, pulled 3h ago`.
+fn host_note(h: &str) -> String {
+    match sessio::pull::pulled_at(h) {
+        Some(at) => format!("@{h} · read-only copy, pulled {} ago", ui::ago(at)),
+        None => format!("@{h} · read-only copy, last pull did not finish"),
+    }
+}
+
+fn pull_cmd(o: &Opts) -> Result<(), Fail> {
+    let host = match o.args.as_slice() {
+        [] => {
+            if o.days.is_some() {
+                return Err(usage_err("--days needs a host to pull from"));
+            }
+            let hosts = sessio::pull::pulled();
+            if o.json {
+                out(&format!("{}\n", serde_json::to_string(&hosts).expect("plain data")));
+            } else if hosts.is_empty() {
+                eprintln!("nothing pulled yet — `sessions pull <host>` copies one over ssh");
+            } else {
+                let mut s = String::new();
+                for p in &hosts {
+                    let when = p.at.map_or_else(|| "unfinished".to_string(), |t| format!("{} ago", ui::ago(t)));
+                    s.push_str(&format!("{}  pulled {when}\n", p.host));
+                }
+                out(&s);
+            }
+            return Ok(());
+        }
+        [h] => h,
+        _ => return Err(usage_err("pull takes one host")),
+    };
+    if !discover::valid_host(host) {
+        return Err(usage_err(format!("'{host}' is not a host name (letters, digits, '.', '_', '-')")));
+    }
+    let days = o.days.unwrap_or(DEFAULT_DAYS);
+    if std::io::stderr().is_terminal() {
+        let window = if days == 0 { "every transcript".to_string() } else { format!("the last {days} days") };
+        eprintln!("⏳ pulling {window} from {host} …");
+    }
+    let r = sessio::pull::pull(host, days).map_err(err)?;
+    if o.json {
+        out(&format!("{}\n", serde_json::to_string(&r).expect("plain data")));
+    } else {
+        out(&format!(
+            "{} transcripts · {} from {host} · read them with `sessions digest --host {host}`\n",
+            r.files,
+            size_fmt(r.bytes)
+        ));
+    }
+    Ok(())
+}
+
+fn size_fmt(b: u64) -> String {
+    match b {
+        b if b >= 1 << 30 => format!("{:.1} GB", b as f64 / (1u64 << 30) as f64),
+        b if b >= 1 << 20 => format!("{:.0} MB", b as f64 / (1u64 << 20) as f64),
+        b if b >= 1 << 10 => format!("{:.0} kB", b as f64 / 1024.0),
+        b => format!("{b} B"),
+    }
+}
+
+// ---------- digest ----------
+
+/// `30m`, `12h`, `2d`, `1w` back from `now`, or `today` from local midnight.
+fn since_ms(s: &str, now: i64) -> Result<i64, Fail> {
+    if s == "today" {
+        use chrono::{Local, TimeZone};
+        let midnight = Local::now().date_naive().and_hms_opt(0, 0, 0).expect("midnight exists");
+        return Local
+            .from_local_datetime(&midnight)
+            .earliest()
+            .map(|t| t.timestamp_millis())
+            .ok_or_else(|| err("can't place today's midnight in this time zone"));
+    }
+    let bad = || usage_err(format!("--since takes 30m, 12h, 2d, 1w or today, not '{s}'"));
+    let unit = s.chars().last().ok_or_else(bad)?;
+    let n: i64 = s[..s.len() - unit.len_utf8()].parse().map_err(|_| bad())?;
+    let ms = match unit {
+        'm' => 60_000,
+        'h' => 3_600_000,
+        'd' => 86_400_000,
+        'w' => 7 * 86_400_000,
+        _ => return Err(bad()),
+    };
+    if n <= 0 {
+        return Err(bad());
+    }
+    Ok(now - n.saturating_mul(ms))
+}
+
+#[derive(serde::Serialize)]
+struct DigestJson<'a> {
+    #[serde(flatten)]
+    session: SessionJson<'a>,
+    recap: Option<&'a str>,
+    summary: Option<&'a str>,
+    prompts: Vec<PromptJson<'a>>,
+    earlier_prompts: usize,
+    files: &'a [String],
+}
+
+#[derive(serde::Serialize)]
+struct PromptJson<'a> {
+    at: Option<String>,
+    text: &'a str,
+}
+
+fn digest(o: &Opts) -> Result<(), Fail> {
+    if !o.args.is_empty() {
+        return Err(usage_err("digest takes no text; --since sets the window"));
+    }
+    let now = model::now_ms();
+    let since = since_ms(o.since.as_deref().unwrap_or(DEFAULT_SINCE), now)?;
+    let w = World::load(&[]);
+    let project = project_filter(o, &w)?;
+
+    // A session counts when something happened in it inside the window: a prompt, or a file
+    // written. Opening one (a layout restore, a resume with no prompt) moves its mtime and
+    // nothing else, so the mtime only picks the candidates.
+    let mut picked: Vec<(usize, parse::Activity)> = w
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| it.mtime >= since && !w.archived(it))
+        .filter(|(_, it)| project.as_ref().is_none_or(|p| it.project == *p))
+        .filter_map(|(i, it)| {
+            let a = match it.source {
+                Source::Claude => parse::activity(&it.file, since),
+                Source::Copilot => return None,
+            };
+            (!a.prompts.is_empty() || !a.files.is_empty()).then_some((i, a))
+        })
+        .collect();
+    let quiet = w
+        .items
+        .iter()
+        .filter(|it| it.mtime >= since && !w.archived(it) && it.source == Source::Claude)
+        .filter(|it| project.as_ref().is_none_or(|p| it.project == *p))
+        .count()
+        - picked.len();
+    // Newest activity first, which is also the order the projects appear in.
+    let last_at = |i: usize, a: &parse::Activity| {
+        a.prompts.iter().rev().find_map(|(t, _)| *t).unwrap_or(w.items[i].mtime)
+    };
+    picked.sort_by_key(|(i, a)| std::cmp::Reverse(last_at(*i, a)));
+    let limit = o.limit.unwrap_or(0);
+    if limit > 0 {
+        picked.truncate(limit);
+    }
+    let details: Vec<parse::Detail> =
+        picked.iter().map(|(i, _)| model::read_detail(w.items[*i].source, &w.items[*i].file)).collect();
+
+    if o.json {
+        let rows: Vec<DigestJson> = picked
+            .iter()
+            .zip(&details)
+            .map(|((i, a), d)| {
+                let it = &w.items[*i];
+                let title = d.custom.as_deref().or(d.ai.as_deref()).unwrap_or(&it.name);
+                DigestJson {
+                    session: session_json(&w, it, title),
+                    recap: d.recap.as_deref(),
+                    summary: d.summary.as_deref(),
+                    prompts: a
+                        .prompts
+                        .iter()
+                        .map(|(t, text)| PromptJson { at: t.and_then(iso), text })
+                        .collect(),
+                    earlier_prompts: a.earlier,
+                    files: &a.files,
+                }
+            })
+            .collect();
+        out(&format!("{}\n", serde_json::to_string(&rows).expect("plain data")));
+        return Ok(());
+    }
+
+    let width = term_width();
+    let projects: Vec<&str> = {
+        let mut seen = HashSet::new();
+        picked.iter().map(|(i, _)| w.items[*i].project.as_str()).filter(|p| seen.insert(*p)).collect()
+    };
+    let whose = discover::host().map_or_else(|| "this machine".to_string(), |h| format!("@{h}"));
+    let n = picked.len();
+    let mut s = format!(
+        "{whose} · since {} · {n} session{} in {} project{}\n",
+        local_time(since, now),
+        if n == 1 { "" } else { "s" },
+        projects.len(),
+        if projects.len() == 1 { "" } else { "s" },
+    );
+    if n == 0 {
+        s.push_str("nothing typed or written in that window\n");
+    }
+    for p in &projects {
+        s.push_str(&format!("\n{p}\n"));
+        for ((i, a), d) in picked.iter().zip(&details).filter(|((i, _), _)| w.items[*i].project == *p) {
+            let it = &w.items[*i];
+            let title = d.custom.as_deref().or(d.ai.as_deref()).unwrap_or(&it.name);
+            // Claude Code records `HEAD` for a folder that is not a repository.
+            let branch = d
+                .branch
+                .as_deref()
+                .or(it.branch.as_deref())
+                .filter(|b| *b != "HEAD")
+                .map(|b| format!("  [{b}]"))
+                .unwrap_or_default();
+            // The age is of the last prompt, not of the file: opening a session (a layout
+            // restore) touches the file without anything happening in it.
+            let head = format!("  {}  {:>3}  {}{branch}", short(&it.id), ui::ago(last_at(*i, a)), one_line(title));
+            s.push_str(&clip(&head, width));
+            s.push('\n');
+            // The recap is the best single answer to "what happened", so it is never clipped.
+            if let Some(r) = d.recap.as_deref().or(d.summary.as_deref()).filter(|r| !r.trim().is_empty()) {
+                s.push_str(&format!("    recap  {}\n", one_line(r)));
+            }
+            let skip = a.prompts.len().saturating_sub(DIGEST_PROMPTS);
+            for (k, (t, text)) in a.prompts.iter().skip(skip).enumerate() {
+                let label = if k == 0 { "you" } else { "" };
+                let at = t.map(|t| local_time(t, now)).unwrap_or_default();
+                let line = format!("    {label:<5}  {at:>9}  {}", one_line(text));
+                s.push_str(&clip(&line, width.min(DIGEST_LINE_MAX)));
+                s.push('\n');
+            }
+            let before = a.earlier + skip;
+            if before > 0 {
+                s.push_str(&format!("           + {before} earlier prompt{}\n", if before == 1 { "" } else { "s" }));
+            }
+            if !a.files.is_empty() {
+                let cwd = it.cwd.as_deref().map(Path::new);
+                let names: Vec<String> = a
+                    .files
+                    .iter()
+                    .take(DIGEST_FILES)
+                    .map(|f| match cwd.and_then(|c| Path::new(f).strip_prefix(c).ok()) {
+                        Some(rel) => rel.display().to_string(),
+                        None => f.clone(),
+                    })
+                    .collect();
+                let more = a.files.len().saturating_sub(DIGEST_FILES);
+                let tail = if more > 0 { format!(" · +{more} more") } else { String::new() };
+                s.push_str(&clip(&format!("    files  {}{tail}", names.join(" · ")), width));
+                s.push('\n');
+            }
+        }
+    }
+    if quiet > 0 {
+        s.push_str(&format!(
+            "\n{quiet} more opened in that window with nothing typed or written\n"
+        ));
+    }
+    out(&s);
+    Ok(())
+}
+
+fn iso(ms: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp_millis(ms).map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+/// `14:05` today, `Mon 14:05` this week, `3 Nov 14:05` before that, in local time.
+fn local_time(ms: i64, now: i64) -> String {
+    use chrono::{Local, TimeZone};
+    let (Some(t), Some(n)) = (Local.timestamp_millis_opt(ms).single(), Local.timestamp_millis_opt(now).single())
+    else {
+        return String::new();
+    };
+    if t.date_naive() == n.date_naive() {
+        t.format("%H:%M").to_string()
+    } else if (n - t).num_days() < 6 {
+        t.format("%a %H:%M").to_string()
+    } else {
+        t.format("%-d %b %H:%M").to_string()
+    }
+}
+
 // ---------- resume / reply / archive ----------
 
 fn resume_cmd(o: &Opts) -> Result<(), Fail> {
@@ -739,6 +1102,9 @@ struct RunningJson<'a> {
 #[derive(serde::Serialize)]
 struct SessionJson<'a> {
     id: &'a str,
+    /// The machine it ran on, under `--host`; absent for this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<&'static str>,
     /// `claude` or `copilot`: which agent wrote the session, and so which one resumes it.
     source: &'static str,
     title: &'a str,
@@ -771,6 +1137,7 @@ fn session_json<'a>(w: &'a World, it: &'a Item, title: &'a str) -> SessionJson<'
     let some = |s: &'a str| (!s.is_empty()).then_some(s);
     SessionJson {
         id: &it.id,
+        host: discover::host(),
         source: it.source.as_str(),
         title,
         project: &it.project,
@@ -888,6 +1255,29 @@ mod tests {
     fn help_is_accepted_by_every_command() {
         for cmd in COMMANDS {
             assert!(parse(cmd, &args(&["--help"])).unwrap().help, "{cmd}");
+        }
+    }
+
+    #[test]
+    fn host_is_refused_by_every_command_that_acts() {
+        for cmd in ["resume", "reply", "archive", "unarchive", "kill", "layout", "pull"] {
+            assert!(matches!(parse(cmd, &args(&["x", "--host", "h"])), Err(Fail::Usage(_))), "{cmd}");
+        }
+        for cmd in HOST_COMMANDS {
+            assert_eq!(parse(cmd, &args(&["--host", "lansium"])).unwrap().host.as_deref(), Some("lansium"));
+        }
+    }
+
+    #[test]
+    fn since_reads_minutes_hours_days_weeks() {
+        let now = 10 * 7 * 86_400_000;
+        assert_eq!(since_ms("30m", now).unwrap(), now - 30 * 60_000);
+        assert_eq!(since_ms("12h", now).unwrap(), now - 12 * 3_600_000);
+        assert_eq!(since_ms("2d", now).unwrap(), now - 2 * 86_400_000);
+        assert_eq!(since_ms("1w", now).unwrap(), now - 7 * 86_400_000);
+        assert!(since_ms("today", now).is_ok());
+        for bad in ["", "d", "0d", "-1d", "1y", "1.5d", "yesterday"] {
+            assert!(matches!(since_ms(bad, now), Err(Fail::Usage(_))), "{bad}");
         }
     }
 

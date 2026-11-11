@@ -152,7 +152,10 @@ fn load_with(rows: Vec<Row>, extra: &[PathBuf], settle: bool) -> Vec<Item> {
 
     // git WIP: flag the most-recent session in each project whose folder has uncommitted
     // changes. `dirty()` never blocks — unknown reads as clean until a background check lands.
-    if settle {
+    // Another machine's working trees are not on this one: a local folder at the same path says
+    // nothing about them, so `--host` never marks anything as uncommitted work.
+    let remote = discover::host().is_some();
+    if settle && !remote {
         let mut uniq: HashSet<&str> = HashSet::new();
         let cwds: Vec<&str> = items
             .iter()
@@ -165,7 +168,7 @@ fn load_with(rows: Vec<Row>, extra: &[PathBuf], settle: bool) -> Vec<Item> {
     let flags: Vec<bool> = items
         .iter()
         .map(|it| match &it.cwd {
-            Some(cwd) if seen.insert(cwd.as_str()) => crate::git::dirty(cwd),
+            Some(cwd) if !remote && seen.insert(cwd.as_str()) => crate::git::dirty(cwd),
             _ => false,
         })
         .collect();

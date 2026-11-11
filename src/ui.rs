@@ -1135,6 +1135,20 @@ fn key_step(app: &mut App, k: KeyEvent) -> Step {
         }
     }
 
+    // A pulled copy is for reading: every key that would act on a session, here or on its
+    // machine, says so instead.
+    if let Some(h) = crate::discover::host() {
+        let acts = match k.code {
+            KeyCode::Enter => true,
+            KeyCode::Char('o' | 'n' | 'r' | 'a' | 'k' | 'g') => ctrl,
+            _ => false,
+        };
+        if acts {
+            app.say(Tone::Warning, format!("@{h} is a read-only copy — act on these sessions on {h}"));
+            return Step::Continue;
+        }
+    }
+
     match k.code {
         KeyCode::Char('g') if ctrl => app.toggle_issues(),
         KeyCode::Char('?') if !ctrl => app.help = true,
@@ -1835,6 +1849,13 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     // Keys that act on a session are offered only when there is one to act on, as `^k` is.
     let sel = app.selected().map(|i| &app.items[i]);
     let mut segs: Vec<Seg> = Vec::new();
+    // Under `--host` the list is a pulled copy of another machine's sessions: it can be read and
+    // searched, and nothing that acts on a session is offered.
+    let remote = crate::discover::host();
+    if let Some(h) = remote {
+        segs.push(Seg { p: 0, t: Cow::Owned(format!("@{h} read-only")), accent: true });
+    }
+    let acts = sel.filter(|_| remote.is_none());
     if sel.is_some() {
         segs.push(Seg { p: 3, t: Cow::Borrowed("←→ session"), accent: false });
     }
@@ -1842,7 +1863,7 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     if rg_found() {
         segs.push(Seg { p: 5, t: Cow::Borrowed("^f search-in-text"), accent: false });
     }
-    if sel.is_some() {
+    if acts.is_some() {
         segs.push(if app.tabs.get(app.p_idx).map(String::as_str) == Some(ARCHIVED_TAB) {
             Seg { p: 5, t: Cow::Borrowed("^a unarchive"), accent: false }
         } else {
@@ -1853,13 +1874,15 @@ fn header(app: &App, cols: usize) -> Line<'static> {
         } else {
             Seg { p: 4, t: Cow::Borrowed("⇥ expand-reply"), accent: false }
         });
+    }
+    if acts.is_some() {
         segs.push(Seg { p: 1, t: Cow::Borrowed("↵ resume"), accent: false });
         if ghostty() {
             segs.push(Seg { p: 2, t: Cow::Borrowed("^o new-window"), accent: false });
         }
     }
     // Claude only: a Copilot session refuses `^r`.
-    if sel.is_some_and(|it| it.source == Source::Claude) {
+    if acts.is_some_and(|it| it.source == Source::Claude) {
         segs.push(Seg { p: 2, t: Cow::Borrowed("^r reply"), accent: false });
     }
     if app.follow.is_some() {
@@ -1867,12 +1890,12 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     } else if sel.is_some() {
         segs.push(Seg { p: 5, t: Cow::Borrowed("^t follow"), accent: false });
     }
-    if sel.is_some() {
+    if acts.is_some() {
         segs.push(Seg { p: 4, t: Cow::Borrowed("^g issues"), accent: false });
     }
     // Only offered when it would do something: most sessions are not running, and of the ones
     // that are, few have sat for two days.
-    let stale = app.selected().is_some_and(|i| {
+    let stale = remote.is_none() && app.selected().is_some_and(|i| {
         let it = &app.items[i];
         crate::kill::verdict(app.live.get(&it.id), it.mtime, model::now_ms()).is_stale()
     });
@@ -1892,7 +1915,10 @@ fn header(app: &App, cols: usize) -> Line<'static> {
     } else {
         Seg { p: 2, t: Cow::Borrowed("esc quit"), accent: false }
     });
-    segs.push(Seg { p: 5, t: Cow::Borrowed("live"), accent: true });
+    // A pulled copy changes only when it is pulled again.
+    if remote.is_none() {
+        segs.push(Seg { p: 5, t: Cow::Borrowed("live"), accent: true });
+    }
     // The issues list has keys of its own, and the dashboard's would be wrong while it is up.
     if app.issues {
         segs = vec![
