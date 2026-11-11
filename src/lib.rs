@@ -17,6 +17,8 @@ pub mod md;
 pub mod model;
 pub mod notify;
 pub mod parse;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod pull;
 pub mod rank;
 pub mod resume;
 pub mod safety;

@@ -880,3 +880,187 @@ mod usage_tests {
         assert_eq!(detail(&f).tokens, None);
     }
 }
+
+/// What happened in a session from `since` on: the prompts typed and the files Claude wrote.
+/// The read behind `sessions digest`, which answers "what did I do there" without opening each
+/// session.
+#[derive(Debug, Default, Clone)]
+pub struct Activity {
+    /// Each prompt from `since` on, oldest first, with its timestamp in ms when it has one.
+    pub prompts: Vec<(Option<i64>, String)>,
+    /// Prompts before `since`, counted, not kept.
+    pub earlier: usize,
+    /// Paths given to Edit, Write, MultiEdit and NotebookEdit from `since` on, first use first,
+    /// each once. Temporary files (`/tmp`, a session's scratchpad) are left out: they are gone,
+    /// and on another machine they never existed.
+    pub files: Vec<String>,
+    /// The newest prompt or file write from `since` on, in ms.
+    pub last_ms: Option<i64>,
+}
+
+/// Paths that only ever hold throwaway files.
+const TEMP_PREFIXES: &[&str] = &["/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"];
+
+/// A prompt as `digest` prints it: a pasted block (`<pasted_content …>…</pasted_content …>`) is
+/// one `[pasted N lines]`, not the whole paste.
+pub fn prompt_brief(text: &str) -> String {
+    static PASTE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = PASTE.get_or_init(|| {
+        regex::Regex::new(r"(?s)<pasted_content[^>]*>(.*?)</pasted_content[^>]*>").expect("valid")
+    });
+    re.replace_all(text, |c: &regex::Captures| {
+        let n = c[1].trim().lines().count().max(1);
+        format!("[pasted {n} line{}]", if n == 1 { "" } else { "s" })
+    })
+    .into_owned()
+}
+
+/// The tools whose input names a file the session changed.
+const WRITE_TOOLS: &[&str] = &["Edit", "Write", "MultiEdit", "NotebookEdit"];
+
+pub fn activity(path: &Path, since_ms: i64) -> Activity {
+    let mut a = Activity::default();
+    let Ok(file) = File::open(path) else {
+        return a;
+    };
+    let mut reader = BufReader::with_capacity(256 * 1024, file);
+    let mut buf = Vec::with_capacity(8192);
+    let mut seen: HashSet<String> = HashSet::new();
+    // A line without a timestamp counts as inside the window: dropping it would hide work.
+    let inside = |o: &Value| {
+        str_field(o, "timestamp").and_then(parse_iso_ms).is_none_or(|t| t >= since_ms)
+    };
+
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = line_str(&buf);
+
+        if line.contains("\"promptSource\":\"") {
+            let Ok(o) = serde_json::from_str::<Value>(&line) else { continue };
+            if str_field(&o, "type") != Some("user") || !is_human_prompt(&o) {
+                continue;
+            }
+            let text = o
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(Value::as_str)
+                .map(sanitize)
+                .unwrap_or_default();
+            if js_trim(&text).is_empty() || text.starts_with('<') {
+                continue;
+            }
+            if inside(&o) {
+                let ts = str_field(&o, "timestamp").and_then(parse_iso_ms);
+                a.last_ms = a.last_ms.max(ts);
+                let text = js_trim(&text).to_string();
+                // The same prompt sent twice in a row (a retry, a paste) is one line.
+                if a.prompts.last().is_none_or(|(_, prev)| *prev != text) {
+                    a.prompts.push((ts, text));
+                }
+            } else {
+                a.earlier += 1;
+            }
+            continue;
+        }
+
+        if line.contains("\"type\":\"assistant\"") && line.contains("\"tool_use\"") {
+            let Ok(o) = serde_json::from_str::<Value>(&line) else { continue };
+            if str_field(&o, "type") != Some("assistant") || !inside(&o) {
+                continue;
+            }
+            let Some(blocks) =
+                o.get("message").and_then(|m| m.get("content")).and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for b in blocks {
+                if str_field(b, "type") != Some("tool_use") {
+                    continue;
+                }
+                if !str_field(b, "name").is_some_and(|n| WRITE_TOOLS.contains(&n)) {
+                    continue;
+                }
+                let input = b.get("input");
+                let p = input
+                    .and_then(|i| str_field(i, "file_path").or_else(|| str_field(i, "notebook_path")))
+                    .map(sanitize)
+                    .filter(|p| !p.is_empty() && !TEMP_PREFIXES.iter().any(|t| p.starts_with(t)));
+                if let Some(p) = p {
+                    a.last_ms = a.last_ms.max(str_field(&o, "timestamp").and_then(parse_iso_ms));
+                    if seen.insert(p.clone()) {
+                        a.files.push(p);
+                    }
+                }
+            }
+        }
+    }
+    a
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn transcript(name: &str, lines: &[Value]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sessio-activity-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("s.jsonl");
+        let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&file, body).unwrap();
+        file
+    }
+
+    fn prompt(ts: &str, text: &str) -> Value {
+        json!({"type": "user", "promptSource": "typed", "timestamp": ts, "message": {"content": text}})
+    }
+
+    fn tool(ts: &str, name: &str, input: Value) -> Value {
+        json!({"type": "assistant", "timestamp": ts,
+               "message": {"content": [{"type": "tool_use", "name": name, "input": input}]}})
+    }
+
+    #[test]
+    fn keeps_prompts_and_written_files_inside_the_window() {
+        let f = transcript(
+            "window",
+            &[
+                prompt("2026-11-01T08:00:00Z", "old work"),
+                tool("2026-11-01T08:01:00Z", "Edit", json!({"file_path": "/r/old.rs"})),
+                prompt("2026-11-10T08:00:00Z", "fix the login"),
+                tool("2026-11-10T08:01:00Z", "Read", json!({"file_path": "/r/read-only.rs"})),
+                tool("2026-11-10T08:02:00Z", "Edit", json!({"file_path": "/r/login.rs"})),
+                tool("2026-11-10T08:03:00Z", "Write", json!({"file_path": "/r/login.rs"})),
+                tool("2026-11-10T08:04:00Z", "NotebookEdit", json!({"notebook_path": "/r/n.ipynb"})),
+                tool("2026-11-10T08:05:00Z", "Write", json!({"file_path": "/private/tmp/claude-501/x/scratchpad/a.py"})),
+                prompt("2026-11-10T09:00:00Z", "<command-name>/clear</command-name>"),
+                prompt("2026-11-10T09:30:00Z", "ship it"),
+                prompt("2026-11-10T09:31:00Z", "ship it"),
+                tool("2026-11-10T09:40:00Z", "Edit", json!({"file_path": "/r/login.rs"})),
+            ],
+        );
+        let since = parse_iso_ms("2026-11-05T00:00:00Z").unwrap();
+        let a = activity(&f, since);
+        let texts: Vec<&str> = a.prompts.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(texts, ["fix the login", "ship it"]);
+        assert_eq!(a.earlier, 1);
+        assert_eq!(a.files, ["/r/login.rs", "/r/n.ipynb"]);
+        assert!(a.prompts.iter().all(|(ts, _)| ts.is_some()));
+        // The last write, not the last prompt, is the newest thing that happened.
+        assert_eq!(a.last_ms, parse_iso_ms("2026-11-10T09:40:00Z"));
+    }
+
+    #[test]
+    fn a_paste_is_one_short_mark() {
+        assert_eq!(
+            prompt_brief("look <pasted_content id=\"0fa6\">a\nb\nc\n</pasted_content id=\"0fa6\"> now"),
+            "look [pasted 3 lines] now"
+        );
+        assert_eq!(prompt_brief("<pasted_content id=\"1\">x</pasted_content id=\"1\">"), "[pasted 1 line]");
+        assert_eq!(prompt_brief("no paste"), "no paste");
+    }
+}

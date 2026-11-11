@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Read what happened on your other Mac.** `sessions pull <host>` copies another machine's Claude
+  Code transcripts here over ssh (the last 14 days by default, `--days 0` for all), into
+  `~/.claude/.sessio/hosts/<host>/`, owner-only. The only thing it runs over there is a `find`, and
+  a transcript the other machine later deletes stays in the copy. `--host <host>` then points `ls`,
+  `find`, `show`, `digest` and the dashboard at that copy, read-only: resume, reply, archive,
+  `^k`, `^g`, `^o` and `^n` are refused, and nothing on this machine (its git folders, its
+  running processes) is read as the other machine's state. `sessions pull` with no host lists the
+  ones pulled before and when.
+- **`sessions digest`: what happened, per project.** For each session with something typed or
+  written in the window (`--since 1d` by default; `30m`, `12h`, `2d`, `1w`, `today`), its recap,
+  the prompts from that window with their times, and the files Claude edited or wrote. Opening a
+  session without typing in it (a layout restore) does not count, and a session's age is its last
+  prompt or write. Pastes show as `[pasted N lines]`, a prompt sent twice in a row once, and
+  temporary files are left out. On a pulled copy, a window reaching past what the pull copied
+  says so. Takes `-p`, `--here`, `-n`, `--json` and `--host`.
+
 ## 1.6.1 - 2026-11-09
 
 ### Fixed

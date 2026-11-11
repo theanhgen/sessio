@@ -270,6 +270,10 @@ fn read_registry(dir: &Path) -> Vec<Row> {
 /// Snapshot the live sessions. Returns an empty map if `ps` is unavailable or misbehaves —
 /// the guard is an improvement when it fires, never a prerequisite.
 pub fn scan() -> LiveMap {
+    // Processes on this machine say nothing about another machine's sessions.
+    if crate::discover::host().is_some() {
+        return LiveMap::new();
+    }
     let Ok(out) = Command::new("ps")
         .args(["-Ao", "pid=,tty=,lstart=,args="])
         .stdin(Stdio::null())

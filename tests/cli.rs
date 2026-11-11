@@ -632,3 +632,150 @@ fn layout_needs_a_known_subcommand() {
         assert!(stderr(&o).contains(want), "{args:?}: {}", stderr(&o));
     }
 }
+
+// ---------- pull / --host / digest ----------
+
+const R1: &str = "eeee1111-0000-4000-8000-000000000011";
+const R2: &str = "eeee2222-0000-4000-8000-000000000022";
+const R_OLD: &str = "eeee3333-0000-4000-8000-000000000033";
+
+fn iso_ago(secs: i64) -> String {
+    (chrono::Utc::now() - chrono::Duration::seconds(secs)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Another machine's `~/.claude` under `<root>/remote`, and a stand-in `ssh` that runs the remote
+/// command there instead of on a host. rsync goes through it too, so the copy is a real rsync.
+fn remote(f: &Fixture) -> (String, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let home = f.root.join("remote");
+    let write = |id: &str, project: &str, age: u64, lines: &[Value]| {
+        let dir = home.join(".claude/projects").join(project);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(format!("{id}.jsonl"));
+        fs::write(&file, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+        let when = SystemTime::now() - Duration::from_secs(age);
+        fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
+    };
+    let gamma = Path::new("/office/gamma");
+    write(R1, "-office-gamma", 600, &[
+        json!({"type": "ai-title", "aiTitle": "Office work"}),
+        user("an old question", gamma, &iso_ago(3 * 86_400)),
+        user("fix the invoice export", gamma, &iso_ago(1_800)),
+        json!({"type": "assistant", "timestamp": iso_ago(1_700), "message": {"content": [
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": "/office/gamma/src/export.rs"}},
+        ]}}),
+        assistant("Fixed.", &iso_ago(1_600)),
+    ]);
+    write(R2, "-office-delta", 900, &[user("look but touch nothing", Path::new("/office/delta"), &iso_ago(900))]);
+    // Past the 14-day window, and a subagent transcript a level deeper: neither is copied.
+    write(R_OLD, "-office-gamma", 30 * 86_400, &[user("ancient", gamma, &iso_ago(30 * 86_400))]);
+    let nested = home.join(".claude/projects/-office-gamma").join(R1).join("subagents");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("agent-x.jsonl"), format!("{}\n", user("sub", gamma, &iso_ago(60)))).unwrap();
+
+    let bin = f.root.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let ssh = bin.join("ssh");
+    fs::write(&ssh, "#!/bin/sh\n\
+        while [ $# -gt 0 ]; do case \"$1\" in -o) shift 2;; -*) shift;; *) break;; esac; done\n\
+        echo \"$1\" >> \"$FAKE_LOG\"; shift\n\
+        cd \"$FAKE_REMOTE_HOME\" && exec sh -c \"$*\"\n").unwrap();
+    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+    (format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()), home)
+}
+
+fn has_rsync() -> bool {
+    Command::new("rsync").arg("--version").output().is_ok_and(|o| o.status.success())
+}
+
+#[test]
+fn pull_copies_another_machine_and_host_reads_only_that_copy() {
+    if !has_rsync() {
+        eprintln!("skipped: no rsync on PATH");
+        return;
+    }
+    let f = Fixture::new("pull");
+    let (path, home) = remote(&f);
+    let log = f.root.join("ssh.log");
+    let pull = |args: &[&str]| {
+        f.cmd(args).env("PATH", &path).env("FAKE_LOG", &log).env("FAKE_REMOTE_HOME", &home).output().unwrap()
+    };
+
+    let o = pull(&["pull", "office"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with("2 transcripts"), "{}", String::from_utf8_lossy(&o.stdout));
+    assert!(fs::read_to_string(&log).unwrap().lines().all(|h| h == "office"));
+    let copy = f.root.join("claude/.sessio/hosts/office");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&copy).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+    assert!(!copy.join("projects/-office-gamma").join(format!("{R_OLD}.jsonl")).exists());
+
+    // The copy, and only the copy: this machine's sessions stay out, and nothing on this
+    // machine (a git folder, a process) says anything about the other one's.
+    let v = f.json(&["ls", "--host", "office", "--json"]);
+    let ids: Vec<&str> = v.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, [R1, R2]);
+    assert!(v.as_array().unwrap().iter().all(|s| s["host"] == "office" && s["running"].is_null()));
+    assert_eq!(f.ids(&["ls", "--json"]), [A, B, C]);
+    assert!(f.json(&["ls", "--json"])[0].get("host").is_none());
+    assert!(f.ok(&["show", "eeee1", "--host", "office"]).contains("fix the invoice export"));
+
+    let v = f.json(&["digest", "--host", "office", "--json"]);
+    assert_eq!(v.as_array().unwrap().len(), 2);
+    let r1 = v.as_array().unwrap().iter().find(|s| s["id"] == R1).unwrap();
+    assert_eq!(r1["title"], "Office work");
+    assert_eq!(r1["prompts"].as_array().unwrap().len(), 1);
+    assert_eq!(r1["prompts"][0]["text"], "fix the invoice export");
+    assert_eq!(r1["earlier_prompts"], 1);
+    assert_eq!(r1["files"], json!(["/office/gamma/src/export.rs"]));
+    let text = f.ok(&["digest", "--host", "office"]);
+    assert!(text.starts_with("@office · since "), "{text}");
+    assert!(text.contains("files  src/export.rs"), "{text}");
+    assert!(text.contains("+ 1 earlier prompt\n"), "{text}");
+
+    // The copy is 14 days deep, and a longer window says so instead of looking like a quiet week.
+    assert!(!text.contains("only holds"), "{text}");
+    let deep = f.ok(&["digest", "--host", "office", "--since", "3w"]);
+    assert!(deep.contains("the copy only holds the last 14 days"), "{deep}");
+
+    let hosts = f.json(&["pull", "--json"]);
+    assert_eq!(hosts[0]["host"], "office");
+    assert!(hosts[0]["at"].as_str().is_some_and(|t| t.ends_with('Z')), "{hosts}");
+    assert_eq!(hosts[0]["days"], 14);
+    assert!(f.ok(&["pull"]).starts_with("office  pulled just now · of the last 14 days"));
+}
+
+#[test]
+fn host_is_read_only_and_must_have_been_pulled() {
+    let f = Fixture::new("host-guard");
+    let o = f.run(&["ls", "--host", "nowhere"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("run `sessions pull nowhere` first"), "{}", stderr(&o));
+    for args in [
+        &["resume", A, "--host", "x"][..],
+        &["reply", A, "--host", "x", "hi"][..],
+        &["archive", A, "--host", "x"][..],
+        &["kill", A, "--host", "x"][..],
+        &["ls", "--host", "../up"][..],
+        &["pull", "../up"][..],
+        &["pull", "a", "b"][..],
+        &["digest", "--since", "1y"][..],
+    ] {
+        assert_eq!(f.run(args).status.code(), Some(2), "{args:?}: {}", stderr(&f.run(args)));
+    }
+}
+
+#[test]
+fn digest_shows_what_was_typed_in_the_window() {
+    let f = Fixture::new("digest");
+    // The fixture's prompts are from 2026-09-01.
+    let text = f.ok(&["digest", "--since", "1h"]);
+    assert!(text.contains("nothing typed or written in that window"), "{text}");
+    let v = f.json(&["digest", "--since", "1000w", "--json", "-p", "alpha"]);
+    let ids: Vec<&str> = v.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, [A, C]);
+    let texts: Vec<&str> = v[1]["prompts"].as_array().unwrap().iter().map(|p| p["text"].as_str().unwrap()).collect();
+    assert_eq!(texts, ["first\n  question", "and a follow-up nobody answered"]);
+}

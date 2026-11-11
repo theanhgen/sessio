@@ -32,6 +32,9 @@ pub fn rg_path() -> Option<&'static str> {
 /// Every folder `^f` and `find --text` search: Claude Code's projects and Copilot CLI's
 /// session-state.
 pub fn roots() -> Vec<PathBuf> {
+    if crate::discover::host().is_some() {
+        return vec![crate::discover::projects_root()];
+    }
     vec![crate::discover::projects_root(), crate::copilot::root()]
 }
 
